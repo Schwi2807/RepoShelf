@@ -457,57 +457,57 @@ path/rev command; `npx tauri dev` ran once with zero CSP errors and was killed (
 Goal: router, typed IPC + mock backend, stores, CSS tokens, global header, repo layout with tabs, highlighter worker,
 markdown mount pipeline, dialog primitives. ARCH §7.1, §7.3–7.6. Screens are placeholders here.
 
-- [ ] M5.1 `src/router/` ∥: `router.ts` (`parse(hash)`, `href(name, params, query)`, `navigate(to,{replace})`,
+- [x] M5.1 `src/router/` ∥: `router.ts` (`parse(hash)`, `href(name, params, query)`, `navigate(to,{replace})`,
   `hashchange` listener, history-state keys + `Map<key, scrollY>` restore, mouse buttons 3/4 and Alt+Left/Right →
   `history.back/forward`), `routes.ts` (patterns of ARCH §7.1, one encoded `:ref` segment D-7, `?L=` D-8),
   `Link.tsx`, `useRoute.ts`, `copyLocation()` (decoded GitHub-style `owner/repo/tree/<ref>/<path>`). Tests
   `router.test.ts`: parse/href round-trips for every pattern, `feature%2Fx`, `?L=10-20`, unknown → NotFound,
   `#/settings` vs `#/:owner/:repo`. (FR-13, FR-21, FR-22, FR-34)
-- [ ] M5.2 Scroll memory: virtualised lists use `useWindowVirtualizer` (window scroll) so the router's restore applies
+- [x] M5.2 Scroll memory: virtualised lists use `useWindowVirtualizer` (window scroll) so the router's restore applies
   (D-31); test that restore runs after the route's first render. (FR-34)
-- [ ] M5.3 `src/ipc/` ∥: `bridge.ts` (only file importing `@tauri-apps/api`; `isTauri`; `invoke`, `Channel`; errors →
+- [x] M5.3 `src/ipc/` ∥: `bridge.ts` (only file importing `@tauri-apps/api`; `isTauri`; `invoke`, `Channel`; errors →
   `IpcError`), `errors.ts`, `api.ts` (one typed function per §5.1 command; `requestId` generation for cancellable
   ones), `query.ts` (`useQuery(key, fn, {cancelable})`, LRU 200, oid-keyed entries never stale, ref-keyed entries
   invalidated on window focus and job completion, `request_cancel` on unmount/route change). Test `query.test.ts`:
   cache hit, cancel on unmount calls `request_cancel`, invalidation. (FR-16, FR-34, NFR-S4)
-- [ ] M5.4 `src/ipc/mock/` (after M5.3): `index.ts` (implements every `api.ts` function), `switches.ts` (`?empty`,
+- [x] M5.4 `src/ipc/mock/` (after M5.3): `index.ts` (implements every `api.ts` function), `switches.ts` (`?empty`,
   `?slow` 600 ms, `?clonefail`, `?fetchfail`, `?huge`), `fixtures/*.ts` (imported Rust repo with README/table/code/
   relative image, cloned TS repo with releases, empty repo, missing repo; security README; `?huge`: 1,000-entry dir,
   10k-commit paging, 400-file commit), `mockJobs.ts` (timer progress, cancel, retry). Fixtures typed with `types.ts`
   so drift fails typecheck. Test `mock.test.ts`: each switch changes behaviour. (FR-37, L-7)
-- [ ] M5.5 `src/state/` ∥: `theme.ts` (light/dark/system via `matchMedia`, `data-theme` on `<html>`, persisted via
+- [x] M5.5 `src/state/` ∥: `theme.ts` (light/dark/system via `matchMedia`, `data-theme` on `<html>`, persisted via
   `settings_set`), `settings.ts`, `library.ts` (list + background `library_refresh` + `filterRepos`/`sortRepos`, D-27),
   `jobs.ts` (`jobs_subscribe` once, again after reload; done rows auto-hide after 5 s; failures stay), `recent.ts`
   (top 5 by `lastOpenedAt`, D-28). All `useSyncExternalStore`. Tests: `filterRepos` ("pars" matches name/description/
   topics, case-insensitive), `sortRepos` (3 keys × direction), jobs auto-hide timer. (FR-2, FR-3, FR-7, FR-33)
-- [ ] M5.6 `src/styles/` ∥: `tokens.css` (all token groups of ARCH §7.5, own teal-indigo accent, light + dark),
+- [x] M5.6 `src/styles/` ∥: `tokens.css` (all token groups of ARCH §7.5, own teal-indigo accent, light + dark),
   `base.css`, `layout.css` (1280 px max, 1000 px breakpoint), `components.css`, `code.css` (`.hljs-*` → tokens),
   `diff.css` (filled in M7), `markdown.css`; fonts from `@fontsource-variable/*`. Test `contrast.test.ts`: parse
   `tokens.css`, every text/background pair ≥ 4.5:1 in both themes. (FR-33, R-11)
-- [ ] M5.7 `src/hl/` ∥: `languages.ts` (extension/filename/shebang → hljs id, ≈ 45), `splitLines.ts` (close/reopen
+- [x] M5.7 `src/hl/` ∥: `languages.ts` (extension/filename/shebang → hljs id, ≈ 45), `splitLines.ts` (close/reopen
   spans per line), `hl.worker.ts` (core + lazy `import()` per language, 2,000-line chunks, > 1 MB or > 20k lines →
   plain), `highlighter.ts` (worker client, request ids, cancel). Tests: `splitLines` nested spans, `languages` map,
   shebang. (FR-22, NFR-P4, NFR-P8, D-5)
-- [ ] M5.8 `src/markdown/` (after M5.1, M5.7): `linkRewrite.ts` (on an inert `<template>`: `rsrepo:` anchors → `blob`
+- [x] M5.8 `src/markdown/` (after M5.1, M5.7): `linkRewrite.ts` (on an inert `<template>`: `rsrepo:` anchors → `blob`
   routes, `rsrepo:` images → `blob_bytes` → `blob:` URLs revoked on unmount, remote images → "Remote image: <host>"
   link chip, any href not http/https/mailto/rsrepo/`#fragment` removed), `MarkdownBody.tsx` (mount, intercept all
   clicks: in-app → router, external → `ConfirmExternalLink` → `open_external`; `code.language-*` → highlighter).
   Test `linkRewrite.test.ts`: rsrepo link, rsrepo img, remote img replaced, `javascript:` dropped, fragment kept.
   (FR-17, NFR-S1, NFR-S2, NFR-S3)
-- [ ] M5.9 `src/components/ui/` ∥: Button, Dropdown, Dialog (focus trap, Esc), Popover, Chip, Badge, Shimmer,
+- [x] M5.9 `src/components/ui/` ∥: Button, Dropdown, Dialog (focus trap, Esc), Popover, Chip, Badge, Shimmer,
   RelativeTime, CopyButton, Avatar (initials), Empty, ConfirmExternalLink; `src/util/format.ts` (bytes, relative
   time, day groups) + `format.test.ts`.
-- [ ] M5.10 `src/components/layout/`: `GlobalHeader` (S0: logo + name → home; `RepoJump` search with dropdown and `/`
+- [x] M5.10 `src/components/layout/`: `GlobalHeader` (S0: logo + name → home; `RepoJump` search with dropdown and `/`
   shortcut; `AddMenu` "+" with Import folder… / Clone URL… opening dialog skeletons; `JobsButton` + `JobsPopover`
   with count badge, progress rows, Cancel, Retry; `ThemeToggle`; settings link), `RepoHeader` (S2: book icon,
   `owner / name`, source badge, Fetch / Open folder / "…" placeholders), `TabBar` (Code, Commits, Branches, Tags,
   Releases + counts), `RepoBanner`, `Sidebar`. Visible focus rings, sane tab order, `/` focuses search (NFR-A1).
   (FR-12, FR-32)
-- [ ] M5.11 `src/App.tsx` + `RouteView`: every route of ARCH §7.1 mapped to placeholder screens
+- [x] M5.11 `src/App.tsx` + `RouteView`: every route of ARCH §7.1 mapped to placeholder screens
   `src/screens/<Name>/index.tsx` (all screen folders created now, so M6/M7 never edit `App.tsx` in parallel);
   `RepoLayout` resolving `slug → repoId` (`repo_by_slug`) and `rev → ResolvedRev`; NotFound.
-- [ ] M5.12 `tools/shots/mock-shots.md`: table of route × theme × switch to screenshot in M5–M7.
-- [ ] M5.13 Browser check: start `reposhelf-mock` with the preview tools, visit `#/`, `#/settings`, a repo route,
+- [x] M5.12 `tools/shots/mock-shots.md`: table of route × theme × switch to screenshot in M5–M7.
+- [x] M5.13 Browser check: start `reposhelf-mock` with the preview tools, visit `#/`, `#/settings`, a repo route,
   each tab, `?empty`, `?slow`, light + dark; screenshot the shell; console has no errors; stop the server.
 
 Order: M5.1 ∥ M5.3 ∥ M5.5 ∥ M5.6 ∥ M5.7 ∥ M5.9 → M5.4, M5.8 → M5.2 → M5.10 → M5.11 → M5.12 → M5.13.

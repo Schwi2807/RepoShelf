@@ -1,0 +1,14 @@
+/* Diff table (S6). Filled in M7; tokens live in tokens.css (--diff-*). D-17: no syntax highlighting in diffs. */
+
+.diff-line--add {
+  background: var(--diff-add-bg);
+}
+
+.diff-line--del {
+  background: var(--diff-del-bg);
+}
+
+.diff-line--hunk {
+  background: var(--diff-hunk-bg);
+  color: var(--diff-hunk-fg);
+}

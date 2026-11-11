@@ -1,0 +1,95 @@
+/* highlight.js class tokens → our theme tokens (D-5: class-based, no inline styles). */
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-built_in.hljs-keyword,
+.hljs-doctag {
+  color: var(--hl-keyword);
+}
+
+.hljs-string,
+.hljs-regexp,
+.hljs-char.escape_,
+.hljs-template-tag,
+.hljs-template-variable {
+  color: var(--hl-string);
+}
+
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet {
+  color: var(--hl-number);
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: var(--hl-comment);
+  font-style: italic;
+}
+
+.hljs-title.function_,
+.hljs-title.class_.inherited__,
+.hljs-function .hljs-title {
+  color: var(--hl-function);
+}
+
+.hljs-title,
+.hljs-section,
+.hljs-selector-id,
+.hljs-selector-class {
+  color: var(--hl-title);
+}
+
+.hljs-type,
+.hljs-title.class_,
+.hljs-built_in {
+  color: var(--hl-type);
+}
+
+.hljs-attr,
+.hljs-attribute,
+.hljs-property,
+.hljs-selector-attr,
+.hljs-selector-pseudo,
+.hljs-name,
+.hljs-tag {
+  color: var(--hl-attr);
+}
+
+.hljs-variable,
+.hljs-variable.language_,
+.hljs-params,
+.hljs-subst {
+  color: var(--hl-variable);
+}
+
+.hljs-meta,
+.hljs-meta .hljs-keyword,
+.hljs-link {
+  color: var(--hl-meta);
+}
+
+.hljs-deletion {
+  color: var(--hl-deletion);
+}
+
+.hljs-addition {
+  color: var(--hl-addition);
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: 700;
+}
+
+/* Plain code blocks (file view chrome is M6; this is the shared base). */
+.code {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 20px;
+  tab-size: 4;
+}

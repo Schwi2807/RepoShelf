@@ -1,0 +1,148 @@
+/* RepoShelf design tokens (ARCH §7.5). Own palette: deep-teal / indigo accent, navy header (from the app icon).
+   Colours are literal hex so contrast.test.ts can check every text/background pair in both themes (FR-33, R-11).
+   `data-theme` on <html> always holds the resolved theme (theme.ts). */
+
+:root {
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --font-sans: 'Inter Variable', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, 'Cascadia Code', Consolas, monospace;
+  --font-size-sm: 12px;
+  --font-size: 14px;
+  --font-size-lg: 16px;
+  --line-height: 1.5;
+  --header-h: 60px;
+  --content-max: 1280px;
+  --sidebar-w: 296px;
+  --shadow-overlay: 0 8px 24px rgba(10, 20, 35, 0.18), 0 1px 3px rgba(10, 20, 35, 0.12);
+  --transition: 120ms ease;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  /* surfaces */
+  --bg-canvas: #ffffff;
+  --bg-subtle: #f5f7fa;
+  --bg-inset: #eef1f5;
+  --bg-overlay: #ffffff;
+  --bg-hover: #eef2f6;
+  --bg-selected: #e2eef3;
+  /* text */
+  --fg-default: #18212e;
+  --fg-muted: #4f5a69;
+  --fg-subtle: #5f6a79;
+  --fg-on-accent: #ffffff;
+  --fg-link: #15697f;
+  /* borders */
+  --border-default: #d3d9e1;
+  --border-muted: #e3e7ed;
+  --focus-ring: #4a52c9;
+  /* accents / states */
+  --accent: #1b6a80;
+  --accent-hover: #155a6d;
+  --accent-subtle: #ddf0f3;
+  --accent-fg: #145f73;
+  --indigo: #4a52c9;
+  --indigo-subtle: #e8e9fb;
+  --success: #1c7139;
+  --success-subtle: #e2f4e7;
+  --danger: #b42f25;
+  --danger-subtle: #fbe7e5;
+  --attention: #845400;
+  --attention-subtle: #fdf3d8;
+  --done: #6640b8;
+  --done-subtle: #efe9fb;
+  /* global header */
+  --header-bg: #14263f;
+  --header-fg: #e8eef6;
+  --header-fg-muted: #b4c2d4;
+  --header-input-bg: #1e3555;
+  --header-border: #2f4a6e;
+  /* diff */
+  --diff-add-bg: #e4f6e9;
+  --diff-add-num-bg: #ccecd6;
+  --diff-del-bg: #fde9e7;
+  --diff-del-num-bg: #f7d1cd;
+  --diff-hunk-bg: #e5eef9;
+  --diff-hunk-fg: #3a5677;
+  /* code tokens */
+  --hl-keyword: #a12a6c;
+  --hl-string: #1b6637;
+  --hl-number: #925000;
+  --hl-comment: #5e6878;
+  --hl-function: #5536b8;
+  --hl-title: #5536b8;
+  --hl-type: #8a4a00;
+  --hl-attr: #0d5e84;
+  --hl-variable: #a8382c;
+  --hl-meta: #4a5868;
+  --hl-deletion: #b0261c;
+  --hl-addition: #1b6e36;
+  /* language bar (own palette) */
+  --checker-a: #f1f3f6;
+  --checker-b: #ffffff;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg-canvas: #0e141e;
+  --bg-subtle: #141c28;
+  --bg-inset: #0a0f17;
+  --bg-overlay: #18212f;
+  --bg-hover: #1c2636;
+  --bg-selected: #1b3240;
+  --fg-default: #e2e8f0;
+  --fg-muted: #a2aebd;
+  --fg-subtle: #8c99aa;
+  --fg-on-accent: #04161b;
+  --fg-link: #6cc6d6;
+  --border-default: #2c3747;
+  --border-muted: #222c3a;
+  --focus-ring: #8d93f2;
+  --accent: #4fbfc8;
+  --accent-hover: #6ccdd4;
+  --accent-subtle: #123039;
+  --accent-fg: #7dd3dc;
+  --indigo: #8d93f2;
+  --indigo-subtle: #23264a;
+  --success: #57c785;
+  --success-subtle: #12301f;
+  --danger: #f37a71;
+  --danger-subtle: #3a1a1b;
+  --attention: #e2b552;
+  --attention-subtle: #33280f;
+  --done: #b39cf6;
+  --done-subtle: #2a2045;
+  --header-bg: #070c14;
+  --header-fg: #e2e8f0;
+  --header-fg-muted: #9aa7b8;
+  --header-input-bg: #121b28;
+  --header-border: #263244;
+  --diff-add-bg: #11301e;
+  --diff-add-num-bg: #18452b;
+  --diff-del-bg: #3a181a;
+  --diff-del-num-bg: #552224;
+  --diff-hunk-bg: #142538;
+  --diff-hunk-fg: #a3bfdc;
+  --hl-keyword: #f08dbb;
+  --hl-string: #8fd3a0;
+  --hl-number: #f2b46d;
+  --hl-comment: #8d99aa;
+  --hl-function: #b9a6ff;
+  --hl-title: #b9a6ff;
+  --hl-type: #f2c27d;
+  --hl-attr: #7fd0e6;
+  --hl-variable: #ff9d8e;
+  --hl-meta: #a2aebd;
+  --hl-deletion: #ff8f86;
+  --hl-addition: #7fe2a2;
+  --checker-a: #1a2230;
+  --checker-b: #121923;
+}

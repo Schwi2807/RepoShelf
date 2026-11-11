@@ -304,3 +304,96 @@ Handoff for M5 (frontend needs):
 - Event `library-refreshed` (payload `RepoSummary[]`) fires once after startup; the library store may also call
   `library_refresh` itself.
 - Capability is `core:event:default` only: no `@tauri-apps/api/window|webview|app` calls from the UI.
+
+## M5 — Frontend shell + mock (2026-11-11)
+
+Steps: M5.1–M5.13 done. happy-dom → `^21` first (D-59; `npm audit` 0, 95 earlier tests green). New decisions
+D-59..D-67.
+
+- `src/router/`: `routes.ts` (pattern table, one encoded `:ref`, `*path`), `router.ts` (`parse`, `href`, `withQuery`,
+  `navigate` via `pushState({key})` keeping `location.search`, popstate + hashchange, scroll memory with
+  `markRendered()` retry loop, mouse 3/4 + Alt+←/→, `locationText`/`copyLocation`), `Link.tsx`, `useRoute.ts` (D-64).
+- `src/ipc/`: `commands.ts` (47-command table, D-60), `bridge.ts` (only `@tauri-apps/api` importer: `core` invoke +
+  Channel, `event` listen; mock via dynamic import, D-61; `setBackendForTests`), `errors.ts` (`toIpcError`,
+  `isCancelled`, `errorText`), `api.ts` (one function per command, `newRequestId`, `jobsSubscribe`), `query.ts`
+  (`useQuery`, `qk`, LRU 200, `stable` oid-keyed entries, `invalidate` on focus/job done, cancel on unmount, D-65).
+- `src/ipc/mock/`: `switches.ts`, `fixtures/` (gen = deterministic oids/people/history; `parsekit` imported Rust with
+  README table/code/relative svg image/remote badge + branches/tags/LFS/submodule/symlink/binary/png/exec/generated
+  file, `lumen` cloned TS with releases + GitHub notes + fast-forward, `quill` cloned codeberg.org, `beacon` imported
+  Go detached, `scratchpad` empty, `telemetry` missing, `hostile-readme` security README, `harbor-cli`; `?huge`:
+  1,000-entry `generated/`, 10k commits, 400-file commit with diffs deferred), `repoModel.ts` (refs/rev resolution,
+  tree, blobs, tip+skip paging, path filter, since, diffs, ahead/behind, tags, releases; errors as rs-core),
+  `cloneUrl.ts` (port of `validate::clone_url` messages), `mockJobs.ts`, `index.ts` (typed handler table, `?slow`
+  600 ms, 180 ms on compute commands, requestId validation + cancel (also early), `library-refreshed` once).
+- `src/state/`: `store.ts`, `settings.ts`, `theme.ts` (resolved `data-theme`, system via matchMedia, localStorage
+  hint against a flash), `library.ts` (list → background refresh → event; `filterRepos`, `sortRepos`, upsert),
+  `jobs.ts` (subscribe once, merge, done/cancelled hide after 5 s + `jobs_dismiss`, done → `invalidate` + library
+  refresh), `recent.ts`, `ui.ts` (app dialog store).
+- `src/styles/`: `tokens.css` (all ARCH §7.5 groups + header tokens, D-63), `base.css` (focus-visible rings),
+  `layout.css` (1280 container, header, repo header, tabs, columns stack < 1000 px), `components.css`, `code.css`,
+  `diff.css` (stub), `markdown.css`; Inter / JetBrains Mono from `@fontsource-variable`.
+- `src/hl/`: `languages.ts` (48 ids, ext/filename/shebang/fence aliases), `loaders.ts`, `splitLines.ts`, `engine.ts`,
+  `hl.worker.ts`, `highlighter.ts` (`highlight`, `highlightBlock`, plain fallback without Worker) (D-62).
+- `src/markdown/`: `linkRewrite.ts` (inert template; rsrepo links → blob routes, rsrepo images → blob_bytes,
+  remote images → "Remote image: host" chip, only http/https/mailto/rsrepo/#fragment survive, handlers/styles/frames
+  stripped), `MarkdownBody.tsx` (blob: URLs revoked on unmount, code fences → worker, all clicks intercepted).
+- `src/components/ui/`: Button, Dropdown (menu keyboard), Dialog (portal, focus trap, Esc, focus return), Popover +
+  `useDismiss`, `bits.tsx` (Badge, Chip, Counter, Shimmer, Spinner, Avatar initials, Empty), RelativeTime (one
+  shared minute timer), CopyButton, ConfirmExternalLink (+ `confirmExternal` store, mailto shown as text),
+  WindowList (`useWindowVirtualizer` > 500 rows, D-31), `index.ts`. `src/util/format.ts`, `hash.ts`.
+- `src/components/layout/`: AppMark (own icon), GlobalHeader (brand, RepoJump with Recent + `/`, AddMenu, JobsButton
+  + popover with progress/Cancel/Retry/Dismiss, ThemeToggle cycling System → Light → Dark, settings link),
+  RepoLayout + `repoContext` (slug → repoId → detail → `rev_resolve`; commit count for the tab), RepoHeader
+  (SourceBadge, Fetch for clones, Open folder, "…" with Copy location), TabBar (icons + counts), RepoBanner
+  (missing + Locate…, corrupt), Sidebar primitives (Columns, Sidebar, SidebarSection, Box).
+  `src/components/dialogs/`: Import / Clone skeletons + DialogHost (D-66).
+- `src/App.tsx`: RouteView (every ARCH §7.1 route; repo routes inside RepoLayout keyed by slug; `markRendered` in a
+  layout effect). `src/screens/{Dashboard,RepoCode,FileView,Commits,Commit,Branches,Tags,Releases,Settings,NotFound}`
+  placeholders (+ `screens/placeholder.tsx`). `index.html` icon link → `public/favicon.svg` (copy of the app icon;
+  fixes M4's dev favicon 404). `tools/shots/mock-shots.md` (24 rows, M5–M7).
+
+Tests (430 TS, 11 files): router 32 (round-trips for every pattern, `feature%2Fx`, `?L=`, settings vs repo,
+malformed → notFound, history/scroll restore only after `markRendered`, Alt+Left / mouse 4), query 6 (cache hit,
+cancel on unmount → `request_cancel` and never an error, no cancel for plain queries, invalidate ref- vs oid-keyed,
+errors kept, LRU), mock 14 (each switch, error shapes, refs, early cancel, paging tip+skip/path/since, blob bytes,
+README shape, jobs snapshot/cancel/retry/dismiss, event), state 12 (filter "pars", sort 3 keys × direction, recent,
+theme, jobs auto-hide 5 s with fake timers), contrast 202 (99 pairs × 2 themes + groups + focus ring), hl 34
+(splitLines nested, languages, shebang, engine chunks/provisional first chunk/too large/cancel), linkRewrite 9,
+format 19, App 7 (header, `?empty`, repo tabs with counts, not found, missing banner + empty repo, scroll restore on
+back after render, `/` focus), types 94 + smoke 1 (M4).
+
+Gate M5: `npm run typecheck` ok · `npm test` 430 passed · `npm run build` ok, initial JS = `index-*.js` 286,101 bytes
+(< 1.5 MB), 48 language chunks + `hl.worker-*.js` + `mock-*.js` separate, none referenced by `dist\index.html` ·
+`cargo test --workspace` 178 passed. Earlier gates re-run (Rust unchanged): `cargo build --workspace`,
+`cargo test -p rs-core` (+ `--features ghreleases` 135 + 1 ignored), `cargo test -p reposhelf` 41 (+ `--features e2e`
+41), clippy `-D warnings` for the workspace and `-p reposhelf --features e2e` — all exit 0. Not re-run: the M2
+release-mode bench (no Rust change since m4-done).
+
+M5.13 browser check (hidden `npm run dev`, Browser pane, D-67): `#/` (dark, system), `#/northwind/parsekit` light +
+dark (header, tab counts 148/4/4/3, README: table, highlighted toml/rust via the worker, svg logo via blob: URL,
+remote badge chip), README link → blob route, external link → confirm dialog, Alt+Left back restored scrollY 596,
+`#/sandbox/hostile-readme` (only blob:/data:png images, remote image chip, `javascript:`/`data:`/`//host` hrefs
+removed, 0 scripts, 0 inline handlers), `?clonefail` clone: http URL rejected with the backend wording, valid
+shorthand → jobs popover progress → "Could not reach github.com…" + Retry, `?slow` shimmer then content, `?empty`
+empty shelf, `#/settings`, encoded `feature%2Fstreaming` ref, missing repo banner. Console: no errors or warnings.
+Dev server killed by tree (5 processes), port 1450 free, no leftover node processes.
+
+Open items:
+- Clone dialog error stays until the next submit (live validation is M6.3).
+- The mock ships in `dist` as an unreachable chunk (D-61).
+- Pane screenshots are the only visual record (no files saved); M8 takes the real-app light/dark pass.
+
+Handoff for M6/M7:
+- Screens import `api.ts` + `useQuery(qk(cmd, …args), fn, { stable, cancelable })`; pass `resolved.commit` from
+  `useRepo()` for oid-keyed (stable) queries; cancellable ones take the `requestId` argument of `fn`.
+- `useRepo()` gives summary, detail, `refName` (decoded), `refFromRoute`, `resolved`, `revError`; build links with
+  `href(name, params, query)` and `<Link to>`; `withQuery(route, q)` for same-route query changes (`?L=`, `?page=`).
+- Replace the placeholders in `src/screens/*/index.tsx` (default export, `{ route }` prop where needed); remove
+  `screens/placeholder.tsx` when the last one is gone. RepoCode currently mounts MarkdownBody directly — M6.5 moves
+  it into ReadmeCard.
+- Long lists: `WindowList` (threshold 500). Highlighting: `highlight(text, languageFor(path, firstLine), onChunk)`
+  for the file view (chunks may replace earlier lines), `highlightBlock` for small blocks.
+- External links only via `confirmExternal(url)`; app dialogs via `openDialog('import' | 'clone')`; new dialogs go
+  in `src/components/dialogs/`. Use existing tokens/classes (`box`, `box__header`, `box__row`, `btn`, `badge`,
+  `chip`, `counter`, `banner`, `menu`, `popover`) and avoid `style={{}}` except computed widths.
+- Mock fixtures: extend `src/ipc/mock/fixtures/*` (M6.8); `RepoDef.files` already has every placeholder kind.

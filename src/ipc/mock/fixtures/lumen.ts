@@ -1,0 +1,182 @@
+// Managed (bare) clone of a TypeScript repo with releases.
+
+import type { Rendered } from '../../types';
+import { DAY, HOUR, NOW, PEOPLE } from './gen';
+import type { RepoDef } from './model';
+
+const INDEX_TS = `export { Button } from './components/Button';
+export { Dialog } from './components/Dialog';
+export { useTheme, ThemeProvider } from './theme';
+export type { Theme, Tone } from './theme';
+`;
+
+const BUTTON_TSX = `import type { ButtonHTMLAttributes } from 'react';
+import { cx } from '../util/cx';
+
+export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  tone?: 'neutral' | 'primary' | 'danger';
+  size?: 'sm' | 'md';
+}
+
+/** A button that follows the active theme. */
+export function Button({ tone = 'neutral', size = 'md', className, ...rest }: ButtonProps) {
+  return <button className={cx('lm-btn', \`lm-btn--\${tone}\`, \`lm-btn--\${size}\`, className)} {...rest} />;
+}
+`;
+
+const DIALOG_TSX = `import { useEffect, useRef, type ReactNode } from 'react';
+
+export function Dialog({ open, onClose, children }: { open: boolean; onClose: () => void; children: ReactNode }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const d = ref.current;
+    if (!d) return;
+    if (open && !d.open) d.showModal();
+    if (!open && d.open) d.close();
+  }, [open]);
+  return (
+    <dialog ref={ref} onClose={onClose} className="lm-dialog">
+      {children}
+    </dialog>
+  );
+}
+`;
+
+const THEME_TS = `import { createContext, useContext } from 'react';
+
+export type Theme = 'light' | 'dark';
+export type Tone = 'neutral' | 'primary' | 'danger';
+
+const Ctx = createContext<Theme>('light');
+export const ThemeProvider = Ctx.Provider;
+export const useTheme = (): Theme => useContext(Ctx);
+`;
+
+const README_HTML = `<h1><a href="#user-content-lumen" id="user-content-lumen" rel="noopener noreferrer"></a>Lumen</h1>
+<p>Accessible React components with a tiny footprint. Themeable with CSS custom properties.</p>
+<h2><a href="#user-content-quick-start" id="user-content-quick-start" rel="noopener noreferrer"></a>Quick start</h2>
+<pre><code class="language-bash">npm install lumen-ui
+</code></pre>
+<pre><code class="language-tsx">import { Button } from 'lumen-ui';
+
+export const Save = () =&gt; &lt;Button tone="primary"&gt;Save&lt;/Button&gt;;
+</code></pre>
+<h2><a href="#user-content-components" id="user-content-components" rel="noopener noreferrer"></a>Components</h2>
+<ul>
+<li><a href="rsrepo:/src/components/Button.tsx" rel="noopener noreferrer">Button</a></li>
+<li><a href="rsrepo:/src/components/Dialog.tsx" rel="noopener noreferrer">Dialog</a></li>
+</ul>
+<blockquote>
+<p>Lumen follows <a href="https://semver.org/" rel="noopener noreferrer">semantic versioning</a>.
+Questions? <a href="mailto:maintainers@example.com" rel="noopener noreferrer">maintainers@example.com</a></p>
+</blockquote>
+`;
+
+const README: Rendered = {
+  html: README_HTML,
+  headings: [
+    { level: 1, text: 'Lumen', anchor: 'user-content-lumen' },
+    { level: 2, text: 'Quick start', anchor: 'user-content-quick-start' },
+    { level: 2, text: 'Components', anchor: 'user-content-components' },
+  ],
+  sourcePath: 'README.md',
+};
+
+export function lumen(): RepoDef {
+  return {
+    summary: {
+      id: 2,
+      owner: 'lumen-ui',
+      name: 'lumen',
+      source: 'cloned',
+      path: 'C:\\Users\\demo\\Documents\\RepoShelf\\github.com\\lumen-ui\\lumen.git',
+      description: 'Accessible React components with a tiny footprint.',
+      topics: ['react', 'typescript', 'components', 'a11y'],
+      homepage: 'https://lumen.example.dev',
+      originUrl: 'https://github.com/lumen-ui/lumen.git',
+      originHost: 'github.com',
+      defaultBranch: 'main',
+      primaryLanguage: 'TypeScript',
+      lastCommitAt: NOW - 2 * DAY,
+      addedAt: NOW - 12 * DAY,
+      clonedAt: NOW - 12 * DAY,
+      lastOpenedAt: NOW - 1 * DAY,
+      lastFetchedAt: NOW - 20 * HOUR,
+      status: { type: 'ok' },
+    },
+    isBare: true,
+    head: { type: 'branch', name: 'main' },
+    license: 'Apache-2.0',
+    fetchable: true,
+    canFastForward: true,
+    dirty: null,
+    files: {
+      '.gitignore': 'node_modules/\ndist/\n',
+      'package.json':
+        '{\n  "name": "lumen-ui",\n  "version": "2.0.0-beta.1",\n  "type": "module",\n  "main": "dist/index.js",\n  "scripts": { "build": "tsc -p .", "test": "vitest run" }\n}\n',
+      'tsconfig.json': '{\n  "compilerOptions": { "strict": true, "jsx": "react-jsx", "target": "ES2022" }\n}\n',
+      'README.md': '# Lumen\n\nAccessible React components with a tiny footprint.\n',
+      LICENSE: 'Apache License\nVersion 2.0, January 2004\n',
+      'CHANGELOG.md': '# Changelog\n\n## 2.0.0-beta.1\n\n- New Dialog component\n',
+      'src/index.ts': INDEX_TS,
+      'src/theme.ts': THEME_TS,
+      'src/components/Button.tsx': BUTTON_TSX,
+      'src/components/Dialog.tsx': DIALOG_TSX,
+      'src/components/button.css': '.lm-btn {\n  border-radius: 6px;\n  padding: 4px 12px;\n}\n.lm-btn--primary {\n  background: var(--lm-accent);\n}\n',
+      'src/util/cx.ts':
+        "export const cx = (...xs: (string | false | undefined)[]): string => xs.filter(Boolean).join(' ');\n",
+      'test/button.test.tsx':
+        "import { describe, it, expect } from 'vitest';\n\ndescribe('Button', () => {\n  it('renders', () => {\n    expect(true).toBe(true);\n  });\n});\n",
+      'package-lock.json': '{\n  "name": "lumen-ui",\n  "lockfileVersion": 3\n}\n',
+    },
+    history: {
+      seed: 'lumen',
+      count: 412,
+      newest: NOW - 2 * DAY,
+      summaries: [
+        'Dialog: return focus on close',
+        'Release v2.0.0-beta.1',
+        'Button: add size prop',
+        'Docs: theming guide',
+        'Release v1.1.0',
+      ],
+    },
+    branches: [{ name: 'main', at: 0 }],
+    remoteBranches: [
+      { name: 'origin/main', at: 0, ahead: ['Dialog: trap focus inside', 'Bump deps'] },
+      { name: 'origin/next', at: 3, ahead: ['Next: CSS layers'] },
+      { name: 'origin/gh-pages', at: 40 },
+    ],
+    tags: [
+      {
+        name: 'v2.0.0-beta.1',
+        at: 1,
+        annotated: true,
+        tagger: PEOPLE[4],
+        message: 'Lumen 2.0 beta 1',
+        notesHtml: '<p>First beta of <strong>Lumen 2</strong>.</p>\n<ul>\n<li>New <code>Dialog</code></li>\n<li>Buttons get a <code>size</code> prop</li>\n</ul>\n',
+      },
+      {
+        name: 'v1.1.0',
+        at: 4,
+        annotated: true,
+        tagger: PEOPLE[4],
+        message: 'Lumen 1.1.0',
+        notesHtml: '<p>Theming guide and small fixes.</p>\n',
+      },
+      { name: 'v1.0.0', at: 50, annotated: true, tagger: PEOPLE[2], message: 'Lumen 1.0.0', notesHtml: '<p>First stable release.</p>\n' },
+      { name: 'v0.9.0', at: 120 },
+    ],
+    readmes: { '': README },
+    markdown: { 'README.md': README },
+    languages: [
+      { name: 'TypeScript', bytes: 61_200, percent: 78.1 },
+      { name: 'CSS', bytes: 11_400, percent: 14.6 },
+      { name: 'JavaScript', bytes: 3_900, percent: 5.0 },
+      { name: 'Markdown', bytes: 1_800, percent: 2.3 },
+    ],
+    ghNotes: {
+      'v1.1.0': { title: 'Lumen 1.1 — theming', html: '<p>Release notes from GitHub: <strong>theming guide</strong>, focus fixes.</p>\n' },
+    },
+  };
+}

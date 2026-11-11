@@ -1,0 +1,367 @@
+// Browser mock backend (FR-37, ARCH §7.4). Implements every command of `commands.ts` (the handler table is typed
+// from it, so a missing command fails typecheck) over in-memory fixtures. Behaves like the real backend where the
+// UI depends on it: rejections are `{ code, message }`, cancelled requestIds reject with `cancelled`, commits page
+// by tip + skip, `blob_bytes` gives an ArrayBuffer, `jobs_subscribe` returns a snapshot and then pushes updates.
+
+import type { Backend } from '../bridge';
+import type { ArgsOf, CommandName, Commands, Events, RetOf } from '../commands';
+import { ipcError, isIpcError } from '../errors';
+import type { AppInfo, ImportPreview, JobKind, JobResult, RepoSummary, Settings } from '../types';
+import { mockClonePreview } from './cloneUrl';
+import { buildFixtures, genericRepo } from './fixtures';
+import { MockJobs } from './mockJobs';
+import { MockRepo } from './repoModel';
+import { readSwitches, SLOW_MS, type Switches } from './switches';
+
+export { readSwitches } from './switches';
+
+const DATA_DIR = 'C:\\Users\\demo\\AppData\\Local\\dev.schwi.reposhelf';
+const ARCHIVE_DIR = 'C:\\Users\\demo\\Documents\\RepoShelf';
+const SETTINGS_KEY = 'reposhelf-mock-settings';
+/** Extra latency of the "compute" commands even without `?slow`, so shimmers are visible briefly. */
+const COMPUTE_MS = 180;
+const COMPUTE: ReadonlySet<CommandName> = new Set<CommandName>([
+  'tree_last_commits',
+  'commit_count',
+  'languages',
+  'file_last_commit',
+  'branches_ahead_behind',
+  'library_refresh',
+]);
+
+type Handlers = { [K in CommandName]: (args: ArgsOf<K>) => RetOf<K> | Promise<RetOf<K>> };
+
+const DEFAULT_SETTINGS: Settings = {
+  theme: 'system',
+  sort: { key: 'updated', desc: true },
+  sourceFilter: 'all',
+  showDirtyNote: false,
+};
+
+function loadSettings(): Settings {
+  try {
+    const raw = globalThis.localStorage?.getItem(SETTINGS_KEY);
+    if (raw) return { ...DEFAULT_SETTINGS, ...(JSON.parse(raw) as Partial<Settings>) };
+  } catch {
+    // ignore
+  }
+  return { ...DEFAULT_SETTINGS };
+}
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+export interface MockBackend extends Backend {
+  readonly switches: Switches;
+  /** Tests: the jobs runner. */
+  readonly jobs: MockJobs;
+}
+
+export function createMockBackend(search: string, opts: { tickMs?: number } = {}): MockBackend {
+  const sw = readSwitches(search);
+  const repos = new Map<number, MockRepo>();
+  for (const d of buildFixtures(sw)) repos.set(d.summary.id, new MockRepo(d));
+  let nextRepoId = 100;
+  let settings = loadSettings();
+  let cacheBytes = 3_412_000;
+  const cancelled = new Map<string, number>();
+  const importTokens = new Map<string, string>();
+  let importSeq = 0;
+  const ghFetched = new Set<number>();
+  const eventListeners = new Map<keyof Events, Set<(p: never) => void>>();
+  let refreshedSent = false;
+
+  const now = () => Math.floor(Date.now() / 1000);
+  const list = (): RepoSummary[] => [...repos.values()].map((r) => r.def.summary);
+  const get = (repoId: number): MockRepo => {
+    const r = repos.get(repoId);
+    if (!r) throw ipcError('notFound', 'repository not found');
+    return r;
+  };
+  /** Like rs-core `repo::open`: missing folder → repoMissing. */
+  const open = (repoId: number): MockRepo => {
+    const r = get(repoId);
+    if (r.def.summary.status.type === 'missing') {
+      throw ipcError('repoMissing', `repository folder is missing: ${r.def.summary.path}`);
+    }
+    return r;
+  };
+  const appInfo = (): AppInfo => ({
+    version: '0.0.1',
+    dataDir: DATA_DIR,
+    archiveDir: ARCHIVE_DIR,
+    cacheBytes,
+    repoCount: repos.size,
+    archiveBytes: sw.empty ? 0 : 148_326_400,
+  });
+  const slug = (r: MockRepo) => `${r.def.summary.owner}/${r.def.summary.name}`;
+
+  const planner = (kind: JobKind): { run: () => JobResult } => ({
+    run: () => {
+      if (kind.type === 'clone') {
+        const p = mockClonePreview(kind.url, ARCHIVE_DIR);
+        if (sw.clonefail) throw `Could not reach ${p.host}: the connection timed out.`;
+        const id = nextRepoId++;
+        repos.set(id, new MockRepo(genericRepo(id, p.owner, p.name, 'cloned', p.targetDir, p.url)));
+        const skipped = /invalid/i.test(p.name) ? ['refs/heads/aux', 'refs/tags/CON'] : [];
+        return { type: 'cloned', repoId: id, skippedRefs: skipped };
+      }
+      if (kind.type === 'fetch') {
+        const r = get(kind.repoId);
+        if (sw.fetchfail) throw `Could not reach ${r.def.summary.originHost ?? 'the host'}: the connection timed out.`;
+        r.def.summary.lastFetchedAt = now();
+        return { type: 'fetched', newCommits: 3, newTags: [], keptLocalTags: [], skippedRefs: [], updatedBranches: ['origin/main'] };
+      }
+      if (sw.fetchfail) throw 'Fetch failed for 2 repositories:\nlumen-ui/lumen: git: timed out\ninkwell/quill: git: timed out';
+      for (const r of repos.values()) if (r.def.summary.source === 'cloned') r.def.summary.lastFetchedAt = now();
+      return { type: 'fetched', newCommits: 5, newTags: ['v2.0.0'], keptLocalTags: [], skippedRefs: [], updatedBranches: ['origin/main'] };
+    },
+  });
+
+  const jobs = new MockJobs({ tickMs: opts.tickMs ?? (sw.slow ? 500 : 280), planner });
+
+  const h: Handlers = {
+    app_info: () => appInfo(),
+    settings_get: () => settings,
+    settings_set: ({ settings: s }) => {
+      settings = { ...s };
+      try {
+        globalThis.localStorage?.setItem(SETTINGS_KEY, JSON.stringify(settings));
+      } catch {
+        // ignore
+      }
+      return settings;
+    },
+    cache_clear: () => {
+      cacheBytes = 0;
+      return appInfo();
+    },
+    library_list: () => list(),
+    library_refresh: () => list(),
+    repo_by_slug: ({ owner, name }) => {
+      const r = [...repos.values()].find(
+        (x) => x.def.summary.owner.toLowerCase() === owner.toLowerCase() && x.def.summary.name.toLowerCase() === name.toLowerCase(),
+      );
+      if (!r) throw ipcError('notFound', 'repository not found');
+      return r.def.summary;
+    },
+    import_pick: () => {
+      importSeq += 1;
+      const path = 'C:\\Code\\notebook';
+      const dup = [...repos.values()].find((r) => r.def.summary.path.toLowerCase() === path.toLowerCase());
+      const token = `mock${importSeq}${Math.random().toString(16).slice(2, 10)}`;
+      importTokens.set(token, path);
+      const p: ImportPreview = {
+        path,
+        name: 'notebook',
+        isBare: false,
+        originUrl: 'https://github.com/example-dev/notebook.git',
+        duplicateOf: dup ? dup.id : null,
+        token,
+      };
+      return p;
+    },
+    import_confirm: ({ token }) => {
+      const path = importTokens.get(token);
+      if (!path) throw ipcError('invalidInput', 'The import selection expired. Pick the folder again.');
+      importTokens.delete(token);
+      const dup = [...repos.values()].find((r) => r.def.summary.path.toLowerCase() === path.toLowerCase());
+      if (dup) throw ipcError('duplicate', `already on the shelf: ${slug(dup)}`);
+      const id = nextRepoId++;
+      const r = new MockRepo(genericRepo(id, 'example-dev', 'notebook', 'imported', path, 'https://github.com/example-dev/notebook.git'));
+      repos.set(id, r);
+      return r.def.summary;
+    },
+    repo_locate: ({ repoId }) => {
+      const r = get(repoId);
+      const s = r.def.summary;
+      const fresh = genericRepo(s.id, s.owner, s.name, s.source, s.path.replace(/^[A-Z]:/, 'D:'), s.originUrl);
+      fresh.summary = { ...s, path: fresh.summary.path, status: { type: 'ok' } };
+      const nr = new MockRepo(fresh);
+      repos.set(repoId, nr);
+      return nr.def.summary;
+    },
+    repo_remove: ({ repoId }) => {
+      const r = get(repoId);
+      repos.delete(repoId);
+      return { trashed: r.def.summary.source === 'cloned' && r.def.summary.path.startsWith(ARCHIVE_DIR) };
+    },
+    repo_set_metadata: ({ repoId, description, homepage, topics }) => {
+      const r = get(repoId);
+      const desc = description?.trim() ?? '';
+      if (desc.length > 350) throw ipcError('invalidInput', `Description is ${desc.length} characters; the limit is 350.`);
+      const hp = homepage?.trim() ?? '';
+      if (hp.length > 0 && !/^https?:\/\/[^\s/@]+(\/\S*)?$/i.test(hp)) {
+        throw ipcError('invalidInput', 'Homepage must be an http:// or https:// address without a user name.');
+      }
+      const out: string[] = [];
+      for (const raw of topics) {
+        const t = raw.trim().toLowerCase();
+        if (t.length === 0) continue;
+        if (!/^[a-z0-9][a-z0-9-]{0,49}$/.test(t)) {
+          throw ipcError(
+            'invalidInput',
+            `Topic ${JSON.stringify(raw)}: use lowercase letters, digits and '-', start with a letter or digit, at most 50 characters.`,
+          );
+        }
+        if (!out.includes(t)) out.push(t);
+      }
+      if (out.length > 20) throw ipcError('invalidInput', `${out.length} topics; the limit is 20.`);
+      r.def.summary.description = desc.length > 0 ? desc : null;
+      r.def.summary.homepage = hp.length > 0 ? hp : null;
+      r.def.summary.topics = out;
+      return r.def.summary;
+    },
+    repo_detail: ({ repoId }) => {
+      const r = open(repoId);
+      r.def.summary.lastOpenedAt = now();
+      const refs = r.refs();
+      return {
+        summary: r.def.summary,
+        isBare: r.def.isBare,
+        head: r.def.head,
+        branchCount: refs.branches.length,
+        tagCount: refs.tags.length,
+        releaseCount: r.releases(false).length,
+        license: r.def.license,
+        fetchable: r.def.fetchable,
+        canFastForward: r.def.canFastForward,
+        dirty: settings.showDirtyNote && !r.def.isBare ? (r.def.dirty ?? false) : null,
+      };
+    },
+    repo_open_folder: ({ repoId }) => {
+      open(repoId);
+      return null;
+    },
+    refs_list: ({ repoId }) => open(repoId).refs(),
+    rev_resolve: ({ repoId, rev }) => open(repoId).resolve(rev).rev,
+    tree_list: ({ repoId, rev, path }) => open(repoId).tree(rev, path),
+    tree_last_commits: ({ repoId, rev, path }) => open(repoId).lastCommits(rev, path),
+    commit_latest: ({ repoId, rev }) => {
+      const res = open(repoId).resolve(rev);
+      return { commit: res.chain[0].summary, count: res.chain.length > 5000 ? null : res.chain.length };
+    },
+    commit_count: ({ repoId, rev }) => open(repoId).count(rev),
+    readme_render: ({ repoId, rev, path }) => open(repoId).readme(rev, path),
+    markdown_render_file: ({ repoId, rev, path }) => open(repoId).markdownFile(rev, path),
+    languages: ({ repoId, rev }) => {
+      const r = open(repoId);
+      return { tree: r.resolve(rev).rev.tree, items: r.def.languages };
+    },
+    blob_meta: ({ repoId, rev, path }) => open(repoId).meta(rev, path),
+    blob_text: ({ repoId, rev, path }) => open(repoId).blobText(rev, path),
+    blob_bytes: ({ repoId, rev, path }) => open(repoId).bytes(rev, path),
+    blob_save_as: ({ repoId, rev, path }) => {
+      open(repoId).meta(rev, path);
+      return `C:\\Users\\demo\\Downloads\\${path.split('/').pop() ?? 'file'}`;
+    },
+    file_last_commit: ({ repoId, rev, path }) => open(repoId).fileLastCommit(rev, path),
+    commits_page: ({ repoId, rev, path, since, skip, tip }) => open(repoId).page(rev, { path, since, skip, tip }),
+    commit_detail: ({ repoId, oid }) => {
+      if (!/^[0-9a-f]{4,40}$/.test(oid)) throw ipcError('invalidRev', `invalid ref: ${oid}`);
+      return open(repoId).detail(oid);
+    },
+    commit_file_diff: ({ repoId, oid, index }) => open(repoId).fileDiff(oid, index),
+    branches_list: ({ repoId }) => open(repoId).branches(),
+    branches_ahead_behind: ({ repoId, names }) => open(repoId).aheadBehind(names),
+    tags_list: ({ repoId }) => open(repoId).tags(),
+    releases_list: ({ repoId }) => open(repoId).releases(ghFetched.has(repoId)),
+    releases_fetch_github: ({ repoId }) => {
+      const r = open(repoId);
+      if (!r.def.summary.originUrl?.startsWith('https://github.com/')) {
+        throw ipcError('refused', 'Release notes can only be loaded for repositories on github.com.');
+      }
+      ghFetched.add(repoId);
+      return r.releases(true);
+    },
+    clone_preview: ({ input }) => mockClonePreview(input, ARCHIVE_DIR),
+    clone_start: ({ input }) => {
+      const p = mockClonePreview(input, ARCHIVE_DIR);
+      const dup = [...repos.values()].find((r) => r.def.summary.originUrl === p.url);
+      if (dup) throw ipcError('duplicate', `already on the shelf: ${slug(dup)}`);
+      return jobs.start({ type: 'clone', url: p.url }, `Clone ${p.host}/${p.owner}/${p.name}`);
+    },
+    fetch_start: ({ repoId }) => {
+      const r = open(repoId);
+      if (!r.def.fetchable) throw ipcError('refused', 'This repository has no https:// origin to fetch from.');
+      return jobs.start({ type: 'fetch', repoId }, `Fetch ${slug(r)}`);
+    },
+    fetch_all_start: () => jobs.start({ type: 'fetchAll' }, 'Fetch all clones'),
+    fast_forward: ({ repoId }) => {
+      const r = open(repoId);
+      if (r.def.canFastForward !== true) throw ipcError('refused', 'The default branch is already up to date.');
+      r.def.canFastForward = false;
+      return r.refs().remoteBranches.find((b) => b.name === `origin/${r.defaultBranch()}`)?.target ?? r.mainline[0].summary.oid;
+    },
+    jobs_subscribe: ({ channel }) => jobs.subscribe(channel),
+    jobs_cancel: ({ jobId }) => jobs.cancel(jobId),
+    jobs_retry: ({ jobId }) => jobs.retry(jobId),
+    jobs_dismiss: ({ jobId }) => {
+      jobs.dismiss(jobId);
+      return null;
+    },
+    request_cancel: ({ requestId }) => {
+      cancelled.set(requestId, Date.now());
+      return true;
+    },
+    open_external: ({ url }) => {
+      let u: URL;
+      try {
+        u = new URL(url);
+      } catch {
+        throw ipcError('invalidUrl', 'Only http:// and https:// links can be opened.');
+      }
+      if ((u.protocol !== 'http:' && u.protocol !== 'https:') || u.username || u.password || !u.hostname.includes('.')) {
+        throw ipcError('invalidUrl', 'Only http:// and https:// links can be opened.');
+      }
+      return null;
+    },
+  };
+
+  async function invoke<K extends CommandName>(cmd: K, args: ArgsOf<K>): Promise<RetOf<K>> {
+    const handler = h[cmd] as (a: Commands[K]['args']) => RetOf<K> | Promise<RetOf<K>>;
+    if (!handler) throw ipcError('internal', `unknown command ${cmd}`);
+    const requestId = (args as { requestId?: unknown }).requestId;
+    if (requestId !== undefined && (typeof requestId !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(requestId))) {
+      throw ipcError('invalidInput', 'invalid requestId');
+    }
+    const delay = (sw.slow ? SLOW_MS : 0) + (COMPUTE.has(cmd) ? COMPUTE_MS : 0);
+    if (delay > 0) await sleep(delay);
+    else await Promise.resolve();
+    if (typeof requestId === 'string' && cancelled.has(requestId)) {
+      cancelled.delete(requestId);
+      throw ipcError('cancelled', 'cancelled');
+    }
+    // forget early cancels after 30 s, like the backend
+    const cutoff = Date.now() - 30_000;
+    for (const [k, t] of cancelled) if (t < cutoff) cancelled.delete(k);
+    try {
+      const out = await handler(args);
+      return out instanceof ArrayBuffer ? out : (structuredClone(out) as RetOf<K>);
+    } catch (e) {
+      if (isIpcError(e)) throw e;
+      throw ipcError('internal', e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  function listen<E extends keyof Events>(event: E, handler: (payload: Events[E]) => void): () => void {
+    let set = eventListeners.get(event);
+    if (!set) {
+      set = new Set();
+      eventListeners.set(event, set);
+    }
+    const fn = handler as (p: never) => void;
+    set.add(fn);
+    if (event === 'library-refreshed' && !refreshedSent) {
+      refreshedSent = true;
+      setTimeout(() => {
+        const payload = structuredClone(list());
+        for (const l of eventListeners.get('library-refreshed') ?? []) (l as (p: RepoSummary[]) => void)(payload);
+      }, 400 + (sw.slow ? SLOW_MS : 0));
+    }
+    return () => {
+      set.delete(fn);
+    };
+  }
+
+  return { invoke, listen, switches: sw, jobs };
+}

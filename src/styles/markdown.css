@@ -1,0 +1,258 @@
+/* Rendered markdown (README, .md preview, release notes). Input is ammonia-sanitised HTML (D-4). */
+
+.markdown {
+  font-size: 15px;
+  line-height: 1.6;
+  word-wrap: break-word;
+  min-width: 0;
+}
+
+.markdown > :first-child {
+  margin-top: 0 !important;
+}
+
+.markdown > :last-child {
+  margin-bottom: 0 !important;
+}
+
+.markdown p,
+.markdown blockquote,
+.markdown ul,
+.markdown ol,
+.markdown dl,
+.markdown table,
+.markdown pre,
+.markdown details {
+  margin: 0 0 16px;
+}
+
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  position: relative;
+  margin: 24px 0 16px;
+  font-weight: 650;
+  line-height: 1.25;
+  scroll-margin-top: calc(var(--header-h) + 12px);
+}
+
+.markdown h1 {
+  font-size: 2em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--border-muted);
+}
+
+.markdown h2 {
+  font-size: 1.5em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--border-muted);
+}
+
+.markdown h3 {
+  font-size: 1.25em;
+}
+
+.markdown h4 {
+  font-size: 1em;
+}
+
+.markdown h5 {
+  font-size: 0.875em;
+}
+
+.markdown h6 {
+  font-size: 0.85em;
+  color: var(--fg-muted);
+}
+
+/* comrak's empty heading anchors: show a link glyph on hover only. */
+.markdown h1 > a:empty,
+.markdown h2 > a:empty,
+.markdown h3 > a:empty,
+.markdown h4 > a:empty,
+.markdown h5 > a:empty,
+.markdown h6 > a:empty {
+  position: absolute;
+  left: -20px;
+  top: 0;
+  bottom: 0;
+  width: 20px;
+  display: flex;
+  align-items: center;
+  opacity: 0;
+}
+
+.markdown h1:hover > a:empty,
+.markdown h2:hover > a:empty,
+.markdown h3:hover > a:empty,
+.markdown h4:hover > a:empty,
+.markdown h5:hover > a:empty,
+.markdown h6:hover > a:empty {
+  opacity: 1;
+}
+
+.markdown h1 > a:empty::before,
+.markdown h2 > a:empty::before,
+.markdown h3 > a:empty::before,
+.markdown h4 > a:empty::before,
+.markdown h5 > a:empty::before,
+.markdown h6 > a:empty::before {
+  content: '#';
+  color: var(--fg-subtle);
+  font-weight: 400;
+  font-size: 0.8em;
+}
+
+.markdown ul,
+.markdown ol {
+  padding-left: 2em;
+}
+
+.markdown li + li {
+  margin-top: 0.25em;
+}
+
+.markdown li > input[type='checkbox'] {
+  margin: 0 0.4em 0 -1.3em;
+  vertical-align: middle;
+}
+
+.markdown ul:has(> li > input[type='checkbox']) {
+  list-style: none;
+}
+
+.markdown blockquote {
+  padding: 0 1em;
+  color: var(--fg-muted);
+  border-left: 0.25em solid var(--border-default);
+}
+
+.markdown hr {
+  height: 0.25em;
+  margin: 24px 0;
+  padding: 0;
+  border: 0;
+  background: var(--border-muted);
+}
+
+.markdown img {
+  max-width: 100%;
+  height: auto;
+  background: transparent;
+}
+
+.markdown code {
+  padding: 0.2em 0.4em;
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+  font-size: 85%;
+}
+
+.markdown pre {
+  padding: 16px;
+  overflow: auto;
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-muted);
+  line-height: 1.45;
+}
+
+.markdown pre code {
+  padding: 0;
+  background: transparent;
+  font-size: 12.5px;
+  white-space: pre;
+}
+
+.markdown pre.readme-plain {
+  white-space: pre-wrap;
+  font-size: 13px;
+}
+
+.markdown table {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow: auto;
+  border-spacing: 0;
+  border-collapse: collapse;
+}
+
+.markdown th,
+.markdown td {
+  padding: 6px 13px;
+  border: 1px solid var(--border-default);
+}
+
+.markdown th {
+  font-weight: 600;
+  background: var(--bg-subtle);
+}
+
+.markdown tr:nth-child(2n) td {
+  background: var(--bg-subtle);
+}
+
+.markdown th[align='center'],
+.markdown td[align='center'] {
+  text-align: center;
+}
+
+.markdown th[align='right'],
+.markdown td[align='right'] {
+  text-align: right;
+}
+
+.markdown kbd {
+  display: inline-block;
+  padding: 2px 5px;
+  border: 1px solid var(--border-default);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.markdown details > summary {
+  cursor: pointer;
+}
+
+/* Remote image replaced by a link chip (NFR-S2: nothing loads from the network). */
+.md-remote-image {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 2px 10px;
+  border: 1px dashed var(--border-default);
+  border-radius: 12px;
+  background: var(--bg-subtle);
+  color: var(--fg-muted);
+  font-size: 12px;
+  line-height: 20px;
+  vertical-align: middle;
+  cursor: pointer;
+}
+
+.md-remote-image:hover {
+  border-color: var(--accent);
+  color: var(--accent-fg);
+  text-decoration: none;
+}
+
+.md-image-missing {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--fg-subtle);
+  font-size: 12px;
+}
+
+.md-dead-link {
+  color: var(--fg-default);
+}

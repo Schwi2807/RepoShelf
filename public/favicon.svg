@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- RepoShelf app icon: a shelf holding three book spines. Own design and palette (R-11). -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1d3b5c"/>
+      <stop offset="1" stop-color="#14263f"/>
+    </linearGradient>
+  </defs>
+  <rect x="32" y="32" width="960" height="960" rx="208" fill="url(#bg)"/>
+  <!-- spine 1: teal -->
+  <rect x="236" y="260" width="150" height="476" rx="22" fill="#2bb3a3"/>
+  <rect x="268" y="320" width="86" height="22" rx="11" fill="#e8f6f3"/>
+  <rect x="268" y="642" width="86" height="22" rx="11" fill="#e8f6f3"/>
+  <!-- spine 2: indigo, taller -->
+  <rect x="410" y="200" width="160" height="536" rx="22" fill="#6c6fe0"/>
+  <rect x="444" y="262" width="92" height="22" rx="11" fill="#eceeff"/>
+  <rect x="444" y="306" width="92" height="22" rx="11" fill="#eceeff"/>
+  <rect x="444" y="642" width="92" height="22" rx="11" fill="#eceeff"/>
+  <!-- spine 3: amber, leaning -->
+  <g transform="rotate(12 690 736)">
+    <rect x="614" y="296" width="140" height="440" rx="22" fill="#f0a93b"/>
+    <rect x="644" y="356" width="80" height="22" rx="11" fill="#fff4e0"/>
+    <rect x="644" y="642" width="80" height="22" rx="11" fill="#fff4e0"/>
+  </g>
+  <!-- shelf board -->
+  <rect x="176" y="736" width="672" height="64" rx="20" fill="#d9e4ef"/>
+  <rect x="216" y="800" width="40" height="70" rx="12" fill="#a9bacb"/>
+  <rect x="768" y="800" width="40" height="70" rx="12" fill="#a9bacb"/>
+</svg>
