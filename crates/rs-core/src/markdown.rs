@@ -247,6 +247,23 @@ mod tests {
         assert!(out.contains("id=\"user-content-security-fixture\""), "{out}");
     }
 
+    /// F3 (v0.2.0) proof: what the v0.1.0 sanitiser does with GitHub-style `align` / `width` markup.
+    #[test]
+    fn align_fixture_current_output() {
+        let md = include_str!("../../../tests/fixtures/align/README.md");
+        let out = render(md, &root()).html;
+        // v0.1.0: `<div>` is unwrapped and `align` survives only on td/th, so nothing is centred.
+        assert!(!out.contains("<div"), "{out}");
+        assert!(out.contains("<h1>Centred title</h1>"), "{out}");
+        assert!(out.contains("<p>Centred paragraph"), "{out}");
+        assert!(out.contains("<h2>Right heading</h2>"), "{out}");
+        assert!(out.contains("<table>"), "{out}");
+        assert!(out.contains("<td align=\"center\">cell</td><th align=\"right\">head</th>"), "{out}");
+        assert!(out.contains("<img width=\"200\" src=\"rsrepo:/side.png\" alt=\"Side\">"), "{out}");
+        // width/height pass unchecked
+        assert!(out.contains("width=\"100px;evil\""), "{out}");
+    }
+
     #[test]
     fn relative_urls() {
         let base = git_path("docs/sub").unwrap();
