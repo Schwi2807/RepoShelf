@@ -1,0 +1,27 @@
+[package]
+name = "rs-core"
+description = "RepoShelf core: git read model, library, clone/fetch, DB"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = []
+testkit = ["dep:tempfile"]
+ghreleases = ["dep:ureq"]
+
+[dependencies]
+git2 = { workspace = true }
+rusqlite = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+dirs = { workspace = true }
+url = { workspace = true }
+comrak = { workspace = true }
+ammonia = { workspace = true }
+tempfile = { workspace = true, optional = true }
+ureq = { workspace = true, optional = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

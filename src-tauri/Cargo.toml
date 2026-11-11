@@ -1,0 +1,28 @@
+[package]
+name = "reposhelf"
+description = "RepoShelf desktop app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+name = "reposhelf_lib"
+crate-type = ["rlib"]
+
+[features]
+default = []
+# Separate e2e build only (D-14): enables the file-clone test seam.
+e2e = ["rs-core/testkit"]
+
+[build-dependencies]
+tauri-build = { workspace = true }
+
+[dependencies]
+rs-core = { path = "../crates/rs-core", features = ["ghreleases"] }
+tauri = { workspace = true }
+tauri-plugin-dialog = { workspace = true }
+tauri-plugin-opener = { workspace = true }
+trash = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

@@ -90,38 +90,38 @@ everything else follows its listed "after" dependencies. When running steps in p
 Goal: workspace and empty crates compile with every registry dependency pulled in; Tauri shell shows "RepoShelf";
 docs scaffolding. ARCH §2, §1.1.
 
-- [ ] M0.1 Root `Cargo.toml`: `[workspace] members = ["crates/rs-core","crates/rs-cli","src-tauri"]`, `resolver = "3"`,
+- [x] M0.1 Root `Cargo.toml`: `[workspace] members = ["crates/rs-core","crates/rs-cli","src-tauri"]`, `resolver = "3"`,
   `[workspace.package] edition = "2024", version = "0.0.1"`, `[workspace.dependencies]` with the exact versions from
   ARCH §1.1, `[profile.release] codegen-units = 1, lto = "thin", strip = true`. `.gitignore`: `target/`,
   `node_modules/`, `dist/`, `src-tauri/gen/`, `*.db`, `target/scratch/`.
-- [ ] M0.2 `crates/rs-core/Cargo.toml` (deps: git2 `default-features=false, features=["vendored-libgit2","https"]`,
+- [x] M0.2 `crates/rs-core/Cargo.toml` (deps: git2 `default-features=false, features=["vendored-libgit2","https"]`,
   rusqlite `bundled`, serde, serde_json, thiserror, dirs, url, comrak `default-features=false`, ammonia; optional
   `tempfile`, `ureq`; features `testkit = ["dep:tempfile"]`, `ghreleases = ["dep:ureq"]`; dev-dep tempfile) and
   `src/lib.rs` with `pub fn render_smoke(md: &str) -> String` (comrak → ammonia) + test `smoke_markdown_strips_script`.
   Verify comrak 0.59 option names (`extension.table`, `render.unsafe_`, `header_ids`) against its docs.rs/source in
   the cargo registry; if comrak fails to compile, fall back to pulldown-cmark 0.13 and record a decision. (FR-17 prep)
-- [ ] M0.3 `crates/rs-cli/{Cargo.toml,src/main.rs}`: bin `rs`, depends on rs-core with `features=["testkit"]`; prints
+- [x] M0.3 `crates/rs-cli/{Cargo.toml,src/main.rs}`: bin `rs`, depends on rs-core with `features=["testkit"]`; prints
   usage. Not shipped (D-15).
-- [ ] M0.4 `src-tauri/`: `Cargo.toml` (package **name `reposhelf`**, lib name `reposhelf_lib`, deps tauri 2,
+- [x] M0.4 `src-tauri/`: `Cargo.toml` (package **name `reposhelf`**, lib name `reposhelf_lib`, deps tauri 2,
   tauri-plugin-dialog, tauri-plugin-opener, trash, rs-core with `features=["ghreleases"]`, serde; features
   `e2e = ["rs-core/testkit"]`, default = []), `build.rs`, `src/main.rs` (calls `reposhelf_lib::run()`), `src/lib.rs`
   (Builder + plugins, one window `main` 1320x840 min 900x560), `tauri.conf.json` (`productName "RepoShelf"`,
   `identifier "dev.schwi.reposhelf"`, `build.devUrl http://localhost:1450`, `frontendDist ../dist`,
   `beforeDevCommand npm run dev`, `beforeBuildCommand npm run build`, CSP + devCsp exactly as ARCH §8, no
   `assetProtocol`), `capabilities/default.json` (`["core:default"]`, window `main`).
-- [ ] M0.5 Icon: write `docs/icon/reposhelf.svg` (own design: shelf with three book spines, own palette, no GitHub
+- [x] M0.5 Icon: write `docs/icon/reposhelf.svg` (own design: shelf with three book spines, own palette, no GitHub
   marks, R-11); `npx tauri icon docs/icon/reposhelf.svg` → `src-tauri/icons/*` (if the CLI refuses SVG, render a
   1024 px PNG with a small node script using no new deps, or hand-author the PNG; record how).
-- [ ] M0.6 npm: `package.json` (name `reposhelf`, private, `"type": "module"`, scripts `dev` = `vite`, `build` =
+- [x] M0.6 npm: `package.json` (name `reposhelf`, private, `"type": "module"`, scripts `dev` = `vite`, `build` =
   `vite build`, `typecheck` (copy PM's form for TS 7), `test` = `vitest run`, `tauri` = `tauri`, `build:installer` =
   `tauri build`, `build:portable` = `node tools/build-portable.mjs`), deps/devDeps with ARCH §1.1 ranges;
   `npm install` (repo-local). `vite.config.ts` (port 1450, `strictPort`, watch ignores `src-tauri/target`, `target`,
   `crates`; `worker.format = "es"`), `vitest.config.ts` (happy-dom, `src/**/*.test.{ts,tsx}`), `tsconfig.json`
   (strict, ES2022, bundler resolution), `index.html` (no inline script/style), `src/main.tsx`, `src/App.tsx` (plain
   "RepoShelf" heading), `src/smoke.test.ts` (imports `highlight.js/lib/core`, registers one language, highlights).
-- [ ] M0.7 `.claude/launch.json` with config `reposhelf-mock` (`npm`, `["run","dev"]`, port 1450).
-- [ ] M0.8 Stub `tools/build-portable.mjs` (filled in M9) so the script exists.
-- [ ] M0.9 `docs/DECISIONS.md`: D-1..D-17 from ARCH §0 and D-18..D-31 from the table above, one line each.
+- [x] M0.7 `.claude/launch.json` with config `reposhelf-mock` (`npm`, `["run","dev"]`, port 1450).
+- [x] M0.8 Stub `tools/build-portable.mjs` (filled in M9) so the script exists.
+- [x] M0.9 `docs/DECISIONS.md`: D-1..D-17 from ARCH §0 and D-18..D-31 from the table above, one line each.
   `docs/WORKLOG.md`: header + M0 entry.
 - [ ] M0.10 Smoke-run `npx tauri dev` once (window on main display; confirm "RepoShelf" page; then kill the tree).
   Optional here, mandatory in M4.

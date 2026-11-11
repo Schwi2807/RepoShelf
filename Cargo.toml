@@ -1,0 +1,33 @@
+[workspace]
+resolver = "3"
+members = ["crates/rs-core", "crates/rs-cli", "src-tauri"]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2024"
+license = "MIT"
+authors = ["Schwi2807"]
+
+# Versions from docs/ARCHITECTURE.md §1.1.
+[workspace.dependencies]
+git2 = { version = "0.21", default-features = false, features = ["vendored-libgit2", "https"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+thiserror = "2"
+dirs = "6.0.0"
+tempfile = "3.27.0"
+url = "2.5"
+comrak = { version = "0.59", default-features = false }
+ammonia = "4.2"
+ureq = "3.4"
+tauri = { version = "2", features = [] }
+tauri-build = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+trash = "5.2"
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+strip = true

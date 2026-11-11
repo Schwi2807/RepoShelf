@@ -1,0 +1,36 @@
+{
+  "name": "reposhelf",
+  "private": true,
+  "version": "0.0.1",
+  "description": "A local shelf for git repositories with a GitHub-style browser.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run",
+    "tauri": "tauri",
+    "build:installer": "tauri build",
+    "build:portable": "node tools/build-portable.mjs"
+  },
+  "dependencies": {
+    "@fontsource-variable/inter": "^5.3.0",
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
+    "@tanstack/react-virtual": "^3.14.26",
+    "@tauri-apps/api": "^2.11.1",
+    "highlight.js": "^11.12.0",
+    "lucide-react": "^1.46.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "happy-dom": "^20.14.5",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.0",
+    "vitest": "^5.0.1"
+  }
+}
