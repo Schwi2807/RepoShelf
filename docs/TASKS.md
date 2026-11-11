@@ -148,50 +148,50 @@ DECISIONS.md has D-1..D-31; `Cargo.lock` and `package-lock.json` committed; tag 
 Goal: errors, dirs, DB + migrations, settings, validation, Windows path rules, jobs, shared types, testkit basics.
 ARCH §3.1–3.3, §4, §5.2–5.3 (validator only). No git read logic yet.
 
-- [ ] M1.1 `lib.rs`: declare **all** modules of ARCH §2 now (`pub mod error; … pub mod fetch;` with empty bodies for
+- [x] M1.1 `lib.rs`: declare **all** modules of ARCH §2 now (`pub mod error; … pub mod fetch;` with empty bodies for
   later ones; `#[cfg(feature="ghreleases")] pub mod ghreleases; #[cfg(any(test, feature="testkit"))] pub mod testkit;`)
   so later parallel steps never touch `lib.rs`. `pub struct Shelf { pub db: Db, pub dirs: Dirs }` +
   `Shelf::open(dirs) -> Result<Shelf>` and `Shelf::in_memory(dirs)`.
-- [ ] M1.2 `error.rs`: `Error` enum exactly as ARCH §3.1, `Result<T>`, `Error::code()`; plus `Unsupported(String)`
+- [x] M1.2 `error.rs`: `Error` enum exactly as ARCH §3.1, `Result<T>`, `Error::code()`; plus `Unsupported(String)`
   (code `unsupported`, used when a feature such as `ghreleases` is compiled out). Tests: every variant's `code()`
   is unique camelCase.
-- [ ] M1.3 `paths.rs`: `Dirs`, `resolve_dirs()` (env `RS_DATA_DIR`/`RS_ARCHIVE_DIR` win; else
+- [x] M1.3 `paths.rs`: `Dirs`, `resolve_dirs()` (env `RS_DATA_DIR`/`RS_ARCHIVE_DIR` win; else
   `%LOCALAPPDATA%\dev.schwi.reposhelf` and `Documents\RepoShelf`, D-13), `db_file`, `long` (`\\?\` on Windows only,
   `cfg(windows)`), `canonical` (canonicalize + strip `\\?\`). Tests: env overrides honoured (run under a mutex since
   env is process-global), path with spaces, `long` idempotent. (FR-35, NFR-W1, NFR-O4)
-- [ ] M1.4 `migrations/0001_init.sql` exactly as ARCH §4 (incl. `cloned_at`); `db.rs`: `Db::open` (WAL,
+- [x] M1.4 `migrations/0001_init.sql` exactly as ARCH §4 (incl. `cloned_at`); `db.rs`: `Db::open` (WAL,
   `busy_timeout` 5 s, `foreign_keys=ON`, migrations via `include_str!` + `PRAGMA user_version`, each in one tx;
   higher `user_version` → open read-only and expose `Db::read_only() -> bool`), `open_in_memory`, `with`, `tx`,
   `SCHEMA_VERSION`. `prune_caches(&Db, keep_tips: &[String])` (≤ 2,000 `cache_last_commit` rows, 30-day rule).
   Tests: fresh open, reopen (no re-run), future version → read-only, prune keeps newest 2,000.
-- [ ] M1.5 `validate.rs`: `git_path`, `rev`, `clone_url` (full §5.3 rules), `topics`, `homepage`, `oid` (40 hex),
+- [x] M1.5 `validate.rs`: `git_path`, `rev`, `clone_url` (full §5.3 rules), `topics`, `homepage`, `oid` (40 hex),
   `external_url` (http/https, no userinfo), `MetadataInput::validate` (description ≤ 350 chars); newtypes `GitPath`,
   `RevSpec`, `CloneUrl`. Tests: hostile table from §5.2 (`..`, `a/../b`, `/etc`, `C:\x`, `c:/x`, `a\b`, `a\0b`,
   `refs/../x`, `HEAD~1`, `a..b`, `@{-1}`), hex-looking names stay names, every rejected clone form (`git@…`, `ssh://`,
   `git://`, `file://`, `http://`, userinfo, `\`, drive letter, leading `/` or `.`, 3 segments without dot host) with
   user-readable messages, shorthand `owner/repo` → github.com, `gitlab.com/a/b/c` folding into `rel_dir`,
   `.git`/trailing `/` normalised; topics (case, charset, ≤ 20, dedup); homepage. (FR-6, FR-20, NFR-S4, NFR-S5, D-1)
-- [ ] M1.6 `settings.rs`: `Settings { theme, sort, source_filter, show_dirty_note }` (no `recent`, D-28), `load`
+- [x] M1.6 `settings.rs`: `Settings { theme, sort, source_filter, show_dirty_note }` (no `recent`, D-28), `load`
   (defaults when keys absent), `save`. Test: round-trip, unknown keys ignored. (FR-3, FR-33, D-16)
-- [ ] M1.7 `winpath.rs`: `path_ok_here`, `ref_name_ok_here`, `storable_refs`, `refspecs` (reimplemented from the PM
+- [x] M1.7 `winpath.rs`: `path_ok_here`, `ref_name_ok_here`, `storable_refs`, `refspecs` (reimplemented from the PM
   ideas, not copied). Tests: `a:b.txt`, `CON.txt`, `con.txt` / `CON.tar.gz` (follow libgit2's NT rules for device names with extensions), trailing dot/space,
   `.git`, `git~1`, `llm` + `LLM/x` clash with and without `prefer`, wildcard refspec when nothing skipped.
   (FR-9, NFR-W2, NFR-W3)
-- [ ] M1.8 `jobs.rs`: `JobId`, `JobKind`, `JobState`, `JobInfo`, `Progress`, `Worker`, `JobRunner` (`new`,
+- [x] M1.8 `jobs.rs`: `JobId`, `JobKind`, `JobState`, `JobInfo`, `Progress`, `Worker`, `JobRunner` (`new`,
   `load_persisted`, `submit`, `cancel`, `retry`, `list`, `dismiss`), `JobCtx` (`progress` throttled ≥ 80 ms except
   terminal, `cancelled`), `Gate` (Mutex + Condvar, 100 ms wait slices), `CancelToken`. `jobs` table is written only
   here. Tests (fake worker sleeping/looping on cancel): never > 3 running with 6 submitted; Waiting job cancel →
   Cancelled without running; throttle drops events < 80 ms; retry creates new row and deletes old; restart
   (`load_persisted`) turns running/waiting rows into Failed "Interrupted (app closed)". (FR-7, NFR-P7, L-6)
-- [ ] M1.9 Also in `jobs.rs` (or `compute.rs` if cleaner; declare in M1.1): `ComputeGate` of 2 for request-scoped
+- [x] M1.9 Also in `jobs.rs` (or `compute.rs` if cleaner; declare in M1.1): `ComputeGate` of 2 for request-scoped
   walks (ARCH §5.5); test cap.
-- [ ] M1.10 `types.rs`: every type of ARCH §3.3 with `#[serde(rename_all = "camelCase")]` and
+- [x] M1.10 `types.rs`: every type of ARCH §3.3 with `#[serde(rename_all = "camelCase")]` and
   `rename_all_fields = "camelCase"` on struct-variant enums; **add** `ImportPreview.token: String` (D-18) and
   `RepoSummary.cloned_at: Option<i64>` (D-19). Test: serialising one sample of each enum shape yields camelCase field
   names (guards L-10).
-- [ ] M1.11 `testkit.rs` basics: `repo(dir) -> TestRepo` builder (`file`, `commit(msg, time)`, `branch`, `tag(annotated)`,
+- [x] M1.11 `testkit.rs` basics: `repo(dir) -> TestRepo` builder (`file`, `commit(msg, time)`, `branch`, `tag(annotated)`,
   `merge`, `bare()`), and `register_raw(&Shelf, path, Source) -> i64` (D-21). Test: builder produces expected commits.
-- [ ] M1.12 Clippy clean.
+- [x] M1.12 Clippy clean.
 
 Order: M1.1 → M1.2 → (M1.3 ∥ M1.5 ∥ M1.7 ∥ M1.10) → M1.4 (needs error, paths) → M1.6 (needs db, types) → M1.8, M1.9
 (need db) → M1.11 (needs db, types) → M1.12.

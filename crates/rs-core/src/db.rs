@@ -1,0 +1,261 @@
+//! SQLite store (ARCH §4): one connection behind a mutex, WAL, forward-only migrations via `user_version`.
+//!
+//! `Db` is a cheap clone (shared connection) so the `JobRunner` and the `Shelf` use the same store.
+//! Never hold the lock across a long git walk: read cache → release → compute → write cache.
+
+use crate::error::Result;
+use rusqlite::{Connection, OpenFlags, Transaction};
+use std::collections::HashSet;
+use std::path::Path;
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::Duration;
+
+const MIGRATIONS: &[&str] = &[include_str!("migrations/0001_init.sql")];
+
+/// Number of migrations this build knows.
+pub const SCHEMA_VERSION: i64 = MIGRATIONS.len() as i64;
+
+/// Max rows kept in `cache_last_commit`.
+pub const LAST_COMMIT_CACHE_ROWS: i64 = 2_000;
+/// Cache rows older than this whose tip is not a current ref tip are dropped on start.
+pub const CACHE_MAX_AGE_SECS: i64 = 30 * 24 * 3600;
+
+#[derive(Clone)]
+pub struct Db {
+    conn: Arc<Mutex<Connection>>,
+    read_only: bool,
+}
+
+impl std::fmt::Debug for Db {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Db").field("read_only", &self.read_only).finish()
+    }
+}
+
+fn user_version(c: &Connection) -> Result<i64> {
+    Ok(c.query_row("PRAGMA user_version", [], |r| r.get(0))?)
+}
+
+fn migrate(c: &mut Connection) -> Result<()> {
+    let from = user_version(c)?;
+    for (i, sql) in MIGRATIONS.iter().enumerate().skip(from.max(0) as usize) {
+        let tx = c.transaction()?;
+        tx.execute_batch(sql)?;
+        tx.pragma_update(None, "user_version", (i + 1) as i64)?;
+        tx.commit()?;
+    }
+    Ok(())
+}
+
+impl Db {
+    /// Opens (creating if needed) and migrates. A DB written by a newer app (`user_version >
+    /// SCHEMA_VERSION`) is reopened read-only and never touched (`read_only() == true`).
+    pub fn open(file: &Path) -> Result<Db> {
+        let mut c = Connection::open(file)?;
+        c.busy_timeout(Duration::from_secs(5))?;
+        // Read the version before any write pragma.
+        if user_version(&c)? > SCHEMA_VERSION {
+            drop(c);
+            let c = Connection::open_with_flags(file, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
+            c.busy_timeout(Duration::from_secs(5))?;
+            c.pragma_update(None, "foreign_keys", true)?;
+            return Ok(Db { conn: Arc::new(Mutex::new(c)), read_only: true });
+        }
+        let _mode: String = c.query_row("PRAGMA journal_mode=WAL", [], |r| r.get(0))?;
+        c.pragma_update(None, "foreign_keys", true)?;
+        migrate(&mut c)?;
+        Ok(Db { conn: Arc::new(Mutex::new(c)), read_only: false })
+    }
+
+    /// Fresh migrated in-memory DB (tests).
+    pub fn open_in_memory() -> Result<Db> {
+        let mut c = Connection::open_in_memory()?;
+        c.pragma_update(None, "foreign_keys", true)?;
+        migrate(&mut c)?;
+        Ok(Db { conn: Arc::new(Mutex::new(c)), read_only: false })
+    }
+
+    pub fn read_only(&self) -> bool {
+        self.read_only
+    }
+
+    fn lock(&self) -> MutexGuard<'_, Connection> {
+        self.conn.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    pub fn with<T>(&self, f: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
+        let c = self.lock();
+        f(&c)
+    }
+
+    /// Runs `f` in one transaction; commits on `Ok`, rolls back on `Err`.
+    pub fn tx<T>(&self, f: impl FnOnce(&Transaction) -> Result<T>) -> Result<T> {
+        let mut c = self.lock();
+        let tx = c.transaction()?;
+        let out = f(&tx)?;
+        tx.commit()?;
+        Ok(out)
+    }
+}
+
+/// Startup cache pruning: keep the newest `LAST_COMMIT_CACHE_ROWS` rows of `cache_last_commit` and drop rows
+/// older than 30 days whose tip is not in `keep_tips` (current ref tips). Returns rows deleted.
+pub fn prune_caches(db: &Db, keep_tips: &[String]) -> Result<usize> {
+    if db.read_only() {
+        return Ok(0);
+    }
+    let keep: HashSet<&str> = keep_tips.iter().map(String::as_str).collect();
+    let cutoff = crate::now_secs() - CACHE_MAX_AGE_SECS;
+    db.tx(|tx| {
+        let mut deleted = tx.execute(
+            "DELETE FROM cache_last_commit WHERE rowid NOT IN
+               (SELECT rowid FROM cache_last_commit ORDER BY created_at DESC, rowid DESC LIMIT ?1)",
+            [LAST_COMMIT_CACHE_ROWS],
+        )?;
+        let old: Vec<(i64, String)> = {
+            let mut st = tx.prepare("SELECT rowid, tip FROM cache_last_commit WHERE created_at < ?1")?;
+            st.query_map([cutoff], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<std::result::Result<_, _>>()?
+        };
+        for (rowid, tip) in old {
+            if !keep.contains(tip.as_str()) {
+                deleted += tx.execute("DELETE FROM cache_last_commit WHERE rowid = ?1", [rowid])?;
+            }
+        }
+        Ok(deleted)
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tables(db: &Db) -> Vec<String> {
+        db.with(|c| {
+            let mut st = c.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")?;
+            Ok(st.query_map([], |r| r.get(0))?.collect::<std::result::Result<_, _>>()?)
+        })
+        .unwrap()
+    }
+
+    fn insert_repo(db: &Db) -> i64 {
+        db.with(|c| {
+            c.execute(
+                "INSERT INTO repos (slug_owner, slug_name, source, path, is_bare, added_at) VALUES ('local','r','imported','C:\\r',0,1)",
+                [],
+            )?;
+            Ok(c.last_insert_rowid())
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn fresh_open_runs_migrations() {
+        let t = tempfile::tempdir().unwrap();
+        let f = t.path().join("reposhelf.db");
+        let db = Db::open(&f).unwrap();
+        assert!(!db.read_only());
+        assert_eq!(db.with(user_version).unwrap(), SCHEMA_VERSION);
+        let names = tables(&db);
+        for t in ["repos", "repo_meta", "repo_topics", "settings", "cache_commit_count", "cache_last_commit", "cache_languages", "cache_gh_releases", "jobs"] {
+            assert!(names.iter().any(|n| n == t), "missing {t}: {names:?}");
+        }
+        let mode: String = db.with(|c| Ok(c.query_row("PRAGMA journal_mode", [], |r| r.get(0))?)).unwrap();
+        assert_eq!(mode.to_lowercase(), "wal");
+        let fk: i64 = db.with(|c| Ok(c.query_row("PRAGMA foreign_keys", [], |r| r.get(0))?)).unwrap();
+        assert_eq!(fk, 1);
+        // cloned_at column exists (D-19)
+        db.with(|c| Ok(c.execute("UPDATE repos SET cloned_at = 1", [])?)).unwrap();
+    }
+
+    #[test]
+    fn reopen_does_not_rerun_migrations() {
+        let t = tempfile::tempdir().unwrap();
+        let f = t.path().join("reposhelf.db");
+        {
+            let db = Db::open(&f).unwrap();
+            insert_repo(&db);
+        }
+        let db = Db::open(&f).unwrap(); // would fail with "table repos already exists" if re-run
+        assert_eq!(db.with(user_version).unwrap(), SCHEMA_VERSION);
+        let n: i64 = db.with(|c| Ok(c.query_row("SELECT COUNT(*) FROM repos", [], |r| r.get(0))?)).unwrap();
+        assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn future_version_opens_read_only() {
+        let t = tempfile::tempdir().unwrap();
+        let f = t.path().join("reposhelf.db");
+        {
+            let db = Db::open(&f).unwrap();
+            db.with(|c| Ok(c.pragma_update(None, "user_version", SCHEMA_VERSION + 1)?)).unwrap();
+        }
+        let db = Db::open(&f).unwrap();
+        assert!(db.read_only());
+        assert_eq!(db.with(user_version).unwrap(), SCHEMA_VERSION + 1);
+        let n: i64 = db.with(|c| Ok(c.query_row("SELECT COUNT(*) FROM repos", [], |r| r.get(0))?)).unwrap();
+        assert_eq!(n, 0);
+        assert!(db.with(|c| Ok(c.execute("DELETE FROM repos", [])?)).is_err(), "write must fail");
+        assert_eq!(prune_caches(&db, &[]).unwrap(), 0);
+    }
+
+    #[test]
+    fn tx_rolls_back_on_error() {
+        let db = Db::open_in_memory().unwrap();
+        let r: Result<()> = db.tx(|tx| {
+            tx.execute("INSERT INTO settings (key, value) VALUES ('a', '1')", [])?;
+            Err(crate::Error::Refused("stop".into()))
+        });
+        assert!(r.is_err());
+        let n: i64 = db.with(|c| Ok(c.query_row("SELECT COUNT(*) FROM settings", [], |r| r.get(0))?)).unwrap();
+        assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn prune_keeps_newest_2000() {
+        let db = Db::open_in_memory().unwrap();
+        let repo = insert_repo(&db);
+        let now = crate::now_secs();
+        db.tx(|tx| {
+            let mut st = tx.prepare("INSERT INTO cache_last_commit (repo_id, tip, dir, json, created_at) VALUES (?1, ?2, '', '{}', ?3)")?;
+            for i in 0..2_100i64 {
+                // all recent, so only the row cap applies
+                st.execute(rusqlite::params![repo, format!("tip{i}"), now - 2_100 + i])?;
+            }
+            Ok(())
+        })
+        .unwrap();
+        let deleted = prune_caches(&db, &[]).unwrap();
+        assert_eq!(deleted, 100);
+        let (n, min): (i64, i64) = db
+            .with(|c| Ok(c.query_row("SELECT COUNT(*), MIN(created_at) FROM cache_last_commit", [], |r| Ok((r.get(0)?, r.get(1)?)))?))
+            .unwrap();
+        assert_eq!(n, 2_000);
+        assert_eq!(min, now - 2_000);
+    }
+
+    #[test]
+    fn prune_drops_old_rows_unless_tip_is_current() {
+        let db = Db::open_in_memory().unwrap();
+        let repo = insert_repo(&db);
+        let old = crate::now_secs() - CACHE_MAX_AGE_SECS - 10;
+        db.with(|c| {
+            for (tip, at) in [("old-gone", old), ("old-kept", old), ("fresh", crate::now_secs())] {
+                c.execute(
+                    "INSERT INTO cache_last_commit (repo_id, tip, dir, json, created_at) VALUES (?1, ?2, '', '{}', ?3)",
+                    rusqlite::params![repo, tip, at],
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(prune_caches(&db, &["old-kept".to_string()]).unwrap(), 1);
+        let tips: Vec<String> = db
+            .with(|c| {
+                let mut st = c.prepare("SELECT tip FROM cache_last_commit ORDER BY tip")?;
+                Ok(st.query_map([], |r| r.get(0))?.collect::<std::result::Result<_, _>>()?)
+            })
+            .unwrap();
+        assert_eq!(tips, vec!["fresh", "old-kept"]);
+    }
+}

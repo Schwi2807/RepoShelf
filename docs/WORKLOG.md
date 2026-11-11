@@ -27,3 +27,49 @@ dev-server check ran via a hidden `npm run dev` instead; `repo-shelf\.claude\lau
 
 Open items: `npm audit` reports happy-dom ≤ 21.0.3 (dev-only test DOM, GHSA-834v-8h66-3h79 / GHSA-c8p4-j97h-3vg8);
 fix needs happy-dom 21 (outside the ARCH range `^20.14.5`) — decide before M5 tests parse untrusted HTML in it.
+
+## M1 — Framework layer (2026-11-11)
+
+Steps: M1.1–M1.12 done. New decisions D-32..D-35 (DECISIONS.md).
+
+- `lib.rs` declares every ARCH §2 module (M2/M3 ones are one-line stubs; `ghreleases` behind its feature, `testkit`
+  behind `cfg(any(test, feature="testkit"))`). `Shelf { db, dirs }`, `Shelf::open` (creates data dir only),
+  `Shelf::in_memory`, `rs_core::now_secs()`. `render_smoke` kept until `markdown::render` replaces it in M2.10.
+- `error.rs` ARCH §3.1 + `Unsupported` (`unsupported`) + helper `Error::not_found(what)`.
+- `paths.rs` `Dirs`, `resolve_dirs` (pure), `db_file`, `long` (`\\?\` / `\\?\UNC\`, Windows only), `canonical`,
+  plus `strip_verbatim`. Only `env_overrides_honoured` touches the process env (mutex-guarded).
+- `db.rs` `Db` is `Clone` (shared `Arc<Mutex<Connection>>`) so `JobRunner` and `Shelf` share one connection;
+  `user_version` read before any write pragma; future version → read-only handle; `prune_caches` returns rows deleted
+  and is a no-op on a read-only DB.
+- `validate.rs` per §5.2/§5.3 plus `oid` → `git2::Oid`, `external_url` → `InvalidUrl`; topics/homepage/metadata →
+  `InvalidInput`. Raw-input checks for `..`, `%`, empty segments, userinfo and empty host run before `Url::parse`.
+- `winpath.rs` mirrors libgit2 (`validate_dospath` incl. `CON.txt`/`con.tar.gz`, NT chars, trailing dot/space,
+  `.git`/`git~1` with trailing dots/spaces). `storable_refs`: existing names win (identical name = update),
+  then `prefer`, then input order; both outputs keep input order.
+- `settings.rs` one JSON value per key (`theme`, `sort`, `sourceFilter`, `showDirtyNote`); unknown keys and
+  unparsable values ignored.
+- `jobs.rs` `JobKind/JobState/Progress/JobInfo` live here (not types.rs); `Gate`/`GatePermit`, `ComputeGate` (2),
+  `CancelToken`, `JobCtx::new(cancel, emit)` + `JobCtx::noop()` (public, for M3 tests), `JobRunner::{get, join,
+  running}` extras. Worker panics → Failed; an error after cancel → Cancelled.
+- `types.rs` all §3.3 types + `Time`; `ImportPreview.token` (D-18, empty from rs-core), `RepoSummary.cloned_at`
+  (D-19). `types::samples::all()` (cfg(test)) = one sample per type/variant — seed for the M4 golden.
+- `testkit.rs` builder `repo(dir)` (lazy init, `.bare()` first, initial branch `main`, fixed signature
+  `Fixture Author <fixture@example.com>`): `file`, `exec`, `symlink`, `gitlink`, `remove`, `commit(msg, time)`,
+  `branch` (create + switch), `checkout`, `tag(name, annotated)`, `merge(other, msg, time)` (tree = staged state),
+  `origin(url)`, `head()`. Writes objects/refs only — no work tree files. `register_raw` stores the canonical path,
+  slug `local/<dir>` with `-2` on collision.
+
+Gate M1: `cargo test -p rs-core` 56 passed (4 repeated runs, no flakes) · `cargo clippy --workspace --all-targets
+-- -D warnings` clean (also `-p rs-core --all-targets` and `-p rs-core --features testkit`) · `cargo test
+--workspace` ok · `npm run typecheck` ok · `npm test` 1 passed · `npm run build` ok. All tests use tempdirs or
+in-memory DBs; nothing touches a real data dir.
+
+Handoff for M2+:
+- git2 0.21 accessors return `Result` (`shorthand()`, `name()`, `summary()` → `Result<Option<&str>>`): use lossy
+  fallbacks, never `unwrap` in non-test code.
+- `%TEMP%` here is an 8.3 path (`JOHNSM~1`); compare canonical paths only (`paths::canonical`).
+- Non-bare testkit repos have no work tree files; the M2.12 immutability test needs a work tree → add a
+  `write_worktree()` helper (or check out with git2) in M2.2.
+- Wire shape D-32 applies to the M4 TS mirror and `jobs.kind_json`. Git converts LF → CRLF on checkout here
+  (`core.autocrlf`): the M4 golden compare must normalise line endings or set `.gitattributes`.
+- Comrak field names: see M0 entry.
