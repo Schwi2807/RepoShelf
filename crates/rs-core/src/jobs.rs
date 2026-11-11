@@ -476,6 +476,80 @@ impl JobRunner {
     }
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// Shelf workers (M3 jobs integration; M4.1 hands one of these to `JobRunner::new`)
+
+/// The production worker: `Clone` → `clone::job` (URL validated first), `Fetch` → `fetch::job` (https origin),
+/// `FetchAll` → `fetch::fetch_all`.
+pub fn shelf_worker(shelf: Arc<crate::Shelf>) -> Worker {
+    Arc::new(move |kind: &JobKind, ctx: &JobCtx| match kind {
+        JobKind::Clone { url } => crate::clone::job(&shelf, url, ctx),
+        JobKind::Fetch { repo_id } => crate::fetch::job(&shelf, *repo_id, ctx),
+        JobKind::FetchAll => crate::fetch::fetch_all(&shelf, ctx).map(JobResult::Fetched),
+    })
+}
+
+/// Test/e2e worker (D-14, D-20): `file://` clone inputs and `file://` origins go through the unchecked seam,
+/// everything else exactly like `shelf_worker`. src-tauri uses it only under `cfg(feature = "e2e")` with
+/// `RS_TEST_FILE_CLONE=1`.
+#[cfg(any(test, feature = "testkit"))]
+pub fn shelf_worker_unchecked(shelf: Arc<crate::Shelf>) -> Worker {
+    Arc::new(move |kind: &JobKind, ctx: &JobCtx| match kind {
+        JobKind::Clone { url } if url.starts_with("file:") => crate::clone::job_unchecked(&shelf, url, ctx),
+        JobKind::Clone { url } => crate::clone::job(&shelf, url, ctx),
+        JobKind::Fetch { repo_id } => {
+            let file = crate::repo::summary(&shelf, *repo_id)?.origin_url.is_some_and(|o| o.starts_with("file:"));
+            if file {
+                crate::fetch::fetch_unchecked(&shelf, *repo_id, ctx).map(JobResult::Fetched)
+            } else {
+                crate::fetch::job(&shelf, *repo_id, ctx)
+            }
+        }
+        JobKind::FetchAll => crate::fetch::fetch_all_unchecked(&shelf, ctx).map(JobResult::Fetched),
+    })
+}
+
+#[cfg(test)]
+mod shelf_worker_tests {
+    use super::*;
+    use crate::testkit::{self, T0};
+
+    #[test]
+    fn clone_then_fetch_through_the_job_runner() {
+        let t = tempfile::tempdir().unwrap();
+        let shelf = Arc::new(testkit::shelf(t.path()));
+        let (mut up, url) = testkit::upstream_downstream(&t.path().join("o").join("jobbed"));
+        let seen = Arc::new(Mutex::new(Vec::<JobInfo>::new()));
+        let s2 = seen.clone();
+        let runner = JobRunner::new(shelf.db.clone(), 3, shelf_worker_unchecked(shelf.clone()), Arc::new(move |i: &JobInfo| s2.lock().unwrap().push(i.clone())));
+        let id = runner.submit(JobKind::Clone { url: url.clone() }, "Clone".into()).unwrap();
+        runner.join();
+        let info = runner.get(id).unwrap();
+        assert_eq!(info.state, JobState::Done, "{:?}", info.error);
+        let Some(JobResult::Cloned { repo_id, .. }) = info.result else { panic!("{info:?}") };
+        assert!(seen.lock().unwrap().iter().any(|i| matches!(i.progress, Some(Progress::Connecting))));
+
+        up.file("new", b"1").commit("new", T0 + 3000);
+        let id = runner.submit(JobKind::Fetch { repo_id }, "Fetch".into()).unwrap();
+        runner.join();
+        let info = runner.get(id).unwrap();
+        assert_eq!(info.state, JobState::Done, "{:?}", info.error);
+        let Some(JobResult::Fetched(o)) = info.result else { panic!("{info:?}") };
+        assert_eq!(o.new_commits, 1);
+
+        // the production worker refuses a file:// clone input before any work (InvalidUrl → Failed)
+        let prod = JobRunner::new(shelf.db.clone(), 3, shelf_worker(shelf.clone()), Arc::new(|_: &JobInfo| {}));
+        let id = prod.submit(JobKind::Clone { url }, "Clone".into()).unwrap();
+        prod.join();
+        let info = prod.get(id).unwrap();
+        assert_eq!(info.state, JobState::Failed);
+        assert!(info.error.unwrap().contains("Import folder"));
+        let id = prod.submit(JobKind::Fetch { repo_id }, "Fetch".into()).unwrap();
+        prod.join();
+        assert_eq!(prod.get(id).unwrap().error.as_deref(), Some(crate::fetch::NEEDS_HTTPS));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

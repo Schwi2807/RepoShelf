@@ -297,7 +297,7 @@ afterwards (`Remove-Item -LiteralPath` in its own command).
 
 Goal: shelf management and the only network code. ARCH §3.4 (library, clone, fetch, ghreleases), §5.3, §5.4, §0.2.
 
-- [ ] M3.1 `library.rs` ∥: `list` (DB only, joins `repo_meta` + `repo_topics`), `by_slug`, `preview_import`
+- [x] M3.1 `library.rs` ∥: `list` (DB only, joins `repo_meta` + `repo_topics`), `by_slug`, `preview_import`
   (canonical path, `is_bare`, origin, duplicate check, slug `owner/name` with `-2` suffix, D-12; token is added by
   src-tauri), `import` (no writes to the repo), `register_clone`, `set_metadata` (validated, FR-20),
   `relocate`, `remove` (returns `Removed`, DB rows cascade), `touch_opened`, `recent(n)` (D-28),
@@ -307,11 +307,11 @@ Goal: shelf management and the only network code. ARCH §3.4 (library, clone, fe
   unchanged; slug collision `-2`; metadata persists across `Shelf` reopen; invalid topics/homepage refused; missing
   fixture → status Missing without error; corrupt → Corrupt with message; relocate. (FR-1, FR-3 data, FR-4, FR-5,
   FR-20, FR-36 record, L-12, NFR-O3)
-- [ ] M3.2 `testkit` additions: `winnames` upstream (`a:b.txt`, `CON.txt`, trailing-dot file, long path), `refclash`
+- [x] M3.2 `testkit` additions: `winnames` upstream (`a:b.txt`, `CON.txt`, trailing-dot file, long path), `refclash`
   upstream (`llm` + `LLM/x` branches, invalid-on-Windows tag name), `upstream_downstream()` pair helper, and a
   network-call counter (`testkit::net_calls()`; incremented in the single place that connects a git2 remote and in
   `ghreleases`). (FR-9, NFR-O1)
-- [ ] M3.3 `clone.rs`: `preview` (CloneUrl → target dir preview), `clone(&Shelf, &CloneUrl, &JobCtx)` per §5.4 steps
+- [x] M3.3 `clone.rs`: `preview` (CloneUrl → target dir preview), `clone(&Shelf, &CloneUrl, &JobCtx)` per §5.4 steps
   1–7 (bare `init_bare(long(partial))`, `core.longpaths`, no credentials callback, `follow_redirects(Initial)`,
   advertised default, `storable_refs`, `AutotagOption::None`, progress via ctx, cancel via callback, `refs/heads/
   <default>`, HEAD, `origin/HEAD`, standard fetch refspec, FINALIZE mutex + unique `<name>.git`/`<name>-2.git`,
@@ -321,13 +321,13 @@ Goal: shelf management and the only network code. ARCH §3.4 (library, clone, fe
   fine (bare); cancel mid-transfer → no folder and no partial; leftover `.x.git.partial-*` removed by
   `cleanup_partials`; second clone of same URL → `-2`; default branch unstorable → `Refused`. (FR-6..9, NFR-W1, R-4,
   R-6)
-- [ ] M3.4 Validator purity test: for every rejected URL form, `clone::preview`/the job entry returns `InvalidUrl` and
+- [x] M3.4 Validator purity test: for every rejected URL form, `clone::preview`/the job entry returns `InvalidUrl` and
   `testkit::net_calls()` stays 0; `clone()` signature accepts only `&CloneUrl` (type-level). (FR-6, NFR-S5)
-- [ ] M3.5 Redirect check (*verify per ARCH §5.4 step 2*): test against a local `http://127.0.0.1` TCP listener that
+- [x] M3.5 Redirect check (*verify per ARCH §5.4 step 2*): test against a local `http://127.0.0.1` TCP listener that
   answers a redirect to `http://` is not feasible over https without certs — instead confirm from libgit2/WinHTTP
   source/docs that `RemoteRedirect::Initial` refuses https→http downgrade; if not guaranteed, add a
   `certificate_check`/transport URL check that fails the job. Record the finding as a decision. (NFR-S5, R-10)
-- [ ] M3.6 `fetch.rs`: `fetch(&Shelf, repo_id, &JobCtx)` = policy (origin re-validated with `clone_url`, else
+- [x] M3.6 `fetch.rs`: `fetch(&Shelf, repo_id, &JobCtx)` = policy (origin re-validated with `clone_url`, else
   `Refused("Fetch needs an https origin")`) + `fetch_from(source, ...)` implementing §5.4 fetch steps 1–6 (snapshot,
   advertised, `storable_refs`, staging namespace `refs/reposhelf-staging/tags/*` cleared before and after — also on
   error, adopt free tag names, report `kept_local_tags`, `new_commits` capped 100k, `last_fetched_at`, summary
@@ -336,16 +336,16 @@ Goal: shelf management and the only network code. ARCH §3.4 (library, clone, fe
   imported non-bare fixture: hash index, HEAD, `refs/heads/*`, existing tags, config, work tree before/after → equal
   (only allowed refs changed, §0.2); staging refs gone after an injected error; http origin refused. (FR-10, R-5,
   NFR-O2 exception)
-- [ ] M3.7 `fetch::fast_forward_default` (managed only): FF when ancestor, no-op when equal, `Refused("Branch has
+- [x] M3.7 `fetch::fast_forward_default` (managed only): FF when ancestor, no-op when equal, `Refused("Branch has
   diverged from origin")` when diverged; imported → `Refused`. Tests for all three. (FR-11)
-- [ ] M3.8 `ghreleases.rs` (feature `ghreleases`, D-22): `fetch_github_notes` (github.com origins only, one GET
+- [x] M3.8 `ghreleases.rs` (feature `ghreleases`, D-22): `fetch_github_notes` (github.com origins only, one GET
   `/repos/<o>/<r>/releases?per_page=100`, 10 s timeout, generic User-Agent `RepoShelf`, body through
   `markdown::render`, cached in `cache_gh_releases`), split into `parse_releases(json) -> Vec<GhRelease>` and
   `merge_into(releases, gh)`. Tests with canned JSON only (no network): parse, merge by tag name, non-github origin →
   `Refused`. (FR-31 optional, NFR-O1)
-- [ ] M3.9 Network-boundary test: run every M2 read function and every library function on fixtures → `net_calls()
+- [x] M3.9 Network-boundary test: run every M2 read function and every library function on fixtures → `net_calls()
   == 0`. (NFR-O1)
-- [ ] M3.10 Clippy clean; `cargo test -p rs-core --features ghreleases` and without.
+- [x] M3.10 Clippy clean; `cargo test -p rs-core --features ghreleases` and without.
 
 Order: M3.1 ∥ M3.2 → M3.3 → M3.4 ∥ M3.5 → M3.6 → M3.7 → M3.8 (∥ with M3.3–M3.7 if staffed; separate file) → M3.9 →
 M3.10.

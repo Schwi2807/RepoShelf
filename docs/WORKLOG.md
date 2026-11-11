@@ -159,3 +159,53 @@ Handoff for M3+:
 - Do not use git2 `Tree::walk` on repo content (fails on non-UTF-8 dir names); descend with `tree.iter()`.
 - The rs-core self dev-dependency (D-42) enables `testkit` only for rs-core's own test targets; M9's marker check
   (D-26) still confirms shipped builds carry no testkit.
+
+## M3 — Data layer: library, clone, fetch (2026-11-11)
+
+Steps: M3.1–M3.10 done. New decisions D-44..D-49. Built over two sessions (the first stopped at a usage limit; its
+work was parked on branch `wip-m3`, finished there and squash-merged onto `main`).
+
+- `library.rs`: `list`, `by_slug` (exact, then case-insensitive), `recent(n)`, `touch_opened`, `preview_import`,
+  `import`, `register_clone`, `relocate`, `set_metadata`, `remove`, `refresh_one`, `refresh_summaries`, `origin_slug`
+  (lenient: https, ssh://, scp-like). Broken repos never error on refresh: status `missing`/`corrupt` (message)/`empty`.
+- `clone.rs`: `preview`, `clone(&CloneUrl)`, `job(input)` (validate → clone → `register_clone`), `cleanup_partials`,
+  `clone_from_unchecked` / `job_unchecked` (testkit cfg, D-14). The only git2 connect sites: `advertised` and
+  `download` (both count `note_net_call`), `check_effective_url` (D-44), `remove_tree` (read-only packs, `\\?\`).
+- `fetch.rs`: `fetch` (policy) → `fetch_from(FetchSource)`; `fetch_unchecked`, `fetch_all`, `fetch_all_unchecked`,
+  `fast_forward_default`, `job`. Staging namespace cleared by a drop guard; `#[cfg(test)]` failure hook after download.
+- `ghreleases.rs`: `parse_releases`, `merge_into`, `api_url`, `store`, `cached`, `releases_with_cached` (for M4
+  `releases_list`), `fetch_github_notes` (one GET; the only network test is `#[ignore]`d `live_github_smoke`).
+- `jobs.rs`: `shelf_worker(Arc<Shelf>)` and testkit-gated `shelf_worker_unchecked` (file:// routing) + a JobRunner
+  test (clone → fetch through the runner; production worker refuses a file:// clone).
+- testkit: `snapshot`, `snapshot_diff`, `read_everything` (moved from tests/immutability.rs), `net_calls`,
+  `file_url`, `add_packed_refs`, `set_head_file`, fixtures `winnames`, `refclash`, `upstream_downstream`.
+- `tests/network_boundary.rs` (M3.9): every M2 read function + every library function → `net_calls()` unchanged.
+
+Gate M3: `cargo test -p rs-core` 131 unit + 2 integration passed · `--features ghreleases` 134 + 2 passed, 1 ignored
+(live smoke) · `cargo clippy --workspace --all-targets -- -D warnings` clean, also `-p rs-core --all-targets` (no
+features) and `--features ghreleases` · `cargo test --workspace` ok · `npm run typecheck` / `npm test` / `npm run
+build` ok. No test reaches the network: all clones/fetches use file:// upstreams through the unchecked seam; the
+cancel test cancels during a real transfer (asserted); Recycle Bin untouched (trash is M4's `Trasher`, D-30).
+
+M3.5 finding (D-44): the https→http downgrade is refused inside libgit2 (source-verified, WinHTTP redirects
+disabled, non-https `Location` never applied); the reachable bypass is `url.*.insteadOf`, now refused in code.
+
+Open items:
+- D-45: libgit2's MAX_PATH checks ignore `core.longpaths`. Archive paths longer than ~128 chars + the repo dir are
+  refused before cloning; an advertised ref name long enough to break libgit2's DWIM lookup fails the whole clone/fetch
+  ("path too long"). Not fixable in rs-core without patching libgit2; the default archive (`Documents\RepoShelf`) is
+  far below the limit.
+- Renamed GitHub repos (API 301) fail release-note fetching by design (D-49).
+
+Handoff for M4:
+- Worker for `JobRunner::new`: `rs_core::jobs::shelf_worker(shelf.clone())`; under `cfg(feature = "e2e")` +
+  `RS_TEST_FILE_CLONE=1` use `shelf_worker_unchecked` (keep the env literal inside cfg(e2e) code only).
+- `clone::preview` = `clone_preview`; `fetch::fast_forward_default` = `fast_forward`; `library::recent` exists but
+  the UI computes Recent from the list (D-28); `ghreleases::releases_with_cached` backs `releases_list` when the feature
+  is on, `releases::list` otherwise; `releases_fetch_github` = `ghreleases::fetch_github_notes`.
+- `library::remove` returns `Removed { path, source }`; trash only `Cloned` paths via the `Trasher`.
+- Error mapping for M4.2: clone/fetch network failures arrive as `Error::Git` (class Net/Http/Ssl/Os) or
+  `Error::Refused` (policy, empty repo, unstorable default, insteadOf, archive path too long); `fetch_all` returns one
+  `Refused` listing failed repos; ghreleases HTTP errors are `Error::Network`.
+- `startup`: `clone::cleanup_partials(&dirs.archive)` before the runner starts; `library::refresh_summaries` in the
+  background with a `CancelToken`.

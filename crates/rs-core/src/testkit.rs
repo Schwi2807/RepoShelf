@@ -757,6 +757,198 @@ pub fn git_cli(repo: &Path, args: &[&str]) -> Option<String> {
     Some(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// M3: snapshots, read-everything, upstream fixtures, network counter
+
+/// Every file under `root`: relative path → (length, blob hash, mtime). Directories are not listed.
+pub type Snapshot = BTreeMap<PathBuf, (u64, Oid, Option<std::time::SystemTime>)>;
+
+pub fn snapshot(root: &Path) -> Snapshot {
+    let mut out = BTreeMap::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        for e in std::fs::read_dir(&dir).expect("read_dir") {
+            let e = e.expect("dir entry");
+            let p = e.path();
+            let md = e.metadata().expect("metadata");
+            if md.is_dir() {
+                stack.push(p);
+            } else {
+                let bytes = std::fs::read(&p).expect("read file");
+                let hash = Oid::hash_object(git2::ObjectType::Blob, &bytes).expect("hash");
+                out.insert(p.strip_prefix(root).expect("under root").to_path_buf(), (md.len(), hash, md.modified().ok()));
+            }
+        }
+    }
+    out
+}
+
+/// Paths added, removed or changed between two snapshots (sorted, `/`-separated).
+pub fn snapshot_diff(before: &Snapshot, after: &Snapshot) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for (p, v) in before {
+        if after.get(p) != Some(v) {
+            out.push(p.to_string_lossy().replace('\\', "/"));
+        }
+    }
+    for p in after.keys() {
+        if !before.contains_key(p) {
+            out.push(p.to_string_lossy().replace('\\', "/"));
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// Calls every read function of M2.1–M2.11 on a registered repo (every rev, every directory and file). Returns the
+/// number of calls. Used by the immutability (NFR-O2) and network-boundary (NFR-O1) tests.
+pub fn read_everything(s: &Shelf, id: i64) -> usize {
+    use crate::jobs::CancelToken;
+    use crate::types::EntryKind;
+    use crate::validate::{GitPath, git_path, rev};
+    use crate::{blob, commits, diff, langs, lastcommit, license, readme, refs, releases, repo as repo_mod, tree};
+    let mut calls = 0;
+    let c = CancelToken::new();
+    let _ = repo_mod::detail(s, id).expect("detail");
+    let (_, r) = repo_mod::open(s, id).expect("open");
+    let _ = repo_mod::dirty(&r).expect("dirty");
+    let _ = repo_mod::head_state(&r).expect("head_state");
+    calls += 4;
+
+    let list = refs::list(&r).expect("refs list");
+    let _ = refs::branches(&r).expect("branches");
+    let _ = refs::tags(&r).expect("tags");
+    let names: Vec<String> = list.branches.iter().map(|b| b.name.clone()).collect();
+    let base = list.default_branch.clone().unwrap_or_else(|| DEFAULT_BRANCH.into());
+    let _ = refs::ahead_behind(&r, &base, &names, 10_000, &c).expect("ahead_behind");
+    let _ = releases::list(&r).expect("releases");
+    calls += 5;
+
+    let revs: Vec<String> = list
+        .branches
+        .iter()
+        .map(|b| b.name.clone())
+        .chain(list.tags.iter().map(|t| format!("refs/tags/{}", t.name)))
+        .chain(["HEAD".to_string()])
+        .collect();
+    for rv in &revs {
+        let res = refs::resolve(&r, &rev(rv).expect("rev")).expect("resolve");
+        let tip = Oid::from_str(&res.commit).expect("oid");
+        let tree_oid = Oid::from_str(&res.tree).expect("oid");
+        let _ = commits::latest(s, id, &r, &res).expect("latest");
+        let _ = commits::count(s, id, &r, tip, &c).expect("count");
+        let mut q = commits::PageQuery::new(tip);
+        let _ = commits::page(&r, &q, &c).expect("page");
+        q.path = Some(git_path("src").expect("path"));
+        let _ = commits::page(&r, &q, &c).expect("page path");
+        let _ = langs::for_tree(s, id, &r, tree_oid, &c).expect("langs");
+        let _ = license::detect_license(&r, &r.find_tree(tree_oid).expect("tree"));
+        let _ = readme::render_readme(&r, &res, &GitPath::root()).expect("readme");
+        calls += 8;
+        let mut dirs = vec![GitPath::root()];
+        while let Some(d) = dirs.pop() {
+            let l = tree::list_dir(&r, &res, &d).expect("list_dir");
+            let _ = lastcommit::for_dir(s, id, &r, tip, &d, lastcommit::CAP, &c).expect("for_dir");
+            calls += 2;
+            for e in &l.entries {
+                let p = git_path(&e.path).expect("entry path");
+                let _ = tree::entry_kind(&r, &res, &p).expect("entry_kind");
+                match e.kind {
+                    EntryKind::Dir => dirs.push(p),
+                    _ => {
+                        let _ = blob::meta(&r, &res, &p).expect("meta");
+                        let _ = blob::text(&r, &res, &p).expect("text");
+                        let _ = blob::bytes(&r, &res, &p, u64::MAX).expect("bytes");
+                        let _ = commits::file_last_commit(s, id, &r, &res, &p, &c).expect("file_last_commit");
+                        if readme::is_markdown(&e.path) {
+                            let _ = readme::render_file(&r, &res, &p).expect("render_file");
+                        }
+                        calls += 5;
+                    }
+                }
+            }
+        }
+        let d = diff::commit_detail(&r, tip, &diff::DiffLimits::default()).expect("commit_detail");
+        for f in &d.files {
+            let _ = diff::file_diff(&r, tip, f.index, true);
+        }
+        calls += 1 + d.files.len();
+    }
+    calls
+}
+
+/// Network connection attempts made on **this thread** (git2 remote connects and ghreleases GETs). Thread-local so
+/// parallel clone tests cannot disturb a "stays 0" assertion (NFR-O1).
+pub fn net_calls() -> u64 {
+    crate::clone::net_calls_on_this_thread()
+}
+
+/// `file:///C:/…` URL of a local folder (percent-encoded), for the unchecked clone/fetch seam (D-14, D-20).
+pub fn file_url(path: &Path) -> String {
+    let canon = crate::paths::canonical(path).expect("canonical path");
+    url::Url::from_file_path(&canon).expect("file url").to_string()
+}
+
+/// Appends refs to `<git dir>/packed-refs` (creating it). Needed for names that cannot exist as loose ref files on
+/// Windows (`llm` + `LLM/x`, `con`, `a|b`).
+pub fn add_packed_refs(git_dir: &Path, refs: &[(&str, Oid)]) {
+    let file = git_dir.join("packed-refs");
+    let mut text = std::fs::read_to_string(&file).unwrap_or_else(|_| "# pack-refs with: peeled fully-peeled \n".into());
+    for (name, oid) in refs {
+        text.push_str(&format!("{oid} {name}\n"));
+    }
+    std::fs::write(&file, text).expect("write packed-refs");
+}
+
+/// Points HEAD at `refname` by writing the HEAD file directly (the ref may be unstorable here).
+pub fn set_head_file(git_dir: &Path, refname: &str) {
+    std::fs::write(git_dir.join("HEAD"), format!("ref: {refname}\n")).expect("write HEAD");
+}
+
+pub const LONG_PATH_DEPTH: usize = 30;
+
+/// Bare upstream with file names Windows cannot store: `a:b.txt`, `CON.txt`, `trailing.`, and a > 300-char path.
+pub fn winnames(dir: &Path) -> PathBuf {
+    let long: String = (0..LONG_PATH_DEPTH).map(|i| format!("directory{i:02}/")).collect::<String>() + "file.txt";
+    let mut b = repo(dir);
+    b.bare()
+        .file("README.md", b"# winnames\n")
+        .file("a:b.txt", b"colon\n")
+        .file("CON.txt", b"device\n")
+        .file("trailing.", b"dot\n")
+        .file(&long, b"deep\n")
+        .commit("Windows-hostile names", T0)
+        .set_head();
+    dir.to_path_buf()
+}
+
+/// Bare upstream with ref names that clash or are invalid on Windows: branches `main`, `llm`, `LLM/x`; tags `v1.0`
+/// (fine), `con` and `a|b` (unstorable). Clashing refs live in `packed-refs`.
+pub fn refclash(dir: &Path) -> PathBuf {
+    let mut b = repo(dir);
+    b.bare().file("a.txt", b"1\n").commit("one", T0).set_head();
+    let one = b.head();
+    b.file("a.txt", b"2\n").commit("two", T0 + 60);
+    let two = b.head();
+    b.tag("v1.0", false);
+    add_packed_refs(dir, &[("refs/heads/LLM/x", one), ("refs/heads/llm", two), ("refs/tags/a|b", one), ("refs/tags/con", two)]);
+    dir.to_path_buf()
+}
+
+/// Upstream half of an upstream/downstream pair: bare repo with `main` (2 commits), `dev`, annotated `v1.0.0`,
+/// lightweight `light`. Returns the builder (on `main`, for adding commits later) and its `file://` URL. The
+/// downstream is created by the test (unchecked clone, or `git2::build::RepoBuilder` for an imported work tree).
+pub fn upstream_downstream(dir: &Path) -> (TestRepo, String) {
+    let mut b = repo(dir);
+    b.bare().file("README.md", b"# Upstream\n").file("src/main.rs", b"fn main() {}\n").commit("Initial", T0);
+    b.file("src/lib.rs", b"pub fn x() {}\n").commit("Add lib", T0 + 60).tag("v1.0.0", true).tag("light", false);
+    b.branch("dev").file("dev.txt", b"dev\n").commit("Dev work", T0 + 120);
+    b.checkout("main").set_head();
+    let url = file_url(dir);
+    (b, url)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
