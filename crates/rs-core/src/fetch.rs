@@ -83,7 +83,23 @@ fn clear_staging(repo: &Repository) -> Result<()> {
             r.delete()?;
         }
     }
+    // libgit2 leaves the emptied loose-ref directories; leave no trace in the user's .git.
+    let dir = STAGING.trim_end_matches('/').split('/').nth(1).unwrap_or("reposhelf-staging");
+    for base in [repo.path().join("refs"), repo.path().join("logs").join("refs")] {
+        remove_empty_dirs(&crate::paths::long(&base.join(dir)));
+    }
     Ok(())
+}
+
+/// Removes `dir` and its subdirectories bottom-up as long as they hold no files (never deletes a file).
+fn remove_empty_dirs(dir: &std::path::Path) {
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    for e in rd.flatten() {
+        if e.file_type().is_ok_and(|t| t.is_dir()) {
+            remove_empty_dirs(&e.path());
+        }
+    }
+    let _ = std::fs::remove_dir(dir);
 }
 
 #[cfg(test)]
@@ -113,8 +129,10 @@ fn fetch_from(s: &Shelf, repo_id: i64, src: FetchSource, ctx: &JobCtx) -> Result
     let adv = clone::advertised(&mut remote, ctx)?;
     let remote_names: Vec<String> = before_remote.keys().cloned().collect();
     let tag_names: Vec<String> = local_tags.keys().cloned().collect();
-    let (hkeep, hskip) = winpath::storable_refs(&adv.heads, &remote_names, adv.default.as_deref(), ic);
-    let (tkeep, tskip) = winpath::storable_refs(&adv.tags, &tag_names, None, ic);
+    let (hkeep, mut hskip) = winpath::storable_refs(&adv.heads, &remote_names, adv.default.as_deref(), ic);
+    let hkeep = clone::drop_long_refs(repo.path(), ORIGIN, hkeep, &mut hskip);
+    let (tkeep, mut tskip) = winpath::storable_refs(&adv.tags, &tag_names, None, ic);
+    let tkeep = clone::drop_long_refs(repo.path(), STAGING, tkeep, &mut tskip);
     // 3. staging namespace, fetch
     let staging = Staging::new(&repo)?;
     let mut specs = Vec::new();
@@ -330,6 +348,7 @@ mod tests {
         let o = fetch_unchecked(&s, id, &JobCtx::noop()).unwrap();
         assert_eq!(o.new_commits, 2);
         assert_eq!(o.new_tags, ["v9"]);
+        assert!(!down.join(".git").join("refs").join("reposhelf-staging").exists(), "no empty staging dir left behind");
         let after = testkit::snapshot(&down);
         let changed = testkit::snapshot_diff(&before, &after);
         assert!(!changed.is_empty());

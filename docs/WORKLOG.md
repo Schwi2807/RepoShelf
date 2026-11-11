@@ -181,7 +181,11 @@ work was parked on branch `wip-m3`, finished there and squash-merged onto `main`
   `file_url`, `add_packed_refs`, `set_head_file`, fixtures `winnames`, `refclash`, `upstream_downstream`.
 - `tests/network_boundary.rs` (M3.9): every M2 read function + every library function → `net_calls()` unchanged.
 
-Gate M3: `cargo test -p rs-core` 131 unit + 2 integration passed · `--features ghreleases` 134 + 2 passed, 1 ignored
+Review follow-up (second commit): `drop_long_refs` restored after confirming the DWIM lookup is local-transport only;
+`clear_staging` also prunes the emptied `refs/reposhelf-staging` / `logs/refs/reposhelf-staging` directories (the
+imported-repo fetch test asserts none is left).
+
+Gate M3: `cargo test -p rs-core` 132 unit + 2 integration passed · `--features ghreleases` 135 + 2 passed, 1 ignored
 (live smoke) · `cargo clippy --workspace --all-targets -- -D warnings` clean, also `-p rs-core --all-targets` (no
 features) and `--features ghreleases` · `cargo test --workspace` ok · `npm run typecheck` / `npm test` / `npm run
 build` ok. No test reaches the network: all clones/fetches use file:// upstreams through the unchecked seam; the
@@ -191,10 +195,10 @@ M3.5 finding (D-44): the https→http downgrade is refused inside libgit2 (sourc
 disabled, non-https `Location` never applied); the reachable bypass is `url.*.insteadOf`, now refused in code.
 
 Open items:
-- D-45: libgit2's MAX_PATH checks ignore `core.longpaths`. Archive paths longer than ~128 chars + the repo dir are
-  refused before cloning; an advertised ref name long enough to break libgit2's DWIM lookup fails the whole clone/fetch
-  ("path too long"). Not fixable in rs-core without patching libgit2; the default archive (`Documents\RepoShelf`) is
-  far below the limit.
+- D-45: libgit2's MAX_PATH checks ignore `core.longpaths`. Archive folders deeper than ~128 chars are refused
+  before cloning (readable message); refs too long for a loose file are skipped and listed (FR-9). The default archive
+  (`Documents\RepoShelf`) is far below the limit. Over `file://` (tests/e2e only) a very long advertised name fails
+  the whole clone because the local transport looks every name up (verified in local.c).
 - Renamed GitHub repos (API 301) fail release-note fetching by design (D-49).
 
 Handoff for M4:

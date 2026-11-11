@@ -139,10 +139,11 @@ pub(crate) fn download(remote: &mut Remote<'_>, specs: &[String], ctx: &JobCtx) 
 }
 
 // D-45: libgit2 (Windows) refuses a git dir whose path + the longest internal suffix (`objects/pack/pack-
-// <64 hex>.pack.lock`, 92 chars) exceeds MAX_PATH, and any loose ref path (incl. its DWIM lookups of advertised
-// names such as `refs/remotes/<full name>/HEAD`) over MAX_PATH, whatever `core.longpaths` says (repository.c
-// `validate_repo_path`, refdb_fs.c `loose_path`). The first is refused before anything is created; an overlong
-// advertised ref name fails the fetch inside libgit2 ("path too long"), and the job cleans up like any error.
+// <64 hex>.pack.lock`, 92 chars) exceeds MAX_PATH, and any loose ref/reflog path over MAX_PATH, whatever
+// `core.longpaths` says (repository.c `validate_repo_path`, refdb_fs.c `loose_path`). The first is refused before
+// anything is created; refs whose loose file would be too long are skipped and reported (FR-9). (The local
+// `file://` transport additionally DWIM-looks-up every advertised name in the receiving repo — local.c
+// `local_negotiate_fetch` — so there a very long name fails the whole test clone; https never does that lookup.)
 const MAX_PATH: usize = 260;
 const REPO_SUFFIX: usize = 92;
 
@@ -153,6 +154,22 @@ fn git_dir_chars(git_dir: &Path) -> usize {
 /// Can libgit2 open a repository at `git_dir` on this platform?
 pub(crate) fn repo_path_ok(git_dir: &Path) -> bool {
     !cfg!(windows) || git_dir_chars(git_dir) + REPO_SUFFIX <= MAX_PATH
+}
+
+/// Moves names whose loose ref (`<git dir>/<prefix><name>`) or reflog (`logs/…`) plus `.lock` would exceed MAX_PATH
+/// from `keep` to `skipped` (Windows only).
+pub(crate) fn drop_long_refs(git_dir: &Path, prefix: &str, keep: Vec<String>, skipped: &mut Vec<String>) -> Vec<String> {
+    if !cfg!(windows) {
+        return keep;
+    }
+    long_ref_split(git_dir_chars(git_dir), prefix, keep, skipped)
+}
+
+fn long_ref_split(git_dir_chars: usize, prefix: &str, keep: Vec<String>, skipped: &mut Vec<String>) -> Vec<String> {
+    let base = git_dir_chars + "logs/".len() + prefix.chars().count() + ".lock".len();
+    let (ok, long): (Vec<String>, Vec<String>) = keep.into_iter().partition(|n| base + n.chars().count() <= MAX_PATH);
+    skipped.extend(long);
+    ok
 }
 
 pub(crate) fn ignore_case(repo: &Repository) -> bool {
@@ -313,13 +330,15 @@ fn clone_into(partial: &Path, url: &str, ctx: &JobCtx) -> Result<Vec<String>> {
     let Some(default) = adv.default.clone() else {
         return Err(Error::Refused("The repository is empty: it has no branches to archive.".into()));
     };
-    let (hkeep, hskip) = winpath::storable_refs(&adv.heads, &[], Some(&default), ic);
+    let (hkeep, mut hskip) = winpath::storable_refs(&adv.heads, &[], Some(&default), ic);
+    let hkeep = drop_long_refs(partial, ORIGIN, hkeep, &mut hskip);
     if !hkeep.contains(&default) {
         return Err(Error::Refused(format!(
             "The default branch {default:?} cannot be stored on Windows, so this repository cannot be archived."
         )));
     }
-    let (tkeep, tskip) = winpath::storable_refs(&adv.tags, &[], None, ic);
+    let (tkeep, mut tskip) = winpath::storable_refs(&adv.tags, &[], None, ic);
+    let tkeep = drop_long_refs(partial, TAGS, tkeep, &mut tskip);
     let mut specs = winpath::refspecs(HEADS, ORIGIN, &hkeep, &hskip);
     if !tkeep.is_empty() {
         specs.extend(winpath::refspecs(TAGS, TAGS, &tkeep, &tskip));
@@ -582,9 +601,22 @@ mod tests {
     }
 
     #[test]
-    fn overlong_advertised_ref_fails_cleanly() {
-        // D-45: a ref name too long for libgit2's loose-ref lookups under the archive fails the clone inside
-        // libgit2; the job leaves no folder behind. (It still fits under the shorter upstream path.)
+    fn long_ref_split_skips_names_whose_loose_file_is_too_long() {
+        let mut skipped = vec!["refs/x".to_string()];
+        let base = 100; // git dir chars incl. trailing slash
+        let room = MAX_PATH - (base + "logs/".len() + ORIGIN.len() + ".lock".len());
+        let fits = "a".repeat(room);
+        let over = "b".repeat(room + 1);
+        let keep = long_ref_split(base, ORIGIN, vec!["main".into(), fits.clone(), over.clone()], &mut skipped);
+        assert_eq!(keep, ["main".to_string(), fits]);
+        assert_eq!(skipped, ["refs/x".to_string(), over]);
+    }
+
+    #[test]
+    fn overlong_advertised_ref_fails_cleanly_over_file_transport() {
+        // D-45: local-transport behaviour only — `local_negotiate_fetch` DWIM-looks-up every advertised name in the
+        // receiving repo, so a very long name fails the test clone inside libgit2 before any refspec filter (https
+        // skips such names via `drop_long_refs`). The job leaves no folder behind.
         let t = tempfile::tempdir().unwrap();
         let s = testkit::shelf(t.path());
         let up = t.path().join("o").join("longref");
