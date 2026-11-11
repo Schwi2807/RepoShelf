@@ -59,7 +59,9 @@ fn http_status(msg: &str) -> Option<u32> {
 pub fn friendly(e: &Error, host: Option<&str>) -> String {
     match e {
         Error::Git(g) => friendly_git(g, host),
-        Error::Refused(m) if m.contains("url.*.insteadOf") => format!(
+        // Only the single-repo refusal from `clone::check_effective_url`; a fetch-all failure list that merely
+        // contains it keeps its full text.
+        Error::Refused(m) if m.starts_with("Git configuration rewrites") && m.contains("url.*.insteadOf") => format!(
             "Your git settings redirect this address to a different one (a url.*.insteadOf rule in your git config). \
              RepoShelf only connects to the exact address you entered, so it stopped. Remove that rule to clone or \
              fetch {} here.",
@@ -167,6 +169,9 @@ mod tests {
         assert_eq!(i.code, "refused");
         assert!(i.message.starts_with("Your git settings redirect"), "{}", i.message);
         assert!(i.message.contains("insteadOf"));
+        // a fetch-all failure list that contains the refusal keeps every line
+        let list = "Fetch failed for 2 repositories:\na/b: Git configuration rewrites x to y (url.*.insteadOf). …\nc/d: git: timeout";
+        assert_eq!(friendly(&Error::Refused(list.into()), None), list);
         // other refusals unchanged
         assert_eq!(friendly(&Error::Refused("Branch has diverged from origin".into()), None), "Branch has diverged from origin");
     }

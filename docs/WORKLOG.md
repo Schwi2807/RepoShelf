@@ -273,6 +273,13 @@ workspace, `-p reposhelf --features e2e` and `--no-default-features` · `npm run
 `cargo build -p reposhelf` and `--features e2e` ok; the plain debug exe does not contain `RS_TEST_FILE_CLONE`.
 No `src/components` / `src/screens`. **Backend done.**
 
+Review follow-up (second commit): the insteadOf rewording now matches only the single-repo refusal (a fetch-all
+failure list containing it keeps every line; test added). Checks: `cargo tree -e normal` shows rs-core with
+`default,ghreleases` only (no testkit in the app graph, D-26); a throwaway field added to `RemoveResult` in
+`types.ts` failed `npm run typecheck` in `types.test.ts` (reverted); `%LOCALAPPDATA%\dev.schwi.reposhelf` and
+`Documents\RepoShelf` do not exist (existence check only). Not exercised live: the real dialogs, opener and Recycle
+Bin (`TauriShell`, `RealTrash`; fakes in tests) and repo-backed commands in the window (empty scratch shelf) — M8.
+
 Open items:
 - `fetch_all` failures list rs-core's raw per-repo text (`git: …`) inside one message (D-52).
 - Dev-mode favicon 404 (Vite serves no `favicon.ico`); add an icon link in M5.
