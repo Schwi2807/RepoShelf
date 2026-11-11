@@ -118,19 +118,24 @@ Steps: M2.1–M2.14 done. New decisions D-36..D-43 (DECISIONS.md). D-34 confirme
 - rs-cli: `rs fixtures <dir>` (marker `.rs-fixtures`, rebuilds known fixture folders, refuses foreign non-empty
   dirs), `rs bench <dir>`, `rs inspect <repo-path> <cmd>`.
 
-Gate M2: `cargo test -p rs-core` 100 unit + 1 integration passed (git CLI comparisons ran: `rev-list --left-right`,
+Gate M2: `cargo test -p rs-core` 101 unit + 1 integration passed (git CLI comparisons ran: `rev-list --left-right`,
 `log --format=%H`, `log -1 -- <path>`, `show --numstat`, `diff --numstat`, `rev-list --count`, `cat-file`) ·
 `cargo clippy --workspace --all-targets -- -D warnings` clean · `cargo test --workspace` ok · fixtures built in
-12.0 s (release) and rebuilt over the same dir · bench (release) all under target:
+11.8 s (release) and rebuilt over the same dir · bench (release) all under target:
 
 | measurement | ms | target |
 |---|---|---|
-| tree.list_dir 1,000 entries | 2.9 | 300 |
-| lastcommit.for_dir 2nd visit (1st: 6.6) | 0.9 | 50 |
-| commits.page skip 0 | 43.4 | 200 |
-| commits.page skip 9,965 | 43.4 | 200 |
-| langs.for_tree 50k files | 53.7 | 3,000 |
+| tree.list_dir 1,000 entries | 3.1 | 300 |
+| lastcommit.for_dir 2nd visit (1st: 7.0) | 0.8 | 50 |
+| commits.page skip 0 | 45.4 | 200 |
+| commits.page skip 9,965 | 44.7 | 200 |
+| langs.for_tree 50k files | 53.6 | 3,000 |
 | diff.commit_detail 400 files | 2.0 | 1,000 |
+
+Review fixes after the first M2 commit: the `data:` attribute filter now classifies the scheme with `Url::parse`
+like ammonia does (tab/newline/control-char obfuscated `data:text/html` and `data:image/svg+xml` were otherwise
+possible) — test `obfuscated_data_urls_are_dropped`; `langs::compute` descends trees explicitly because git2's
+`Tree::walk` callback fails on non-UTF-8 directory names — test with `d\xe9/x.rs`.
 
 `npm run typecheck` ok · `npm test` 1 passed · `npm run build` ok. `target\scratch\m2-bench` removed afterwards.
 
@@ -149,3 +154,8 @@ Handoff for M3+:
 - PowerShell 5.1 gotcha hit in this milestone: `Get-Content -Raw` + `WriteAllText` re-encodes UTF-8 sources as
   cp1252 mojibake (`→` → `â†’`). Edit sources only with the Edit/Write tools (TASKS rule); repaired before commit.
 - `testkit::fixtures(root)` asserts every target folder is absent; `rs fixtures` handles cleanup.
+- Paging cost scales with history length, not offset (TIME sort walks everything first): 10k commits ≈ 45 ms for
+  any page. Fine for NFR-P5; a 100k+ history would need a topo/first-parent mode later.
+- Do not use git2 `Tree::walk` on repo content (fails on non-UTF-8 dir names); descend with `tree.iter()`.
+- The rs-core self dev-dependency (D-42) enables `testkit` only for rs-core's own test targets; M9's marker check
+  (D-26) still confirms shipped builds carry no testkit.

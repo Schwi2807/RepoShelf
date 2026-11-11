@@ -122,20 +122,26 @@ impl<'a> ammonia::UrlRelativeEvaluate<'a> for Rewriter {
     }
 }
 
-/// `data:` only for raster images in `img[src]`.
+/// `data:` only for raster images in `img[src]`. The scheme is classified exactly as ammonia does (`Url::parse`,
+/// which drops tabs/newlines and leading control characters), and the kept value is the normalised URL.
 fn filter_attr<'a>(element: &str, attribute: &str, value: &'a str) -> Option<Cow<'a, str>> {
-    if matches!(attribute, "href" | "src") {
-        let v = value.trim_start().to_ascii_lowercase();
-        if v.starts_with("data:") {
-            let ok = element == "img"
-                && attribute == "src"
-                && ["data:image/png", "data:image/gif", "data:image/jpeg", "data:image/webp"]
-                    .iter()
-                    .any(|p| v.strip_prefix(p).is_some_and(|rest| rest.starts_with(';') || rest.starts_with(',')));
-            return ok.then_some(Cow::Borrowed(value));
-        }
+    if !matches!(attribute, "href" | "src") {
+        return Some(Cow::Borrowed(value));
     }
-    Some(Cow::Borrowed(value))
+    let squashed: String = value.chars().filter(|c| !c.is_ascii_control() && !c.is_whitespace()).collect::<String>().to_ascii_lowercase();
+    let parsed = url::Url::parse(value).ok();
+    let is_data = parsed.as_ref().is_some_and(|u| u.scheme() == "data") || squashed.starts_with("data:");
+    if !is_data {
+        return Some(Cow::Borrowed(value));
+    }
+    let norm = parsed.filter(|u| u.scheme() == "data")?.as_str().to_string();
+    let lower = norm.to_ascii_lowercase();
+    let ok = element == "img"
+        && attribute == "src"
+        && ["data:image/png", "data:image/gif", "data:image/jpeg", "data:image/webp"]
+            .iter()
+            .any(|p| lower.strip_prefix(p).is_some_and(|rest| rest.starts_with(';') || rest.starts_with(',')));
+    ok.then_some(Cow::Owned(norm))
 }
 
 fn percent_decode(s: &str) -> Option<String> {
@@ -263,6 +269,20 @@ mod tests {
         }
         assert_eq!(rewrite("", "a b.png").as_deref(), Some("rsrepo:/a%20b.png"));
         assert_eq!(rewrite("", "..").as_deref(), None);
+    }
+
+    #[test]
+    fn obfuscated_data_urls_are_dropped() {
+        // Url::parse drops tabs/newlines/leading C0 controls, so these reach ammonia's scheme check as `data:`.
+        let html = "<p><a href=\"da&#9;ta:text/html,<b>x</b>\">tab</a> <a href=\"&#1;data:text/html,x\">ctl</a> \
+                    <a href=\" DATA:text/html,x\">upper</a></p>\
+                    <img src=\"da&#10;ta:image/svg+xml,<svg onload=alert(1)>\" alt=\"nl\">\
+                    <img src=\"&#9;data:image/png;base64,AAAA\" alt=\"ok\">";
+        let out = sanitize(html, &root());
+        assert!(!out.contains("href="), "no data link survives: {out}");
+        assert!(!out.contains("svg") && !out.contains("text/html") && !out.contains("onload"), "{out}");
+        assert!(out.contains("<img alt=\"nl\">"), "svg data src removed: {out}");
+        assert!(out.contains("src=\"data:image/png;base64,AAAA\""), "raster kept, normalised: {out}");
     }
 
     #[test]

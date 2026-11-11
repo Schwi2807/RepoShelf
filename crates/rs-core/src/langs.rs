@@ -5,7 +5,7 @@ use crate::Shelf;
 use crate::error::{Error, Result};
 use crate::jobs::CancelToken;
 use crate::types::{LanguageStat, Languages};
-use git2::{ObjectType, Oid, Repository, TreeWalkMode, TreeWalkResult};
+use git2::{ObjectType, Oid, Repository};
 use std::collections::HashMap;
 
 pub const TOP: usize = 6;
@@ -52,45 +52,30 @@ fn cached(s: &Shelf, repo_id: i64, tree: Oid) -> Result<Option<Languages>> {
 
 /// Pure computation (no cache); cancellable every 1,024 entries.
 pub fn compute(repo: &Repository, tree: Oid, cancel: &CancelToken) -> Result<Languages> {
-    let root = repo.find_tree(tree)?;
+    // Explicit descent instead of `Tree::walk`: git2's walk callback fails on non-UTF-8 directory names.
     let odb = repo.odb()?;
     let mut bytes: HashMap<&'static str, u64> = HashMap::new();
     let mut seen = 0u32;
-    let mut cancelled = false;
-    let mut failure: Option<git2::Error> = None;
-    root.walk(TreeWalkMode::PreOrder, |dir, e| {
-        seen += 1;
-        if seen.is_multiple_of(1024) && cancel.is_cancelled() {
-            cancelled = true;
-            return TreeWalkResult::Abort;
-        }
-        let name = String::from_utf8_lossy(e.name_bytes());
-        match e.kind() {
-            Some(ObjectType::Tree) => {
-                if excluded_dir(&name) { TreeWalkResult::Skip } else { TreeWalkResult::Ok }
+    let mut stack = vec![(String::new(), repo.find_tree(tree)?)];
+    while let Some((prefix, t)) = stack.pop() {
+        for e in t.iter() {
+            seen += 1;
+            if seen.is_multiple_of(1024) {
+                cancel.check()?;
             }
-            Some(ObjectType::Blob) if e.filemode() != 0o120000 => {
-                let path = format!("{dir}{name}");
-                if let Some(lang) = classify(&path) {
-                    match odb.read_header(e.id()) {
-                        Ok((n, _)) => *bytes.entry(lang).or_default() += n as u64,
-                        Err(err) => {
-                            failure = Some(err);
-                            return TreeWalkResult::Abort;
-                        }
+            let name = String::from_utf8_lossy(e.name_bytes());
+            match e.kind() {
+                Some(ObjectType::Tree) if !excluded_dir(&name) => {
+                    stack.push((format!("{prefix}{name}/"), repo.find_tree(e.id())?));
+                }
+                Some(ObjectType::Blob) if e.filemode() != 0o120000 => {
+                    if let Some(lang) = classify(&format!("{prefix}{name}")) {
+                        *bytes.entry(lang).or_default() += odb.read_header(e.id())?.0 as u64;
                     }
                 }
-                TreeWalkResult::Ok
+                _ => {}
             }
-            _ => TreeWalkResult::Ok,
         }
-    })
-    .or_else(|e| if cancelled || failure.is_some() { Ok(()) } else { Err(e) })?;
-    if cancelled {
-        return Err(Error::Cancelled);
-    }
-    if let Some(e) = failure {
-        return Err(e.into());
     }
     let total: u64 = bytes.values().sum();
     let mut v: Vec<(&str, u64)> = bytes.into_iter().collect();
@@ -180,6 +165,14 @@ mod tests {
         assert_eq!(l.items[6].bytes, 400 + 300);
         let sum: f32 = l.items.iter().map(|i| i.percent).sum();
         assert!((sum - 100.0).abs() < 0.01);
+
+        // non-UTF-8 directory names are walked (git2's Tree::walk would fail on them)
+        let mut raw = testkit::repo(&t.path().join("raw"));
+        raw.bare().file_raw(b"d\xe9/x.rs", b"fn x() {}\n").file_raw(b"vendor/\xff.rs", b"fn v() {}\n").commit("c", T0);
+        let repo = testkit::open(&t.path().join("raw"));
+        let tree = repo.find_commit(raw.head()).unwrap().tree_id();
+        let l = compute(&repo, tree, &CancelToken::new()).unwrap();
+        assert_eq!(l.items.iter().map(|i| (i.name.as_str(), i.bytes)).collect::<Vec<_>>(), [("Rust", 10)]);
 
         let mut big = testkit::repo(&t.path().join("big"));
         big.bare();
