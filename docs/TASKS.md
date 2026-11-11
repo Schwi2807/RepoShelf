@@ -707,22 +707,24 @@ refused in the real app; imported `.git` hash unchanged after the browse-only ph
 
 ## M9 — Docs + release build
 
-- [ ] M9.1 Version `0.1.0` in `package.json`, root `Cargo.toml` (`workspace.package.version`),
+- [x] M9.1 Version `0.1.0` in `package.json`, root `Cargo.toml` (`workspace.package.version`),
   `src-tauri/tauri.conf.json`.
-- [ ] M9.2 `tauri.conf.json` bundle: `targets: ["nsis"]`, `nsis.installMode: "currentUser"`, icons.
+- [x] M9.2 `tauri.conf.json` bundle: `targets: ["nsis"]`, `nsis.installMode: "currentUser"`, icons.
   `tools/build-portable.mjs` (as PM: `npx tauri build --no-bundle`, then copy `target\release\reposhelf.exe` to
   `target\release\portable\RepoShelf_<ver>_x64-portable.exe`, version read from `tauri.conf.json`; no `e2e` feature,
   no `--workspace`, D-26).
-- [ ] M9.3 Build: `npm run build:installer` → `target\release\bundle\nsis\RepoShelf_0.1.0_x64-setup.exe` (built,
+- [x] M9.3 Build: `npm run build:installer` → `target\release\bundle\nsis\RepoShelf_0.1.0_x64-setup.exe` (built,
   **never run**); `npm run build:portable` → portable exe. Marker check: `RS_TEST_FILE_CLONE` absent from both (D-14,
   D-26).
-- [ ] M9.4 Portable smoke: start the portable exe with scratch `RS_DATA_DIR`/`RS_ARCHIVE_DIR` (main display or
+- [x] M9.4 Portable smoke: start the portable exe with scratch `RS_DATA_DIR`/`RS_ARCHIVE_DIR` (main display or
   offscreen), confirm the dashboard, kill the tree, leftovers 0.
-- [ ] M9.5 `README.md` ∥: what RepoShelf is, screens, data locations (D-13) + env overrides, build/test commands, mock
+- [x] M9.5 `README.md` ∥: what RepoShelf is, screens, data locations (D-13) + env overrides, build/test commands, mock
   preview, e2e, known limits (deferred list from REQUIREMENTS §5).
-- [ ] M9.6 Final `docs/DECISIONS.md`, `docs/WORKLOG.md` (handoff: hand tests pending), `docs/TESTING.md` ∥.
-- [ ] M9.7 Copy installer + portable into `_REVIVE/releases/` only if `_REVIVE/` exists in this repo.
-- [ ] M9.8 Re-run gates M0–M8 (bundle-size check included), commit, tag `m9-done` and `v0.1.0`.
+- [x] M9.6 Final `docs/DECISIONS.md`, `docs/WORKLOG.md` (handoff: hand tests pending), `docs/TESTING.md` ∥.
+- [x] M9.7 Copy installer + portable into `_REVIVE/releases/` only if `_REVIVE/` exists in this repo.
+  **Done:** the kit was created at the user's request (`_REVIVE\REVIVE.md`, git-excluded, D-95); copies + `SHA256SUMS.txt`
+  in `_REVIVE\releases\v0.1.0\`.
+- [x] M9.8 Re-run gates M0–M8 (bundle-size check included), commit, tag `m9-done` and `v0.1.0`.
 
 Order: M9.1 → M9.2 → M9.3 → M9.4 → M9.5 ∥ M9.6 → M9.7 → M9.8.
 

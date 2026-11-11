@@ -36,11 +36,19 @@ if ($run.devPortListeners -ne 0) { $bad.Add('something listened on port 1450 dur
 if (@($run.leftovers).Count -gt 0) { $bad.Add("leftover processes: $(@($run.leftovers) -join ', ')") }
 if (-not $run.importedHashesEqual) { $bad.Add("imported fixtures changed: $(@($run.changedFixtures) -join ', ')") }
 if (@($run.openLog | Where-Object { $_ -like 'url*' }).Count -gt 0) { $bad.Add('a browser URL was opened') }
+# D-91: the removed scratch clone must go through the trash seam (deleted inside the scratch archive), never the real
+# Recycle Bin.
+$trash = @($run.trashLog | Where-Object { $_ })
+if ($trash.Count -ne 1) { $bad.Add("trash seam: expected 1 logged deletion, got $($trash.Count) (real Recycle Bin used?)") }
+foreach ($t in $trash) {
+    $p = ($t -split "`t", 2)[1]
+    if (-not $p -or -not $run.archive -or -not $p.StartsWith([string]$run.archive, [StringComparison]::OrdinalIgnoreCase)) { $bad.Add("trash seam deleted outside the scratch archive: $t") }
+}
 
 $p1 = ($steps | Where-Object { $_.step -eq 'NFR-P1 start to dashboard rows' }).ms
 $p2 = ($steps | Where-Object { $_.step -eq 'NFR-P2 1,000-entry dir (first visit)' }).ms
 if ($bad.Count -eq 0) {
-    "e2e check: all $($steps.Count) steps passed; $shotCount shots; NFR-P1 $p1 ms; NFR-P2 $p2 ms; leftovers 0; imported fixtures unchanged"
+    "e2e check: all $($steps.Count) steps passed; $shotCount shots; NFR-P1 $p1 ms; NFR-P2 $p2 ms; leftovers 0; imported fixtures unchanged; trash seam 1 deletion (no Recycle Bin)"
     exit 0
 }
 Write-Host "e2e check: $($bad.Count) problem(s)" -ForegroundColor Red

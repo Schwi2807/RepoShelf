@@ -730,3 +730,65 @@ Notes for M9:
 - `vite.config.ts` `assetsInlineLimit: 0` must stay (CSP, D-86).
 - The e2e harness can run against any exe built with `--features e2e` via `run-e2e.ps1 -App <exe>`.
 - Hand-test list for the user: `docs/TESTING.md` §4.
+
+## M9 — Docs + release build (2026-11-12)
+
+Steps M9.1–M9.8 done (one subagent). Decisions D-91..D-95.
+
+- **Recycle Bin fix first (D-91).** M8's e2e sent the removed scratch clone to the user's real Recycle Bin (five
+  `demo-upstream.git` folders are still there from M8 runs; not emptied by the agent). New e2e-only trash seam
+  `RS_E2E_TRASH_LOG` (`E2eTrash` in `src-tauri/src/e2e.rs`, wired in `lib.rs` under `cfg(feature = "e2e")`): deletes
+  the folder outright, only strictly inside the scratch archive, and logs `trash\t<path>`. `run-e2e.ps1` sets it and
+  refuses an e2e exe without it; `wd-e2e.mjs` (step renamed "remove cloned (trash seam)") and `check-e2e.ps1` require
+  exactly one logged deletion inside the scratch archive. 2 new e2e-gated tests (deletes inside the archive incl. a
+  read-only file, refuses outside / the archive itself, never calls the real trasher; pass-through without env).
+  Every e2e run in M9 used the seam: nothing reached the Recycle Bin.
+- M9.1 version 0.1.0 in `package.json` (+ `package-lock.json`), `Cargo.toml` workspace (+ `Cargo.lock`),
+  `tauri.conf.json`; mock `app_info` and the Settings test follow (0.1.0). The IPC golden / `types.rs` sample keeps
+  "0.0.1" (sample data, not the app version).
+- M9.2 `tauri.conf.json` bundle was already `nsis` / `currentUser` / icons. `tools/build-portable.mjs` implemented
+  (D-92): name + version from `tauri.conf.json`, `npx tauri build --no-bundle`, refuses a set `CARGO_TARGET_DIR` and
+  any `RS_TEST_FILE_CLONE` / `RS_E2E_` bytes, copies to `target\release\portable\`.
+- M9.3 builds: `npm run build:installer` → `RepoShelf_0.1.0_x64-setup.exe` (never run). The tauri bundler
+  re-downloaded NSIS 3.13 + `nsis_tauri_utils` 0.5.3 into `%LOCALAPPDATA%\tauri` (hash-validated build-tool cache; no
+  Bitdefender interference seen; the setup exe still existed after the build). Markers (D-93): `RS_TEST_FILE_CLONE`,
+  `RS_E2E_` absent from `target\release\reposhelf.exe` (installer payload), the portable and the setup exe; present in
+  the e2e exe (positive control). The testkit has no string surviving LTO + strip (absent even from the e2e exe), so
+  D-26 rests on the build path, not a byte search.
+- M9.4 portable smoke (D-94): scratch `RS_DATA_DIR` / `RS_ARCHIVE_DIR`, WebView2 remote debugging on a free port,
+  window moved to −32000,−32000 by `SetWindowPos` ~0.1–0.3 s after start (visible centred on the main display for that
+  moment — a shipped exe has no off-screen seam), page over CDP: `http://tauri.localhost/`, "Repositories" + "Your
+  shelf is empty"; `reposhelf.db` created in the scratch data dir; tree killed, leftovers 0, scratch removed. Run on
+  the final portable (after the gate rebuild) as well.
+- M9.5 `README.md` (what it is, screenshots from `docs/screenshots`, screens, download/run, data locations + env
+  overrides, develop + mock preview, tests + e2e, release build, fixed assumptions, out of scope, planned M10 as a
+  plan only, known limits). M9.6 `docs/TESTING.md` (trash seam, §4 release build + marker check + portable smoke, §5
+  hand tests incl. the installer), DECISIONS D-91..D-95.
+- M9.7 `_REVIVE\` kit created at the user's request (TASKS said "only if it exists"; D-95): `REVIVE.md`,
+  `memory\reposhelf-project.md` (copy), `releases\v0.1.0\` with both exes + `SHA256SUMS.txt` (copies verified against
+  `target\`). `/_REVIVE/` added to `.git\info\exclude` (as Project Manager), so no exe is committed. Row added to
+  `C:\Dev\projects\_REVIVE_INDEX.md`.
+
+Artifacts (final, from the gate run): `RepoShelf_0.1.0_x64-setup.exe` 5,475,361 bytes (sha256 ddfde27c…7f4e),
+`RepoShelf_0.1.0_x64-portable.exe` 18,681,856 bytes (sha256 641353e2…b32d). Builds are not byte-reproducible (each
+rebuild changed both hashes), so the copies were refreshed after the gate.
+
+Tests: Rust `cargo test --workspace` 181 (unchanged), reposhelf `--features e2e` 48 → 50; TS 579.
+
+Gate M9 (`target\m9-gate-summary.log`, `target\m9g-*.log`): `cargo test --workspace --all-features` ok · clippy
+`-D warnings` (workspace and `-p reposhelf --features e2e`) ok · typecheck ok · `npm test` 579 · `npm run build` ok,
+initial JS 436,870 bytes < 1.5 MB · build:installer ok · build:portable ok · both artifacts present, markers absent ·
+e2e build ok · `run-e2e.ps1` + check: 78/78 steps, 24 shots, NFR-P1 426 ms, NFR-P2 44 ms, leftovers 0, imported
+fixtures unchanged, trash seam 1 deletion · `rs fixtures` + `rs bench` (release) rc 0: 2.9 / 0.7 / 41.5 / 42.0 /
+53.6 / 2.0 ms. Earlier: `cargo test --workspace` 181, `-p reposhelf --no-default-features` 43, clippy
+`--no-default-features` ok.
+
+Open items / handoff (v0.1.0 done):
+- Hand tests for the user: `docs/TESTING.md` §5 — installer install + uninstall (agents never run it), network adapter
+  off, theme + restart, mouse back/forward, real dialogs, Open folder, external link, big clone, real Recycle Bin.
+- `run-e2e.ps1 -Network` (M8.8) still never executed.
+- Five scratch `demo-upstream.git` folders from M8 in the Recycle Bin: empty at will.
+- M10 Explore mode stays plan only until the user says so.
+- Scripted edits (not Edit/Write): TASKS M9 checkboxes ticked by a PowerShell string replace; `.git\info\exclude`
+  appended with `Add-Content` (no Windows paths). The smoke helpers (`smoke-portable.ps1`, `cdp-eval.mjs`) lived in the
+  session scratchpad and are not in the repo; the procedure is in TESTING §4.

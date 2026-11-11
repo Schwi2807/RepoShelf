@@ -64,7 +64,11 @@ fn startup<R: tauri::Runtime>(app: &mut tauri::App<R>, test_file_clone: bool) ->
         let seams = Arc::new(e2e::E2eSeams::from_env(picker, opener));
         (seams.clone(), seams)
     };
-    let st = Arc::new(AppState::new(shelf.clone(), test_file_clone, picker, Arc::new(RealTrash), opener));
+    let trasher: Arc<dyn state::Trasher> = Arc::new(RealTrash);
+    // e2e build only (D-91): a scratch run deletes the removed clone instead of filling the real Recycle Bin.
+    #[cfg(feature = "e2e")]
+    let trasher: Arc<dyn state::Trasher> = Arc::new(e2e::E2eTrash::from_env(dirs.archive.clone(), trasher));
+    let st = Arc::new(AppState::new(shelf.clone(), test_file_clone, picker, trasher, opener));
     st.jobs.load_persisted()?;
     app.manage(st.clone());
 

@@ -35,7 +35,7 @@ describe('Settings page (S10)', () => {
     await settle(50);
     expect(host.querySelector('[data-testid="cache-size"]')?.textContent).toBe('0 Bytes');
     expect(host.querySelector('[role="status"]')?.textContent).toMatch(/^Cleared 3\.3 MB\./);
-    expect(host.textContent).toContain('RepoShelf 0.0.1');
+    expect(host.textContent).toContain('RepoShelf 0.1.0');
   });
 
   it('the uncommitted-changes toggle shows the note on an imported work tree (D-16)', async () => {

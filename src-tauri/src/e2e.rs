@@ -7,8 +7,10 @@
 //!   instead of popping a window on the user's screen.
 //! - `RS_E2E_OFFSCREEN=1` = the main window is created off-screen (it keeps rendering; WebDriver's minimize does not
 //!   reach a WebView2 window).
+//! - `RS_E2E_TRASH_LOG` = a file. "Move to Recycle Bin" deletes the folder outright (only inside the archive dir) and
+//!   appends `trash\t<path>` instead of filling the user's real Recycle Bin (D-91).
 
-use crate::state::{Opener, Picker, lock};
+use crate::state::{Opener, Picker, Trasher, lock};
 use std::collections::VecDeque;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -17,6 +19,7 @@ use std::sync::{Arc, Mutex};
 pub const ENV_PICK: &str = "RS_E2E_PICK";
 pub const ENV_OPEN_LOG: &str = "RS_E2E_OPEN_LOG";
 pub const ENV_OFFSCREEN: &str = "RS_E2E_OFFSCREEN";
+pub const ENV_TRASH_LOG: &str = "RS_E2E_TRASH_LOG";
 /// Where the off-screen window goes (same spot PM's e2e watcher uses).
 pub const OFFSCREEN_POS: (f64, f64) = (-32000.0, -32000.0);
 
@@ -89,5 +92,37 @@ impl Opener for E2eSeams {
             Some(f) => self.log(f, "reveal", &path.display().to_string()),
             None => self.opener.reveal(path),
         }
+    }
+}
+
+/// Trash seam (D-91): with a log file, the folder is deleted outright and logged — never sent to the user's real
+/// Recycle Bin — and only when it sits strictly inside `archive` (the scratch archive of the e2e run).
+pub struct E2eTrash {
+    log: Option<PathBuf>,
+    archive: PathBuf,
+    real: Arc<dyn Trasher>,
+}
+
+impl E2eTrash {
+    pub fn new(log: Option<PathBuf>, archive: PathBuf, real: Arc<dyn Trasher>) -> E2eTrash {
+        E2eTrash { log, archive, real }
+    }
+
+    pub fn from_env(archive: PathBuf, real: Arc<dyn Trasher>) -> E2eTrash {
+        E2eTrash::new(env(ENV_TRASH_LOG).map(PathBuf::from), archive, real)
+    }
+}
+
+impl Trasher for E2eTrash {
+    fn delete(&self, path: &Path) -> Result<(), String> {
+        let Some(log) = &self.log else { return self.real.delete(path) };
+        let canon = |p: &Path| rs_core::paths::canonical(p).map_err(|e| format!("{}: {e}", p.display()));
+        let (dir, archive) = (canon(path)?, canon(&self.archive)?);
+        if dir == archive || !dir.starts_with(&archive) {
+            return Err(format!("e2e trash refused outside the archive: {}", dir.display()));
+        }
+        std::fs::remove_dir_all(rs_core::paths::long(&dir)).map_err(|e| e.to_string())?;
+        let mut f = std::fs::OpenOptions::new().create(true).append(true).open(log).map_err(|e| e.to_string())?;
+        writeln!(f, "trash\t{}", dir.display()).map_err(|e| e.to_string())
     }
 }

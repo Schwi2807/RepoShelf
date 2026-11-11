@@ -20,7 +20,7 @@ $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Env
 | UI build + bundle size | `npm run build`, then the initial-JS check of TASKS Gate M5 (< 1.5 MB, NFR-P8) | |
 | Read-model performance | `cargo run -p rs-cli --release -- fixtures target\scratch\bench` then `cargo run -p rs-cli --release -- bench target\scratch\bench` | Exit 1 on a missed target (NFR-P2/P3/P5/P6, 400-file diff). Delete the scratch folder afterwards. |
 
-The full gate per milestone is in `docs/TASKS.md` (Gate M0 … Gate M8); each later gate repeats the earlier commands.
+The full gate per milestone is in `docs/TASKS.md` (Gate M0 … Gate M9); each later gate repeats the earlier commands.
 
 ## 2. Mock UI in a browser (no backend)
 
@@ -44,7 +44,9 @@ $env:CARGO_TARGET_DIR = (Join-Path (Get-Location) 'target\e2e'); npx tauri build
 exe renders with nothing listening on port 1450. The e2e feature adds test seams that a shipped build never contains
 (D-14, D-20, D-84): `RS_TEST_FILE_CLONE=1` (clone/fetch `file://` sources), `RS_E2E_PICK` (folder dialogs take the
 next path of a `;` list), `RS_E2E_OPEN_LOG` (browser/Explorer opens are written to a file instead), `RS_E2E_OFFSCREEN=1`
-(window created off-screen).
+(window created off-screen), `RS_E2E_TRASH_LOG` (Remove deletes the clone folder inside the scratch archive and logs
+it instead of using the real Recycle Bin, D-91). `run-e2e.ps1` refuses an e2e exe without the trash seam — rebuild it
+after pulling changes.
 
 ### Run (M8.2–M8.5)
 
@@ -82,8 +84,10 @@ powershell -ExecutionPolicy Bypass -File tools\e2e\check-e2e.ps1
 - **NFR-P2**: after a reload, dashboard → click the 1,000-entry repo → file table rows rendered (< 300 ms).
 - **NFR-O1 proxy**: no resource request other than the app origin / IPC during the run.
 - **Clone → fetch → fast-forward → remove** through the `file://` seam: clone the upstream, add a commit + tag to the
-  upstream, Fetch ("1 new commit"), Fast-forward (to the new upstream tip), Remove (the scratch clone goes to the
-  **real Recycle Bin**, D-30; empty it at will).
+  upstream, Fetch ("1 new commit"), Fast-forward (to the new upstream tip), Remove (through the trash seam: the scratch
+  clone is deleted inside the scratch archive and logged; `check-e2e.ps1` requires exactly one logged deletion inside
+  the archive — nothing goes to the real Recycle Bin since M9, D-91. Runs before M9 each left one `demo-upstream.git`
+  folder in the Recycle Bin).
 
 ### Network run (M8.8, opt-in)
 
@@ -95,16 +99,39 @@ Adds session C: clones the given public GitHub repos (default `octocat/Hello-Wor
 the https URL rules (only `file:` inputs use the seam), then fetches each. Use a repo with Windows-invalid ref names
 to see the skipped-refs report. Implemented in M8 but **never executed yet** — the first run is a hand step.
 
-## 4. Hand-test checklist (needs a person)
+## 4. Release build (M9)
 
-Run these on the e2e exe with scratch folders, or on the portable build of M9 with `RS_DATA_DIR` / `RS_ARCHIVE_DIR`
+```powershell
+npm run build:installer     # target\release\bundle\nsis\RepoShelf_0.1.0_x64-setup.exe  (built only, never run by an agent)
+npm run build:portable      # target\release\portable\RepoShelf_0.1.0_x64-portable.exe
+```
+
+- Marker check (D-14, D-26, D-84): `Select-String -SimpleMatch -Quiet` for `RS_TEST_FILE_CLONE` and `RS_E2E_` must be
+  false on `target\release\reposhelf.exe` (the installer's payload is compressed, so checking the setup exe proves
+  little) and on the portable exe; the e2e exe is the positive control (both true). `build:portable` fails on a hit.
+- Portable smoke (agent, M9.4): start the portable exe with scratch `RS_DATA_DIR` / `RS_ARCHIVE_DIR` and
+  `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=<free port>`, move its window to −32000,−32000 with
+  `SetWindowPos` as soon as it exists (a shipped exe has no off-screen seam, so it shows centred for ~0.1–0.3 s), read
+  the page over CDP (`http://tauri.localhost/`, "Repositories" / "Your shelf is empty"), check `reposhelf.db` was
+  created in the scratch data dir, `taskkill /T /F`, count leftovers by exe path and scratch path (0), delete scratch.
+  Never point `run-e2e.ps1 -App` at a shipped exe: it has no seams, so real dialogs, browser and Recycle Bin would be
+  used.
+- Copies + `SHA256SUMS.txt` go to `_REVIVE\releases\v<ver>\` (the `_REVIVE\` kit is excluded from git via
+  `.git\info\exclude`).
+
+## 5. Hand-test checklist (needs a person)
+
+Run these on the e2e exe with scratch folders, or on the portable build with `RS_DATA_DIR` / `RS_ARCHIVE_DIR`
 set to empty scratch folders:
 
 ```powershell
 $env:RS_DATA_DIR = 'C:\Dev\projects\repo-shelf\target\scratch\hand\data'; $env:RS_ARCHIVE_DIR = 'C:\Dev\projects\repo-shelf\target\scratch\hand\archive'
-& .\target\e2e\release\reposhelf.exe
+& .\target\release\portable\RepoShelf_0.1.0_x64-portable.exe
 ```
 
+- [ ] **Installer (yours to run)**: `RepoShelf_0.1.0_x64-setup.exe` → Start menu entry starts the app → it uses
+      `%LOCALAPPDATA%\dev.schwi.reposhelf` → Settings → Apps → RepoShelf → Uninstall removes the program, keeps the
+      data. SmartScreen asks once (unsigned).
 - [ ] **Network adapter off (NFR-O1, needs admin)**: import two local repos, then turn the network adapter off
       (Settings → Network & internet → Wi-Fi/Ethernet off, or airplane mode). Restart the app and browse every tab of
       both repos, open files, commits and a commit page. Everything works; no error mentions the network. Only

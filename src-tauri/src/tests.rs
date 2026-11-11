@@ -962,4 +962,41 @@ mod e2e_seams {
         let text = std::fs::read_to_string(&log).unwrap();
         assert!(text.starts_with("folder\t") && text.contains("data"), "{text}");
     }
+
+    /// D-91: with the log set, the folder is deleted (read-only files included) and logged; the real trasher is never
+    /// called; folders outside the archive (and the archive itself) are refused.
+    #[test]
+    fn trash_seam_deletes_inside_the_archive_only() {
+        use crate::e2e::E2eTrash;
+        let t = tempfile::tempdir().unwrap();
+        let archive = t.path().join("archive");
+        let clone = archive.join("o").join("r.git");
+        std::fs::create_dir_all(clone.join("objects")).unwrap();
+        let pack = clone.join("objects").join("pack.idx");
+        std::fs::write(&pack, b"x").unwrap();
+        let mut perm = std::fs::metadata(&pack).unwrap().permissions();
+        perm.set_readonly(true);
+        std::fs::set_permissions(&pack, perm).unwrap();
+        let outside = t.path().join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        let log = t.path().join("trash.log");
+        let real = Arc::new(FakeTrash::default());
+        let s = E2eTrash::new(Some(log.clone()), archive.clone(), real.clone());
+        assert!(s.delete(&outside).is_err() && outside.exists());
+        assert!(s.delete(&archive).is_err() && archive.exists());
+        s.delete(&clone).unwrap();
+        assert!(!clone.exists());
+        assert!(real.got.lock().unwrap().is_empty(), "the real Recycle Bin must not be used");
+        let text = std::fs::read_to_string(&log).unwrap();
+        assert!(text.starts_with("trash\t") && text.trim_end().ends_with("r.git") && text.lines().count() == 1, "{text}");
+    }
+
+    #[test]
+    fn trash_seam_without_env_uses_the_real_trasher() {
+        use crate::e2e::E2eTrash;
+        let real = Arc::new(FakeTrash::default());
+        let s = E2eTrash::new(None, PathBuf::from("C:\\nowhere"), real.clone());
+        s.delete(Path::new("C:\\nowhere\\x.git")).unwrap();
+        assert_eq!(real.got.lock().unwrap().as_slice(), [PathBuf::from("C:\\nowhere\\x.git")]);
+    }
 }

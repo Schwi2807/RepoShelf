@@ -22,6 +22,10 @@ $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 if (-not $App) { $App = Join-Path $root 'target\e2e\release\reposhelf.exe' }
 if (-not (Test-Path -LiteralPath $App)) { throw "missing e2e build: $App (see docs\TESTING.md, M8.1)" }
 $App = (Resolve-Path -LiteralPath $App).Path
+# D-91: an exe without the trash seam would send the removed scratch clone to the user's real Recycle Bin.
+if (-not (Select-String -LiteralPath $App -SimpleMatch -Pattern 'RS_E2E_TRASH_LOG' -Quiet)) {
+    throw "e2e build has no trash seam (RS_E2E_TRASH_LOG): rebuild it (docs\TESTING.md, M8.1): $App"
+}
 $cargoHome = if ($env:CARGO_HOME) { $env:CARGO_HOME } elseif (Test-Path 'C:\Dev\tools\cargo') { 'C:\Dev\tools\cargo' } else { Join-Path $HOME '.cargo' }
 $driver = Join-Path $cargoHome 'bin\tauri-driver.exe'
 $edge = if ($env:MSEDGEDRIVER) { $env:MSEDGEDRIVER } else { [Environment]::GetEnvironmentVariable('MSEDGEDRIVER', 'User') }
@@ -38,6 +42,7 @@ New-Item -ItemType Directory -Force $shots | Out-Null
 $S = Join-Path $root ('target\scratch\e2e-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
 $data = Join-Path $S 'data'; $archive = Join-Path $S 'archive'; $fx = Join-Path $S 'fx'
 $up = Join-Path $S 'up\demo-upstream'; $openLog = Join-Path $S 'opens.log'; $emptyCfg = Join-Path $S 'empty.gitconfig'
+$trashLog = Join-Path $S 'trash.log'
 New-Item -ItemType Directory -Force $data, $archive, $fx, $up | Out-Null
 $u8 = New-Object Text.UTF8Encoding $false
 [IO.File]::WriteAllText($emptyCfg, '', $u8)
@@ -89,7 +94,7 @@ do { $nport = Get-FreePort } while ($nport -eq $port)
 
 $cfgFile = Join-Path $S 'config.json'
 $cfg = [ordered]@{
-    app = $App; port = $port; result = $resultFile; shots = $shots; archive = $archive; openLog = $openLog
+    app = $App; port = $port; result = $resultFile; shots = $shots; archive = $archive; openLog = $openLog; trashLog = $trashLog
     upstream = $up; upstreamUrl = $upUrl; gitEnv = @{ GIT_CONFIG_GLOBAL = $emptyCfg; GIT_CONFIG_NOSYSTEM = '1'; GIT_TERMINAL_PROMPT = '0' }
     imports = $imports; network = [bool]$Network; networkRepos = $NetworkRepos
 }
@@ -100,6 +105,7 @@ $env:RS_TEST_FILE_CLONE = '1'
 $env:RS_E2E_PICK = (($imports | ForEach-Object { Join-Path $fx $_ }) -join ';')
 $env:RS_E2E_OPEN_LOG = $openLog
 $env:RS_E2E_OFFSCREEN = '1'
+$env:RS_E2E_TRASH_LOG = $trashLog
 
 function Get-Tree([int]$rootPid) {
     $all = @(Get-CimInstance Win32_Process)
@@ -168,6 +174,8 @@ $run = [ordered]@{
     importedHashesEqual = ($changed.Count -eq 0)
     changedFixtures = $changed
     openLog = if (Test-Path -LiteralPath $openLog) { @([IO.File]::ReadAllLines($openLog)) } else { @() }
+    trashLog = if (Test-Path -LiteralPath $trashLog) { @([IO.File]::ReadAllLines($trashLog)) } else { @() }
+    archive = $archive
     network = [bool]$Network
 }
 [IO.File]::WriteAllText($runFile, ($run | ConvertTo-Json -Depth 4), $u8)
@@ -175,7 +183,7 @@ $run = [ordered]@{
 "imported fixtures unchanged: $($changed.Count -eq 0)"
 "results: $resultFile"
 
-foreach ($v in 'RS_TEST_FILE_CLONE', 'RS_E2E_PICK', 'RS_E2E_OPEN_LOG', 'RS_E2E_OFFSCREEN', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM') { Remove-Item "Env:$v" -ErrorAction SilentlyContinue }
+foreach ($v in 'RS_TEST_FILE_CLONE', 'RS_E2E_PICK', 'RS_E2E_OPEN_LOG', 'RS_E2E_OFFSCREEN', 'RS_E2E_TRASH_LOG', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM') { Remove-Item "Env:$v" -ErrorAction SilentlyContinue }
 if (-not $Keep -and $left.Count -eq 0) {
     Remove-Item -LiteralPath $S -Recurse -Force
     "scratch removed: $S"

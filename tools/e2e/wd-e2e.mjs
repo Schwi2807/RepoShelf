@@ -3,7 +3,7 @@
 //
 //   node tools/e2e/wd-e2e.mjs <config.json>
 //
-// config.json (written by run-e2e.ps1): { app, port, result, shots, archive, openLog, upstream, upstreamUrl, gitEnv,
+// config.json (written by run-e2e.ps1): { app, port, result, shots, archive, openLog, trashLog, upstream, upstreamUrl, gitEnv,
 // network, networkRepos }. Writes the step list to `result` (JSON array of { step, ok, error?, ... }).
 //
 // Sessions: A = cold-ish start timing only; B = warm start timing + the whole smoke (imports via the e2e picker
@@ -565,7 +565,7 @@ async function main() {
       const latest = $('.crow[data-oid]')?.dataset.oid ?? null;
       return { text, ...(text.includes(${JSON.stringify(newHead.slice(0, 7))}) ? {} : { error: 'fast-forward did not reach ' + ${JSON.stringify(newHead.slice(0, 7))} + ': ' + text }) };
     `);
-    const rm = await step(s, 'remove cloned (Recycle Bin)', `
+    const rm = await step(s, 'remove cloned (trash seam)', `
       const route = location.hash;
       const id = (await invoke('repo_by_slug', { owner: route.split('/')[1], name: route.split('/')[2] })).id;
       const path = (await invoke('library_list', {})).find((r) => r.id === id)?.path ?? null;
@@ -578,7 +578,12 @@ async function main() {
       return { path, stillListed: still, route: location.hash };
     `);
     const gone = rm.path ? !existsSync(rm.path) : false;
-    record('clone folder trashed', { path: rm.path, gone }, rm.path && gone && !rm.stillListed ? undefined : 'clone folder or entry still there');
+    // D-91: the e2e trash seam deletes the scratch clone and logs it; nothing reaches the real Recycle Bin.
+    const trashLines = existsSync(cfg.trashLog) ? readFileSync(cfg.trashLog, 'utf8').split(/\r?\n/).filter(Boolean) : [];
+    const logged = trashLines.length === 1 && trashLines[0].startsWith('trash\t');
+    record('clone folder trashed', { path: rm.path, gone, trashLog: trashLines },
+      !(rm.path && gone && !rm.stillListed) ? 'clone folder or entry still there'
+        : !logged ? 'trash seam did not log exactly one deletion (real Recycle Bin used?)' : undefined);
   }
 
   // ---- Console / CSP: positive control, then the collected messages ----
