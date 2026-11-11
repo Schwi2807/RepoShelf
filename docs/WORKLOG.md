@@ -702,13 +702,27 @@ Open items / deviations:
   names). Hand step in `docs/TESTING.md`; skipped refs are covered by the M3 `file://` tests.
 - The network-adapter-off browse run (NFR-O1) needs admin → hand step in `docs/TESTING.md`. Automated proxies: M3.9
   `net_calls()` + the e2e "no foreign requests" step.
-- Each e2e run sends one scratch `demo-upstream.git` folder to the real Recycle Bin (D-30); three runs today.
+- Each e2e run sends one scratch `demo-upstream.git` folder to the real Recycle Bin (D-30); five are there from
+  today's runs (empty them at will).
 - Not covered by fixtures in the real app: generated-file inlining (no generated files in the fixtures; D-82 is
   covered by rs-core + mock tests), the 20,000-commit scan cap ("Search older commits", stub test only), GitHub notes
   with the feature off (`--no-default-features` tests).
 - S3 has no size column (REQUIREMENTS S3); NFR-P2's "sizes" is the backend `tree_list` (bench 3.0 ms).
-- One test block in `src-tauri/src/tests.rs` was first appended with a bash heredoc, which dropped backslashes in
-  Windows-path literals; caught by reading it back and fixed with the Edit tool before any build.
+- Scripted edits (not Edit/Write): one test block in `src-tauri/src/tests.rs` was first appended with a bash heredoc,
+  which dropped backslashes in Windows-path literals (caught by reading it back, fixed with Edit before any build);
+  `wd-e2e.mjs` got a `sed -i` selector rename and two small node string replacements (expected codes in the hostile
+  table, the collector sanity check); `TASKS.md` checkboxes were ticked by a PowerShell string replace. All re-read.
+- `-Network` / session C is implemented but has never been executed; note that run-e2e still sets
+  `RS_TEST_FILE_CLONE=1` there (https clones still go through the production URL rules, `file:` only is re-routed).
+
+Follow-up (second commit, after e65d3c3): the console/CSP and "no foreign requests" checks only covered the
+document after the NFR-P2 reload. The harness now drains `window.__e2e` and the resource-timing list into node-side
+accumulators before the hostile-IPC probes ("browse": 159 requests), after them, and at the end, with a 10,000-entry
+resource buffer, and asserts on the union (check-e2e requires the three drain steps). Re-run: 78/78 steps, 0 CSP
+violations / errors / alerts over the whole session (2 Tauri "callback id" warnings, both from the harness's
+reloads), no foreign requests, NFR-P1 422 ms, NFR-P2 44 ms, leftovers 0, imported fixtures unchanged. The bench was
+re-run directly to record its exit code: `rs fixtures` rc 0, `rs bench` rc 0 (2.9 / 0.8 / 41.5 / 41.8 / 53.9 /
+2.2 ms); the gate summary had lost the bench line (output formatting), the rows were all ok.
 
 Notes for M9:
 - Ship builds only via the tauri CLI without `--features e2e` (D-26); check the shipped exe contains neither

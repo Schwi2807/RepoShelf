@@ -138,6 +138,8 @@ const COLLECTOR = `(() => {
   console.error = (...a) => { c.errors.push('console.error: ' + a.map(String).join(' ').slice(0, 300)); oe(...a); };
   console.warn = (...a) => { c.warns.push('console.warn: ' + a.map(String).join(' ').slice(0, 300)); ow(...a); };
   window.alert = (m) => { c.alerts.push(String(m)); };
+  // The default buffer (250) would drop entries during the screens pass; drain() also clears it.
+  try { performance.setResourceTimingBufferSize(10000); } catch {}
 })();`;
 
 async function installCollector(session) {
@@ -153,6 +155,29 @@ async function installCollector(session) {
   }
   await exec(session, `${COLLECTOR}; return {};`);
   return { mode: 'page', cdpError: JSON.stringify(cdp.value ?? cdp).slice(0, 200) };
+}
+
+// Everything the collector saw, over every document of session B (a reload starts a fresh `window.__e2e` and a fresh
+// resource-timing list, so the page is drained into these before each reload and at the end).
+const acc = { csp: [], errors: [], warns: [], alerts: [], resources: new Set(), drains: [] };
+
+async function drain(session, label) {
+  const v = await exec(session, `
+    const c = window.__e2e;
+    if (!c) return { missing: true };
+    const res = performance.getEntriesByType('resource').map((e) => e.name);
+    performance.clearResourceTimings();
+    return { csp: c.csp.splice(0), errors: c.errors.splice(0), warns: c.warns.splice(0), alerts: c.alerts.splice(0), res };
+  `);
+  const tag = (xs) => (xs ?? []).map((x) => ({ at: label, ...(typeof x === 'string' ? { msg: x } : x) }));
+  acc.csp.push(...tag(v.csp));
+  acc.errors.push(...tag(v.errors));
+  acc.warns.push(...tag(v.warns));
+  acc.alerts.push(...tag(v.alerts));
+  for (const r of v.res ?? []) acc.resources.add(r);
+  const row = { label, missing: !!v.missing, csp: v.csp?.length ?? 0, errors: v.errors?.length ?? 0, warns: v.warns?.length ?? 0, resources: v.res?.length ?? 0 };
+  acc.drains.push(row);
+  record(`drain ${label}`, row, v.error ? String(v.error) : v.missing ? 'collector missing in this document' : undefined);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -409,6 +434,10 @@ async function main() {
   const log3 = readFileSync(cfg.openLog, 'utf8');
   record('no browser opened', { log: log3.trim() }, /^url\t/m.test(log3) ? 'a URL was opened' : undefined);
 
+  // Imports, every screen in both themes, worker highlighting, security README: drained before the probes so any
+  // console noise from the hostile calls is told apart from the app's own.
+  await drain(s, 'browse');
+
   // ---- Hostile IPC from the webview (PoC criterion 4) ----
   await step(s, 'hostile IPC refused', `
     const id = (await invoke('repo_by_slug', { owner: 'example', name: 'basic' })).id;
@@ -458,6 +487,8 @@ async function main() {
   const log4 = readFileSync(cfg.openLog, 'utf8');
   record('hostile IPC opened nothing', {}, log4 !== log3 ? 'opener log changed: ' + log4 : undefined);
 
+  await drain(s, 'hostile IPC');
+
   // ---- NFR-P2: dashboard → click the 1,000-entry repo → file table rendered (fresh page, nothing cached) ----
   await exec(s, `location.hash = '#/'; location.reload(); return {};`).catch(() => {});
   await sleep(1500);
@@ -485,14 +516,6 @@ async function main() {
     `);
     void r;
   }
-
-  // ---- No network during the browse-only phase (NFR-O1 proxy) ----
-  await step(s, 'no foreign requests', `
-    const ok = (u) => /^(https?:\\/\\/tauri\\.localhost\\/|http:\\/\\/ipc\\.localhost\\/|ipc:|blob:|data:)/.test(u);
-    const names = performance.getEntriesByType('resource').map((e) => e.name);
-    const foreign = names.filter((n) => !ok(n));
-    return { resources: names.length, foreign, ...(foreign.length ? { error: 'foreign requests: ' + foreign.join(', ') } : {}) };
-  `);
 
   // ---- File-seam clone → fetch → fast-forward → remove (D-14, D-20) ----
   const clone = await step(s, 'clone (file seam)', `
@@ -571,12 +594,22 @@ async function main() {
     window.__e2e.csp.splice(before);
     return { violationsSeen: seen, inlineRan: ran, ...(seen > 0 && !ran ? {} : { error: 'control failed: seen ' + seen + ', ran ' + ran }) };
   `);
-  await step(s, 'console and CSP clean', `
-    const c = window.__e2e;
-    // Warnings are reported, not fatal: the harness's own reloads produce Tauri's "Couldn't find callback id" warning.
-    const warns = c.warns.filter((w) => !w.includes("Couldn't find callback id"));
-    return { csp: c.csp, errors: c.errors, warns: c.warns, alerts: c.alerts, ...(c.csp.length || c.errors.length || c.alerts.length || warns.length ? { error: 'console/CSP: ' + JSON.stringify(c).slice(0, 600) } : {}) };
-  `);
+  await drain(s, 'final');
+
+  // ---- Over every document of session B: console / CSP, then requests (NFR-O1 proxy) ----
+  {
+    // Tauri warns "Couldn't find callback id" when the harness itself reloads during an IPC call; anything else fails.
+    const warns = acc.warns.filter((w) => !String(w.msg).includes("Couldn't find callback id"));
+    const bad = acc.csp.length || acc.errors.length || acc.alerts.length || warns.length;
+    record('console and CSP clean', { drains: acc.drains, csp: acc.csp, errors: acc.errors, warns: acc.warns, alerts: acc.alerts },
+      bad ? 'console/CSP: ' + JSON.stringify({ csp: acc.csp, errors: acc.errors, warns, alerts: acc.alerts }).slice(0, 700) : undefined);
+    const ok = (u) => /^(https?:\/\/tauri\.localhost\/|http:\/\/ipc\.localhost\/|ipc:|blob:|data:)/.test(u);
+    const all = [...acc.resources];
+    const foreign = all.filter((u) => !ok(u));
+    const chunks = all.filter((u) => /\/assets\/.+\.js$/.test(u)).length;
+    record('no foreign requests', { resources: all.length, jsChunks: chunks, foreign },
+      foreign.length ? 'foreign requests: ' + foreign.join(', ') : (acc.drains.find((d) => d.label === 'browse')?.resources ?? 0) < 20 ? 'fewer than 20 requests in the browse drain: the collector missed the browse phase' : undefined);
+  }
   await wd('DELETE', `/session/${s}`);
 
   // ---- Session C (opt-in): public clones + fetch over the network ----

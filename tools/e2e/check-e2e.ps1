@@ -18,6 +18,7 @@ try {
 foreach ($s in @($steps | Where-Object { $_.error })) { $bad.Add(('step {0}: {1}' -f $s.step, ($s.error -split "`n")[0])) }
 # Steps that must exist (a crashed harness leaves them out).
 $must = @('B.start', 'NFR-P1 start to dashboard rows', 'collector', 'imports', 'hostile IPC refused', 'security README',
+    'drain browse', 'drain hostile IPC', 'drain final',
     'NFR-P2 1,000-entry dir (first visit)', 'no foreign requests', 'clone (file seam)', 'fetch (file seam)', 'fast-forward',
     'clone folder trashed', 'CSP collector positive control', 'console and CSP clean')
 foreach ($m in $must) { if (-not ($steps | Where-Object { $_.step -eq $m })) { $bad.Add("step missing: $m") } }

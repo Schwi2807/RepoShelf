@@ -91,8 +91,9 @@ powershell -ExecutionPolicy Bypass -File tools\e2e\check-e2e.ps1
 powershell -ExecutionPolicy Bypass -File tools\e2e\run-e2e.ps1 -Network [-NetworkRepos owner/a,owner/b]
 ```
 
-Adds session C: clones the given public GitHub repos (default `octocat/Hello-World`, `octocat/Spoon-Knife`) with the
-production URL rules, then fetches each. Use a repo with Windows-invalid ref names to see the skipped-refs report.
+Adds session C: clones the given public GitHub repos (default `octocat/Hello-World`, `octocat/Spoon-Knife`) through
+the https URL rules (only `file:` inputs use the seam), then fetches each. Use a repo with Windows-invalid ref names
+to see the skipped-refs report. Implemented in M8 but **never executed yet** — the first run is a hand step.
 
 ## 4. Hand-test checklist (needs a person)
 
