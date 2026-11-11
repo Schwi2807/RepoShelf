@@ -35,7 +35,8 @@ export default function Branches() {
 
   const head = r.detail?.head;
   const headBranch = head?.type === 'branch' ? head.name : null;
-  const base = headBranch ?? r.summary.defaultBranch ?? '';
+  // the backend compares with HEAD's branch and refuses a detached HEAD (D-58): no counts then
+  const base = headBranch;
 
   const sections = useMemo(() => {
     const rows = filterBranches(list.data ?? [], q);
@@ -101,11 +102,18 @@ export default function Branches() {
             <section key={s.id} className="box refsec" aria-label={s.title} data-section={s.id}>
               <div className="box__header refsec__header">
                 <h2 className="box__title">{s.title}</h2>
-                {s.id !== 'default' && base && (
-                  <span className="muted small">
-                    Ahead / behind compared with <span className="mono">{base}</span>
-                  </span>
-                )}
+                {base
+                  ? s.id !== 'default' && (
+                      <span className="muted small">
+                        Ahead / behind compared with <span className="mono">{base}</span>
+                      </span>
+                    )
+                  : head?.type === 'detached' &&
+                    s.id === sections.find((x) => x.rows.length > 0)?.id && (
+                      <span className="muted small" data-testid="detached-note">
+                        HEAD is detached, so there is no branch to count ahead / behind against
+                      </span>
+                    )}
               </div>
               {chunks(s.rows, AB_CHUNK).map((rows) => (
                 <BranchChunk

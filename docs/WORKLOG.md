@@ -560,13 +560,13 @@ Steps M7.1–M7.9 done (one subagent). Same visual language as M6 (boxes, muted 
   cloned-repo fetch reports a new tag / kept tag / skipped ref, parsekit `dirty: true`, `app_open_dir`. All opt-in
   after generation, so M6 data is unchanged. `mock-shots.md` rows 20–25.
 
-Tests: 572 TS in 24 files (+50): Commits 10 (midnight split, author offset ignored, interrupted day, pager hrefs keep
+Tests: 573 TS in 24 files (+51; 572 at a7bd174, +1 detached-HEAD test in the review fixes): Commits 10 (midnight split, author offset ignored, interrupted day, pager hrefs keep
 tip/path/since, last page / capped, query parsing, Older → Newer over one tip, path-filtered page 2 with cold caches,
 stubbed capped scan → "Search older commits", description + since banner), DiffTable/commit page 7 (hunk with
 NoNewline, no-content / truncated notes, collapse rules, labels + mini bar, `?huge` collapsed card → Load diff,
 rename/delete/no-newline commit with parent + full oid + View file at parent + chevron, merge note + second parent
-opens + root note), refs 9 (bar widths ahead/behind/capped, Branches sections + lazy bars + `?q=`, `?huge` capped
-"1,000+", tags order/badges/links, release cards + compare href, GitHub notes confirm flow, other hosts /
+opens + root note), refs 10 (bar widths ahead/behind/capped, Branches sections + lazy bars + `?q=`, `?huge` capped
+"1,000+", detached HEAD sends no request, tags order/badges/links, release cards + compare href, GitHub notes confirm flow, other hosts /
 unsupported hide the button), jobs 5 (rows for waiting / receiving / resolving / done clone / done fetch / failed /
 cancelled / fetch-all with their actions, `?clonefail`, clone → Open repository + fetch report, `?fetchfail` Retry),
 Settings 3 (theme radio, folders + Open + Clear cache + version, dirty toggle → note), mock +2 (M7.8 fixtures,
@@ -594,9 +594,29 @@ singular. Console: no errors or warnings. Pane localStorage left at theme Light,
 (headless Edge, scratch profile, `preferredColorScheme=1`, 1280×1000, no window): `docs/screenshots/m7-commits.png`,
 `docs/screenshots/m7-commit.png` (reviewed: fonts loaded, no shimmers).
 
+Review fixes (second commit, after a7bd174):
+- Virtual card list: the list's page offset was measured only at mount, so after opening the File list a jump landed
+  ~12,800 px off; `WindowList` now re-measures before `scrollTo` and on body resizes (D-83). Verified in the pane:
+  plain list `?file=3` on parsekit's root commit → card top at 76 px; `?huge` `?file=250` reload → 76 px; File list
+  → entry 390 → 77 px.
+- `?file=` under StrictMode: the fresh-visit flag is cleared inside the second frame, so a cancelled first mount
+  retries.
+- Branches with a detached HEAD (`local/beacon`): src-tauri refuses `branches_ahead_behind` there; the page no longer
+  falls back to the default branch — no request, dashes, a note (mock refuses like the backend; test added).
+- `.oidbtn` no longer clips focus rings (`overflow` removed, halves round their own corners); first / last commit,
+  branch and tag rows round their hover background inside the box; empty-repo copy for the commits tab.
+- Pass 3 (hidden `npm run dev`, PID 3836, killed by tree, 5 processes, port 1450 free, 0 node / msedge): oid focus
+  ring, expanded description ("No description."), open File list, GitHub confirm dialog, `?huge` "1,000+" bar,
+  Clear-cache status line, dirty note in light, successful clone → "Open repository" (`#/example-org/new-thing`),
+  beacon branches (detached note); console clean; pane settings back to Light, dirty note off.
+- `npm test` run 3× after the fixes: 573 passed each time (no flakes).
+- Final gate (Rust unchanged by the fixes, re-run anyway): typecheck ok · `npm test` 573 · build ok, initial JS
+  436,510 bytes · `cargo test --workspace` 179 · build / ghreleases / reposhelf 42 / e2e 42 / both clippy runs exit 0
+  · M2 bench exit 0 (3.0 / 0.8 / 43.8 / 40.7 / 51.8 / 2.0 ms; scratch dir removed).
+
 Open items / deviations:
 - One source edit (BranchRow: `RefObject` import + failed-count dash) was made with a scripted replace instead of
-  Edit/Write (content checked, no Windows paths). Everything else via Edit/Write.
+  Edit/Write (no Windows paths; the whole file was read back in the review pass). Everything else via Edit/Write.
 - New IPC command `app_open_dir` (D-76) — touches src-tauri, ARCH §5.1 and the command count (48).
 - The GitHub-notes "fetched date" is session-only (D-80); release links use full tag refs (D-81).
 - Mock side commits of merges are not in the commits list walk (the list stays linear); the merge's second parent

@@ -56,12 +56,15 @@ function CommitPage({ route }: { route: Route }) {
   const ready = d.data !== undefined;
   useEffect(() => {
     if (!ready || !fresh.current) return;
-    fresh.current = false;
     const n = Number.parseInt(fileParam ?? '', 10);
     if (!Number.isFinite(n) || n < 0) return;
     let f2 = 0;
+    // `fresh` is cleared only when the scroll really runs: StrictMode's mount → cleanup → mount cancels the frames
     const f1 = requestAnimationFrame(() => {
-      f2 = requestAnimationFrame(() => jump(n));
+      f2 = requestAnimationFrame(() => {
+        fresh.current = false;
+        jump(n);
+      });
     });
     return () => {
       cancelAnimationFrame(f1);

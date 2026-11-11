@@ -671,9 +671,10 @@ export class MockRepo {
   }
 
   aheadBehind(names: string[]): [string, AheadBehind][] {
+    // src-tauri: the base is HEAD's branch; a detached HEAD is refused
     const h = this.def.head;
-    const base = h.type === 'branch' ? h.name : this.defaultBranch();
-    if (base === null) return [];
+    if (h.type !== 'branch') throw ipcError('refused', 'This repository has no default branch.');
+    const base = h.name;
     const baseSet = new Set(this.resolve(base).chain.map((c) => c.summary.oid));
     return names.map((n) => {
       const chain = this.resolve(n).chain;

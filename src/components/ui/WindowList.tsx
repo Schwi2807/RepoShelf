@@ -48,9 +48,21 @@ function Plain({ count, row, rowKey, className, scrollTo }: Omit<WindowListProps
 function Virtual({ count, estimate, row, rowKey, className, scrollTo }: Omit<WindowListProps, 'threshold'>) {
   const ref = useRef<HTMLDivElement>(null);
   const [margin, setMargin] = useState(0);
-  useLayoutEffect(() => {
+  const pendingIndex = useRef<number | null>(null);
+  const measure = (): number => {
     const el = ref.current;
-    if (el) setMargin(el.getBoundingClientRect().top + window.scrollY);
+    return el ? Math.round(el.getBoundingClientRect().top + window.scrollY) : 0;
+  };
+  useLayoutEffect(() => {
+    setMargin(measure());
+    // content above the list can grow later (e.g. the commit page's file list): keep the offset current
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => setMargin((m) => {
+      const n = measure();
+      return Math.abs(n - m) > 1 ? n : m;
+    }));
+    ro.observe(document.body);
+    return () => ro.disconnect();
   }, []);
   const v = useWindowVirtualizer({
     count,
@@ -60,10 +72,24 @@ function Virtual({ count, estimate, row, rowKey, className, scrollTo }: Omit<Win
     scrollPaddingStart: SCROLL_TOP_GAP,
     getItemKey: rowKey,
   });
+  // A new request: if the list moved since the last measure, re-measure first and scroll on the next render.
   useEffect(() => {
-    if (scrollTo && scrollTo.index < count) v.scrollToIndex(scrollTo.index, { align: 'start' });
+    if (!scrollTo || scrollTo.index >= count) return;
+    const m = measure();
+    if (Math.abs(m - margin) > 1) {
+      pendingIndex.current = scrollTo.index;
+      setMargin(m);
+    } else {
+      v.scrollToIndex(scrollTo.index, { align: 'start' });
+    }
     // only when a new request arrives (not when the virtualiser or count change)
   }, [scrollTo]);
+  useEffect(() => {
+    if (pendingIndex.current === null) return;
+    const i = pendingIndex.current;
+    pendingIndex.current = null;
+    v.scrollToIndex(i, { align: 'start' });
+  }, [margin]);
   return (
     <div ref={ref} className={className} style={{ height: v.getTotalSize(), position: 'relative' }}>
       {v.getVirtualItems().map((it) => (

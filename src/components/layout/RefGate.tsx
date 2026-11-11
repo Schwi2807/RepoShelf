@@ -13,8 +13,15 @@ export function EmptyRepo({ what }: { what: string }) {
   return (
     <Box>
       <Empty icon={Inbox} title="This repository is empty.">
-        There are no commits on <span className="mono">{r.refName ?? r.summary.defaultBranch ?? 'the default branch'}</span> yet, so
-        there are no {what}.
+        {what === 'commits' ? (
+          <>
+            Nothing has been committed to <span className="mono">{r.refName ?? r.summary.defaultBranch ?? 'the default branch'}</span> yet.
+          </>
+        ) : (
+          <>
+            There are no commits yet, so there are no {what}.
+          </>
+        )}
       </Empty>
     </Box>
   );

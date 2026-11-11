@@ -43,6 +43,21 @@ describe('Branches page', () => {
     expect([...host.querySelectorAll('.brow__name')].map((a) => a.textContent)).toEqual(['feature/streaming', 'origin/feature/streaming']);
   });
 
+  it('detached HEAD: no counts are requested (the backend refuses), rows show a dash', async () => {
+    const { host, backend } = await boot('', '#/');
+    const calls: string[] = [];
+    const orig = backend.invoke.bind(backend);
+    (backend as { invoke: typeof backend.invoke }).invoke = ((cmd: string, args: never) => {
+      calls.push(cmd);
+      return orig(cmd as never, args);
+    }) as typeof backend.invoke;
+    await go('#/local/beacon/branches', 400);
+    expect(host.querySelector('[data-testid="detached-note"]')).not.toBeNull();
+    expect(host.querySelector('.abbar')).toBeNull();
+    expect(calls).not.toContain('branches_ahead_behind');
+    expect(host.querySelector('.brow--error')).toBeNull();
+  });
+
   it('?huge: a capped count reads "1,000+"', async () => {
     const { host } = await boot('?huge', '#/northwind/parsekit/branches');
     await settle(1500);

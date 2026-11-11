@@ -20,18 +20,18 @@ export interface BranchRowProps {
   row: Row;
   owner: string;
   repo: string;
-  /** Branch the counts compare with (HEAD's branch, D-58). */
-  base: string;
+  /** Branch the counts compare with (HEAD's branch, D-58); null when HEAD is detached (no counts). */
+  base: string | null;
   head: boolean;
   ab: AheadBehind | null | undefined;
   max: number;
-  /** The count request failed: show a dash instead of a bar. */
+  /** The count request failed (or there is no base): show a dash instead of a bar. */
   failed?: boolean;
 }
 
 export function BranchRow({ row, owner, repo, base, head, ab, max, failed }: BranchRowProps) {
   const it = row.item;
-  const isBase = it.name === base;
+  const isBase = base !== null && it.kind === 'branch' && it.name === base;
   return (
     <li className="brow" data-branch={it.name}>
       <div className="brow__main">
@@ -47,13 +47,17 @@ export function BranchRow({ row, owner, repo, base, head, ab, max, failed }: Bra
           Updated <RelativeTime secs={row.last.committer.time.secs} /> by <strong>{row.last.author.name}</strong>
         </div>
       </div>
-      <div className="brow__ab">{isBase ? (
+      <div className="brow__ab">
+        {isBase ? (
           <span className="muted small">Compared branch</span>
-        ) : failed ? (
-          <span className="muted">—</span>
+        ) : failed || base === null ? (
+          <span className="muted" title={base === null ? 'HEAD is detached: nothing to compare with' : 'Could not count commits'}>
+            —
+          </span>
         ) : (
           <AheadBehindBar ab={ab} max={max} base={base} />
-        )}</div>
+        )}
+      </div>
       <Link to={href('commit', { owner, repo, oid: row.last.oid })} className="brow__oid mono" title={row.last.summary}>
         {shortOid(row.last.oid)}
       </Link>
@@ -99,15 +103,15 @@ export function BranchChunk({
   repoId: number;
   owner: string;
   repo: string;
-  base: string;
+  base: string | null;
   headBranch: string | null;
   max: number;
   onCounts: (m: number) => void;
 }) {
   const [ref, visible] = useVisible<HTMLUListElement>();
-  const names = rows.map((r) => r.item.name).filter((n) => n !== base);
+  const names = rows.filter((r) => !(r.item.kind === 'branch' && r.item.name === base)).map((r) => r.item.name);
   const q = useQuery(
-    visible && names.length > 0 ? qk('branches_ahead_behind', repoId, base, names) : null,
+    base !== null && visible && names.length > 0 ? qk('branches_ahead_behind', repoId, base, names) : null,
     (requestId) => branchesAheadBehind(repoId, names, requestId),
     { cancelable: true },
   );

@@ -1376,13 +1376,14 @@
   border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   background: var(--bg-canvas);
-  overflow: hidden;
 }
 
+/* no overflow clipping on the group (it would cut the focus rings): each half rounds its own outer corners */
 .oidbtn__link {
   display: inline-flex;
   align-items: center;
   padding: 0 8px;
+  border-radius: 5px 0 0 5px;
   color: var(--fg-default);
   font-size: 12px;
   font-weight: 500;
@@ -1402,8 +1403,30 @@
   padding: 0;
   border: 0;
   border-left: 1px solid var(--border-default);
+  border-radius: 0 5px 5px 0;
   background: transparent;
   color: var(--fg-muted);
+}
+
+.oidbtn__link:focus-visible,
+.oidbtn__copy:focus-visible {
+  position: relative;
+  z-index: 1;
+}
+
+/* row hover backgrounds stay inside the rounded boxes */
+.cgroup__list > .crow:first-child {
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+}
+
+.cgroup__list > .crow:last-child,
+.trows > .trow:last-child,
+.refsec > .brows:last-child > .brow:last-child {
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+}
+
+.cgroup__list > .crow:only-child {
+  border-radius: var(--radius-md);
 }
 
 .oidbtn__copy:hover {
