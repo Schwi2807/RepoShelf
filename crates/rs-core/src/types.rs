@@ -511,9 +511,9 @@ pub struct AppInfo {
     pub archive_bytes: Option<u64>,
 }
 
-#[cfg(test)]
-pub(crate) mod samples {
-    //! One sample of every type / enum shape (also the seed for the M4 IPC golden).
+#[cfg(any(test, feature = "testkit"))]
+pub mod samples {
+    //! One sample of every type / enum shape (also the seed for the M4 IPC golden, src-tauri `ipc_samples`).
     use super::*;
 
     pub fn sig() -> Signature {

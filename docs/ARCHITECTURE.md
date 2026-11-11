@@ -563,8 +563,8 @@ camelCase; Rust command names snake_case.
 | `repo_by_slug` | `owner, name` | `RepoSummary` | 12, 34 |
 | `import_pick` | – | `ImportPreview \| null` (opens folder dialog in Rust) | 5 |
 | `import_confirm` | `token` (from preview; backend keeps the picked path) | `RepoSummary` | 5 |
-| `repo_locate` | `repoId` (opens folder dialog in Rust) | `RepoSummary` | 4 |
-| `repo_remove` | `repoId` | `{ trashed: bool }` (cloned → `trash::delete`) | 36 |
+| `repo_locate` | `repoId` (opens folder dialog in Rust) | `RepoSummary \| null` (null = cancelled, D-58) | 4 |
+| `repo_remove` | `repoId` | `{ trashed: bool }` (cloned inside the archive → `trash::delete`, D-50) | 36 |
 | `repo_set_metadata` | `repoId, description, homepage, topics` | `RepoSummary` | 20 |
 | `repo_detail` | `repoId` | `RepoDetail` (+ `touch_opened`) | 12, 18 |
 | `repo_open_folder` | `repoId` | `()` (opener reveal, from Rust) | S2 |

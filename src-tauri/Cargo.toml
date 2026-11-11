@@ -11,7 +11,9 @@ name = "reposhelf_lib"
 crate-type = ["rlib"]
 
 [features]
-default = []
+default = ["ghreleases"]
+# Optional GitHub release notes (FR-31, D-22). Off → `releases_fetch_github` answers `unsupported`.
+ghreleases = ["rs-core/ghreleases"]
 # Separate e2e build only (D-14): enables the file-clone test seam.
 e2e = ["rs-core/testkit"]
 
@@ -19,10 +21,16 @@ e2e = ["rs-core/testkit"]
 tauri-build = { workspace = true }
 
 [dependencies]
-rs-core = { path = "../crates/rs-core", features = ["ghreleases"] }
+rs-core = { path = "../crates/rs-core" }
 tauri = { workspace = true }
 tauri-plugin-dialog = { workspace = true }
 tauri-plugin-opener = { workspace = true }
 trash = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+git2 = { workspace = true }
+
+[dev-dependencies]
+# Command-layer tests build fixture repos with the rs-core testkit (dev-only; shipped builds never see it, D-26).
+rs-core = { path = "../crates/rs-core", features = ["testkit"] }
+tempfile = { workspace = true }

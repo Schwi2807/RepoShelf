@@ -213,3 +213,87 @@ Handoff for M4:
   `Refused` listing failed repos; ghreleases HTTP errors are `Error::Network`.
 - `startup`: `clone::cleanup_partials(&dirs.archive)` before the runner starts; `library::refresh_summaries` in the
   background with a `CancelToken`.
+
+## M4 — IPC commands + tests (2026-11-11)
+
+Steps: M4.1–M4.15 done. New decisions D-50..D-58. Tauri APIs checked against the 2.12.5 registry sources
+(`WebviewWindowBuilder::{data_directory, on_navigation, on_new_window}`, `NewWindowResponse::Deny`, `ipc::Channel`,
+`ipc::Response`, `tauri::is_dev()`), dialog 2.8.4 (`blocking_pick_folder`, `blocking_save_file`), opener 2.7.3
+(`open_url`, `open_path`, `reveal_item_in_dir`, `Builder::open_js_links_on_click`), trash 5.3.0.
+
+- `state.rs`: `AppState { shelf, jobs, requests: CancelRegistry, compute, subscribers, import_tokens, trasher, picker,
+  opener, test_file_clone, startup_refresh }` managed as `Arc<AppState>`; `AppState::new` (production worker) and
+  `with_worker` (tests). `CancelRegistry` (guard unregisters on drop; early cancels remembered 30 s), `Subscribers`
+  (one channel per webview label, D-53), `friendly_worker` (D-52), `make_worker` (file:// seam only under cfg(e2e)),
+  `Trasher`/`RealTrash`, `Picker`, `Opener`, `TauriShell` (dialog + opener), import tokens (128-bit hex, 10 min, one
+  use, ≤ 32 kept).
+- `ipc_error.rs`: `IpcError { code, message }`; `friendly()` — auth / 401 / 403 / 407 / auth-replay loop → credentials
+  text, 404 → "Repository not found on <host>", other HTTP status, Net/Http/Ssl/Os/Callback → "Could not reach
+  <host>: …", `Network` → same, insteadOf refusal → plain wording (strings from vendored libgit2 `winhttp.c`: without
+  a credentials callback a 401 ends as "request failed with status code: 401").
+- `cmd/{app,library,dialogs,tree,blob,commits,refs,releases,jobs}.rs`: all 47 commands of ARCH §5.1, each a
+  `#[tauri::command] async fn` over a plain `*_impl(&AppState, …)` (D-51). Compute gate on last commits, counts,
+  languages, file last commit, ahead/behind, library refresh. `blob_bytes` returns `tauri::ipc::Response`.
+- `lib.rs`: startup (dirs created, `cleanup_partials`, `Shelf::open`, `load_persisted`, state, window in code with the
+  navigation guard + `data_directory`, background `prune_caches` (head tips) + `refresh_summaries` → event
+  `library-refreshed`); on exit the startup refresh and all jobs are cancelled. `RS_TEST_FILE_CLONE` read once, only
+  in cfg(e2e) code (a test asserts it).
+- Config: `tauri.conf.json` `windows: []`, CSP/devCsp unchanged (= ARCH §8, no `assetProtocol`); capability
+  `core:event:default` only (D-54). `Cargo.toml`: features `default = ["ghreleases"]`, `e2e`; dev-deps rs-core
+  (testkit) + tempfile; `rs_core::types::samples` public under testkit (D-57).
+- Tests (`src-tauri/src/tests.rs`, 41 in the lib incl. state/ipc_error units): hostile table for all 16 rev-taking
+  and 10 path-taking argument positions (also with an unknown repoId), bad oids for 3, unknown repoId → `notFound` for
+  every repo command, requestId validation, `open_external` refusals (javascript:, file:, ftp:, userinfo, mailto:,
+  data:, bare host, UNC), `blob_bytes` 5 MB cap (6 MB refused, 1.5 MB ok), import token (cancel, bad, reuse,
+  expired, duplicate, non-repo), remove (imported → no trash; cloned in archive → fake trasher got the path; cloned
+  outside → not trashed), save-as, every browse/commit/branch/tag/release command on fixtures, jobs (subscribe
+  snapshot + channel events, waiting cancel + retry, dismiss, friendly job errors), `releases_fetch_github` with the
+  feature (canned cache merged, non-GitHub origin refused with 0 network calls) and `unsupported` without
+  (`--no-default-features`, run once), e2e build: file:// clone + fetch through the commands, refused without the
+  flag. Registration test: `generate_handler!` list == ARCH §5.1 names (47). Navigation guard unit test.
+- M4.12: `src/ipc/types.ts` (every IPC type + `IpcError`, `JobInfo`, `Settings`, `RemoveResult`,
+  `AheadBehindEntry`); golden `src/ipc/__samples__/ipc-samples.json` (91 samples, keys `Type` / `Type.variant`);
+  `ipc_samples_match_the_golden` compares parsed JSON (`UPDATE_SAMPLES=1` rewrites); `src/ipc/types.test.ts` checks
+  every sample against a shape typed as `Shape<T>` (exact keys enforced by tsc) and that every enum value / union
+  variant is sampled.
+- M4.14 live check (scratch `target\scratch\m4-dev` / `m4-exe`, CDP via `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=
+  --remote-debugging-port`): `npx tauri dev` rendered the M0 page on the main display; `app_info` showed the scratch
+  dirs, `tree_list` with `../x` → `invalidPath`, `open_external('javascript:…')` → `invalidUrl`, `jobs_subscribe`
+  Channel received waiting → running → done for a no-network `fetch_all_start`, event listen allowed,
+  `plugin:window|set_title` denied, `window.open` and a foreign `location.href` blocked, `<RS_DATA_DIR>\webview`
+  created. Console: no CSP messages; only Vite's dev `favicon.ico` 404. Positive control showed `devCsp` is not
+  enforced in dev (D-56), so the same probe ran on a `npx tauri build --no-bundle --debug` exe: zero console
+  messages before the control, the injected inline script blocked (`script-src-elem`). Both runs killed by
+  `taskkill /T /F`; leftovers 0 (processes matched by command line); scratch dirs removed.
+
+Gate M4: `cargo test -p rs-core --features ghreleases` 137 passed (1 ignored live smoke) · `cargo test -p reposhelf`
+41 passed · `--features e2e` 41 passed · `--no-default-features` 41 passed · clippy `-D warnings` clean for the
+workspace, `-p reposhelf --features e2e` and `--no-default-features` · `npm run typecheck` ok · `npm test` 95 passed
+(types.test.ts against the committed golden) · `npm run build` ok · `cargo test --workspace` 178 passed ·
+`cargo build -p reposhelf` and `--features e2e` ok; the plain debug exe does not contain `RS_TEST_FILE_CLONE`.
+No `src/components` / `src/screens`. **Backend done.**
+
+Open items:
+- `fetch_all` failures list rs-core's raw per-repo text (`git: …`) inside one message (D-52).
+- Dev-mode favicon 404 (Vite serves no `favicon.ico`); add an icon link in M5.
+- D-45 / D-49 limits from M3 still apply.
+
+Handoff for M5 (frontend needs):
+- Invoke names are snake_case, args camelCase (`repoId`, `requestId`, `jobId`); errors reject with `IpcError
+  { code, message }` (`code` per `types.ts` `IpcErrorCode`, plus `internal` for a crashed blocking task).
+- Cancellable commands take `requestId` (1–64 chars `[A-Za-z0-9_-]`): `library_refresh`, `tree_last_commits`,
+  `commit_count`, `languages`, `file_last_commit`, `branches_ahead_behind`. `request_cancel` may arrive before the
+  request starts (remembered 30 s). A cancelled request rejects with code `cancelled`.
+- `jobs_subscribe({ channel })`: use `@tauri-apps/api/core` `Channel` (raw messages arrive wrapped as
+  `{ message, index }`; the API class unwraps). One channel per webview; resubscribe after reload; snapshot returned.
+- `blob_bytes` resolves to an `ArrayBuffer`; build the `Blob` with the MIME from `blob_meta` (`kind.type ===
+  'image'` → `kind.mime`, incl. `image/svg+xml`). `blob_text.text` is null above 5 MB → "Save a copy" only.
+- `commits_page({ repoId, rev, path?, since?, skip, tip? })`: pass the first page's `tip` and the returned `skip` for
+  "Older"; `path: ''` means no filter; `since` = previous tag for "commits since".
+- `import_pick()` → `ImportPreview | null` → `import_confirm({ token })`; `repo_locate` → `RepoSummary | null`;
+  `blob_save_as` → written path or null; `repo_remove` → `{ trashed }` (confirm dialog is the UI's job).
+- `open_external` accepts only http/https without userinfo (show `mailto:` as text). `clone_preview` validates as the
+  user types (pure, no network); `clone_start` returns the JobId or rejects `invalidUrl`.
+- Event `library-refreshed` (payload `RepoSummary[]`) fires once after startup; the library store may also call
+  `library_refresh` itself.
+- Capability is `core:event:default` only: no `@tauri-apps/api/window|webview|app` calls from the UI.

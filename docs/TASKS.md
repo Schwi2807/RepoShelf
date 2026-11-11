@@ -369,48 +369,48 @@ test listed above exists; tag `m3-done`.
 Goal: thin command layer over rs-core, security config, TS type mirror. ARCH §5.1, §5.2, §5.5, §8. After this the
 backend is complete and frozen except for bug fixes.
 
-- [ ] M4.1 `src-tauri/src/state.rs`: `AppState { shelf: Arc<Shelf>, jobs: JobRunner, requests: CancelRegistry,
+- [x] M4.1 `src-tauri/src/state.rs`: `AppState { shelf: Arc<Shelf>, jobs: JobRunner, requests: CancelRegistry,
   compute: ComputeGate, subscribers: Mutex<Vec<Channel<JobInfo>>>, import_tokens: Mutex<HashMap<String,(PathBuf,
   Instant)>>, trasher: Arc<dyn Trasher> }`; `CancelRegistry` (`register(requestId) -> Guard` that unregisters on
   drop, `cancel(requestId)`). Worker closure dispatching `JobKind::Clone` → `clone::clone`, `Fetch` → `fetch::fetch`,
   `FetchAll` → sequential fetch over fetchable repos (cancellable).
-- [ ] M4.2 `ipc_error.rs`: `IpcError { code, message }` from `rs_core::Error`; friendly git messages (auth/401/403 →
+- [x] M4.2 `ipc_error.rs`: `IpcError { code, message }` from `rs_core::Error`; friendly git messages (auth/401/403 →
   credentials text; 404; Net/Http/Ssl → "Could not reach <host>"). Tests per mapping.
-- [ ] M4.3 Startup in `lib.rs`: `resolve_dirs`, create dirs, `Shelf::open`, `clone::cleanup_partials`,
+- [x] M4.3 Startup in `lib.rs`: `resolve_dirs`, create dirs, `Shelf::open`, `clone::cleanup_partials`,
   `jobs.load_persisted`, `db::prune_caches`, background `library::refresh_summaries`; create window `main` in code
   (so `data_directory(<RS_DATA_DIR>/webview)` applies when `RS_DATA_DIR` is set — *verify* the Tauri 2.11
   `WebviewWindowBuilder::data_directory` API) and register `on_navigation` returning false for non-app URLs (and deny
   new windows). Remove the window from `tauri.conf.json` if created in code. (FR-35, FR-8, NFR-S3)
-- [ ] M4.4 `cmd/app.rs` ∥: `app_info` (sizes: cache = sum of cache-table JSON lengths; archive bytes computed
+- [x] M4.4 `cmd/app.rs` ∥: `app_info` (sizes: cache = sum of cache-table JSON lengths; archive bytes computed
   lazily/capped), `settings_get`, `settings_set`, `cache_clear`, `request_cancel`, `open_external` (`validate::
   external_url`, opener from Rust). (FR-33, FR-35, S10, NFR-S3)
-- [ ] M4.5 `cmd/library.rs` ∥: `library_list`, `library_refresh(requestId)`, `repo_by_slug`, `repo_set_metadata`,
+- [x] M4.5 `cmd/library.rs` ∥: `library_list`, `library_refresh(requestId)`, `repo_by_slug`, `repo_set_metadata`,
   `repo_detail` (+ `touch_opened`), `repo_open_folder` (bare → reveal `<name>.git`, else open work tree, from Rust).
   (FR-1, FR-4, FR-12, FR-18, FR-20)
-- [ ] M4.6 `cmd/dialogs.rs` ∥: `import_pick` (Rust folder dialog → `preview_import` → token, D-18), `import_confirm(
+- [x] M4.6 `cmd/dialogs.rs` ∥: `import_pick` (Rust folder dialog → `preview_import` → token, D-18), `import_confirm(
   token)` (expired/unknown token → `InvalidInput`), `repo_locate` (folder dialog → `relocate`), `repo_remove`
   (`library::remove`; cloned → `trasher.delete(path)`; imported → nothing on disk), `blob_save_as` (save dialog →
   write bytes). `Trasher` trait + `RealTrash` (D-30). Dialog calls go through a `Picker` trait so tests inject
   paths. (FR-5, FR-4, FR-36, FR-23, NFR-S4, D-10)
-- [ ] M4.7 `cmd/tree.rs` + `cmd/blob.rs` ∥: `refs_list`, `rev_resolve`, `tree_list`, `tree_last_commits`
+- [x] M4.7 `cmd/tree.rs` + `cmd/blob.rs` ∥: `refs_list`, `rev_resolve`, `tree_list`, `tree_last_commits`
   (requestId, compute gate), `commit_latest`, `commit_count` (requestId), `readme_render`, `markdown_render_file`,
   `languages` (requestId), `blob_meta`, `blob_text`, `blob_bytes` (`tauri::ipc::Response`, > 5 MB → `Refused`,
   mime from extension allow-list), `file_last_commit`. Every arg validated per §5.2 before rs-core. (FR-13..19,
   FR-21..25, NFR-P4, NFR-S4, NFR-S7, D-11)
-- [ ] M4.8 `cmd/commits.rs` + `cmd/refs.rs` + `cmd/releases.rs` ∥: `commits_page` (limit fixed 35, skip ≤ 10M,
+- [x] M4.8 `cmd/commits.rs` + `cmd/refs.rs` + `cmd/releases.rs` ∥: `commits_page` (limit fixed 35, skip ≤ 10M,
   optional `tip`, `since`, `path`), `commit_detail` (oid 40 hex), `commit_file_diff`, `branches_list`,
   `branches_ahead_behind(names, requestId)`, `tags_list`, `releases_list` (merges cached GH notes),
   `releases_fetch_github` (returns `unsupported` if feature off). (FR-26..31)
-- [ ] M4.9 `cmd/jobs.rs`: `clone_preview`, `clone_start`, `fetch_start` (imported repos allowed when fetchable; the
+- [x] M4.9 `cmd/jobs.rs`: `clone_preview`, `clone_start`, `fetch_start` (imported repos allowed when fetchable; the
   confirm is the UI's job), `fetch_all_start`, `fast_forward`, `jobs_subscribe(channel)` (store channel, return
   snapshot), `jobs_cancel`, `jobs_retry`, `jobs_dismiss`. Under `#[cfg(feature = "e2e")]` only: when env
   `RS_TEST_FILE_CLONE=1`, `clone_start` with a `file://` input uses `clone_from_unchecked` and fetch of a `file://`
   origin uses `fetch_unchecked` (D-14, D-20). The literal `RS_TEST_FILE_CLONE` must appear only inside cfg(e2e)
   code. Sink pushes every `JobInfo` change to all live channels, dropping closed ones. (FR-6..11, NFR-P7)
-- [ ] M4.10 `tauri.conf.json` CSP/devCsp re-checked against ARCH §8, no `assetProtocol`; `capabilities/default.json`
+- [x] M4.10 `tauri.conf.json` CSP/devCsp re-checked against ARCH §8, no `assetProtocol`; `capabilities/default.json`
   = `core:default`; try narrowing to `core:event:default` + `core:app:default` (+ what `Channel` needs) and keep the
   narrowest set that runs. (NFR-S2, NFR-S6)
-- [ ] M4.11 Command-layer tests (`src-tauri/tests/` or `#[cfg(test)]` modules calling the inner `fn`s with a test
+- [x] M4.11 Command-layer tests (`src-tauri/tests/` or `#[cfg(test)]` modules calling the inner `fn`s with a test
   `AppState` over scratch dirs, no window): hostile table (`..`, `a/../b`, `/etc`, `C:\x`, `c:/x`, `a\b`, `a\0b`,
   `refs/../x`, `HEAD~1`, `a..b`, `@{-1}`) refused with `invalidPath`/`invalidRev` for **every** command taking `path`
   or `rev`; non-hex/short oid refused; unknown `repoId` → `notFound`; `open_external` refuses `javascript:`,
@@ -418,17 +418,17 @@ backend is complete and frozen except for bug fixes.
   path, imported → not called; job subscribe snapshot contains submitted job; `releases_fetch_github` works with the
   feature on (canned) and `unsupported` off. Commands are written as `#[tauri::command] async fn x(state, …)` wrappers
   over plain `fn x_impl(&AppState, …)` so tests need no runtime. (PoC criterion 4, NFR-S4)
-- [ ] M4.12 `src/ipc/types.ts`: TS mirror of every type in `types.rs` (+ `IpcError`, `JobInfo`, `Settings`).
+- [x] M4.12 `src/ipc/types.ts`: TS mirror of every type in `types.rs` (+ `IpcError`, `JobInfo`, `Settings`).
   Rust test `ipc_samples` serialises one sample of every type (every enum variant) to
   `target/ipc-samples.json` and compares with committed `src/ipc/__samples__/ipc-samples.json` (`UPDATE_SAMPLES=1`
   rewrites the golden). `src/ipc/types.test.ts` loads the golden and checks each sample against a hand-written shape
   validator per TS type (keys and primitive kinds), so a camelCase drift fails one side (D-24).
-- [ ] M4.13 `cargo build -p reposhelf` and `cargo build -p reposhelf --features e2e` both compile (long first build:
+- [x] M4.13 `cargo build -p reposhelf` and `cargo build -p reposhelf --features e2e` both compile (long first build:
   background / 10 min).
-- [ ] M4.14 Live check: with `RS_DATA_DIR`/`RS_ARCHIVE_DIR` set to `target\scratch\m4`, run `npx tauri dev`
+- [x] M4.14 Live check: with `RS_DATA_DIR`/`RS_ARCHIVE_DIR` set to `target\scratch\m4`, run `npx tauri dev`
   (window on the main display), confirm the M0 page renders and the devtools console has no CSP errors, then
   `taskkill /T /F` the tree and verify leftovers 0.
-- [ ] M4.15 Clippy clean for the whole workspace incl. `--features e2e`.
+- [x] M4.15 Clippy clean for the whole workspace incl. `--features e2e`.
 
 Order: M4.1 → M4.2 → M4.3 → (M4.4 ∥ M4.5 ∥ M4.6 ∥ M4.7 ∥ M4.8 ∥ M4.9 — each its own `cmd/*.rs`; one person
 registers all commands in `lib.rs`'s `generate_handler!` after they land) → M4.10 → M4.11 → M4.12 → M4.13 → M4.14 →

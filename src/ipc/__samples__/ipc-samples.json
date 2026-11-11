@@ -1,0 +1,686 @@
+{
+  "AheadBehindEntry": [
+    "feature",
+    {
+      "ahead": 1,
+      "behind": 0,
+      "capped": false
+    }
+  ],
+  "AppInfo": {
+    "archiveBytes": null,
+    "archiveDir": "a",
+    "cacheBytes": 1,
+    "dataDir": "d",
+    "repoCount": 2,
+    "version": "0.0.1"
+  },
+  "BlobKind.binary": {
+    "type": "binary"
+  },
+  "BlobKind.image": {
+    "mime": "image/png",
+    "type": "image"
+  },
+  "BlobKind.lfsPointer": {
+    "size": 9,
+    "type": "lfsPointer"
+  },
+  "BlobKind.submodule": {
+    "type": "submodule",
+    "url": null
+  },
+  "BlobKind.symlink": {
+    "target": "b",
+    "type": "symlink"
+  },
+  "BlobKind.text": {
+    "type": "text"
+  },
+  "BlobMeta": {
+    "displayable": true,
+    "highlight": true,
+    "kind": {
+      "mime": "image/png",
+      "type": "image"
+    },
+    "langHint": "rust",
+    "lines": 1,
+    "lossy": false,
+    "oid": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "path": "a.rs",
+    "size": 10,
+    "sloc": 1
+  },
+  "BlobText": {
+    "meta": {
+      "displayable": true,
+      "highlight": true,
+      "kind": {
+        "type": "text"
+      },
+      "langHint": "rust",
+      "lines": 1,
+      "lossy": false,
+      "oid": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "path": "a.rs",
+      "size": 10,
+      "sloc": 1
+    },
+    "text": "x"
+  },
+  "BranchRow": {
+    "aheadBehind": {
+      "ahead": 1,
+      "behind": 2,
+      "capped": false
+    },
+    "item": {
+      "fullName": "refs/heads/main",
+      "isDefault": true,
+      "kind": "remoteBranch",
+      "name": "main",
+      "target": "cccccccccccccccccccccccccccccccccccccccc"
+    },
+    "last": {
+      "author": {
+        "email": "author@example.com",
+        "name": "A U Thor",
+        "time": {
+          "offsetMin": 60,
+          "secs": 1700000000
+        }
+      },
+      "committer": {
+        "email": "author@example.com",
+        "name": "A U Thor",
+        "time": {
+          "offsetMin": 60,
+          "secs": 1700000000
+        }
+      },
+      "oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "parents": [
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ],
+      "summary": "Initial"
+    }
+  },
+  "ChangeKind.added": "added",
+  "ChangeKind.copied": "copied",
+  "ChangeKind.deleted": "deleted",
+  "ChangeKind.modified": "modified",
+  "ChangeKind.renamed": "renamed",
+  "ChangeKind.typeChange": "typeChange",
+  "ClonePreview": {
+    "host": "github.com",
+    "name": "r",
+    "owner": "o",
+    "targetDir": "x",
+    "url": "https://github.com/o/r.git"
+  },
+  "CommitDetail": {
+    "additions": 0,
+    "commit": {
+      "author": {
+        "email": "author@example.com",
+        "name": "A U Thor",
+        "time": {
+          "offsetMin": 60,
+          "secs": 1700000000
+        }
+      },
+      "committer": {
+        "email": "author@example.com",
+        "name": "A U Thor",
+        "time": {
+          "offsetMin": 60,
+          "secs": 1700000000
+        }
+      },
+      "oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "parents": [
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ],
+      "summary": "Initial"
+    },
+    "deletions": 0,
+    "diffs": [
+      {
+        "hunks": [
+          {
+            "header": "@@",
+            "lines": [
+              {
+                "kind": "noNewline",
+                "newNo": null,
+                "oldNo": 1,
+                "text": "x"
+              }
+            ]
+          }
+        ],
+        "index": 0,
+        "truncated": false
+      }
+    ],
+    "diffsDeferred": false,
+    "files": [],
+    "isMerge": false,
+    "message": "m",
+    "parentCompared": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "CommitsPage": {
+    "capped": false,
+    "commits": [
+      {
+        "author": {
+          "email": "author@example.com",
+          "name": "A U Thor",
+          "time": {
+            "offsetMin": 60,
+            "secs": 1700000000
+          }
+        },
+        "committer": {
+          "email": "author@example.com",
+          "name": "A U Thor",
+          "time": {
+            "offsetMin": 60,
+            "secs": 1700000000
+          }
+        },
+        "oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "parents": [
+          "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        ],
+        "summary": "Initial"
+      }
+    ],
+    "hasMore": true,
+    "scanned": 35,
+    "skip": 0,
+    "tip": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "DiffLine": {
+    "kind": "noNewline",
+    "newNo": null,
+    "oldNo": 1,
+    "text": "x"
+  },
+  "EntryKind.dir": "dir",
+  "EntryKind.exec": "exec",
+  "EntryKind.file": "file",
+  "EntryKind.submodule": "submodule",
+  "EntryKind.symlink": "symlink",
+  "FileChange": {
+    "additions": 1,
+    "binary": false,
+    "deletions": 2,
+    "generated": true,
+    "index": 0,
+    "kind": "typeChange",
+    "newPath": "b",
+    "oldPath": "a",
+    "tooLarge": false
+  },
+  "FileDiff": {
+    "hunks": [
+      {
+        "header": "@@",
+        "lines": [
+          {
+            "kind": "noNewline",
+            "newNo": null,
+            "oldNo": 1,
+            "text": "x"
+          }
+        ]
+      }
+    ],
+    "index": 0,
+    "truncated": false
+  },
+  "HeadState.branch": {
+    "name": "main",
+    "type": "branch"
+  },
+  "HeadState.detached": {
+    "oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "type": "detached"
+  },
+  "HeadState.unborn": {
+    "name": "main",
+    "type": "unborn"
+  },
+  "ImportPreview": {
+    "duplicateOf": 1,
+    "isBare": false,
+    "name": "r",
+    "originUrl": null,
+    "path": "C:\\r",
+    "token": "t"
+  },
+  "IpcError": {
+    "code": "invalidPath",
+    "message": "invalid path: .."
+  },
+  "JobInfo": {
+    "error": null,
+    "id": 7,
+    "kind": {
+      "type": "clone",
+      "url": "https://github.com/o/r.git"
+    },
+    "progress": {
+      "bytes": 3,
+      "received": 1,
+      "total": 2,
+      "type": "receiving"
+    },
+    "result": null,
+    "startedAt": 1700000000,
+    "state": "running",
+    "title": "Clone o/r"
+  },
+  "JobInfo.done": {
+    "error": null,
+    "id": 8,
+    "kind": {
+      "repoId": 1,
+      "type": "fetch"
+    },
+    "progress": null,
+    "result": {
+      "keptLocalTags": [],
+      "newCommits": 1,
+      "newTags": [],
+      "skippedRefs": [],
+      "type": "fetched",
+      "updatedBranches": []
+    },
+    "startedAt": 1700000000,
+    "state": "done",
+    "title": "Clone o/r"
+  },
+  "JobInfo.failed": {
+    "error": "Could not reach github.com: failed to connect to host",
+    "id": 9,
+    "kind": {
+      "type": "fetchAll"
+    },
+    "progress": null,
+    "result": null,
+    "startedAt": 1700000000,
+    "state": "failed",
+    "title": "Clone o/r"
+  },
+  "JobKind.clone": {
+    "type": "clone",
+    "url": "https://github.com/o/r.git"
+  },
+  "JobKind.fetch": {
+    "repoId": 3,
+    "type": "fetch"
+  },
+  "JobKind.fetchAll": {
+    "type": "fetchAll"
+  },
+  "JobResult.cloned": {
+    "repoId": 4,
+    "skippedRefs": [],
+    "type": "cloned"
+  },
+  "JobResult.fetched": {
+    "keptLocalTags": [],
+    "newCommits": 2,
+    "newTags": [
+      "v1"
+    ],
+    "skippedRefs": [
+      "LLM/x"
+    ],
+    "type": "fetched",
+    "updatedBranches": [
+      "main"
+    ]
+  },
+  "JobState.cancelled": "cancelled",
+  "JobState.done": "done",
+  "JobState.failed": "failed",
+  "JobState.running": "running",
+  "JobState.waiting": "waiting",
+  "Languages": {
+    "items": [
+      {
+        "bytes": 10,
+        "name": "Rust",
+        "percent": 100.0
+      }
+    ],
+    "tree": "dddddddddddddddddddddddddddddddddddddddd"
+  },
+  "LastCommits": {
+    "capped": true,
+    "entries": [
+      {
+        "commit": {
+          "author": {
+            "email": "author@example.com",
+            "name": "A U Thor",
+            "time": {
+              "offsetMin": 60,
+              "secs": 1700000000
+            }
+          },
+          "committer": {
+            "email": "author@example.com",
+            "name": "A U Thor",
+            "time": {
+              "offsetMin": 60,
+              "secs": 1700000000
+            }
+          },
+          "oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "parents": [
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          ],
+          "summary": "Initial"
+        },
+        "name": "a"
+      }
+    ],
+    "path": "",
+    "tip": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "LatestCommit": {
+    "commit": {
+      "author": {
+        "email": "author@example.com",
+        "name": "A U Thor",
+        "time": {
+          "offsetMin": 60,
+          "secs": 1700000000
+        }
+      },
+      "committer": {
+        "email": "author@example.com",
+        "name": "A U Thor",
+        "time": {
+          "offsetMin": 60,
+          "secs": 1700000000
+        }
+      },
+      "oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "parents": [
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ],
+      "summary": "Initial"
+    },
+    "count": 5
+  },
+  "LineKind.add": "add",
+  "LineKind.ctx": "ctx",
+  "LineKind.del": "del",
+  "LineKind.noNewline": "noNewline",
+  "Progress.connecting": {
+    "type": "connecting"
+  },
+  "Progress.finalizing": {
+    "type": "finalizing"
+  },
+  "Progress.receiving": {
+    "bytes": 2048,
+    "received": 5,
+    "total": 10,
+    "type": "receiving"
+  },
+  "Progress.resolving": {
+    "done": 1,
+    "total": 4,
+    "type": "resolving"
+  },
+  "RefKind.branch": "branch",
+  "RefKind.commit": "commit",
+  "RefKind.remoteBranch": "remoteBranch",
+  "RefKind.tag": "tag",
+  "RefsList": {
+    "branches": [
+      {
+        "fullName": "refs/heads/main",
+        "isDefault": true,
+        "kind": "remoteBranch",
+        "name": "main",
+        "target": "cccccccccccccccccccccccccccccccccccccccc"
+      }
+    ],
+    "defaultBranch": "main",
+    "remoteBranches": [],
+    "tags": []
+  },
+  "Release": {
+    "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "date": 1,
+    "ghNotes": false,
+    "latest": true,
+    "notesHtml": null,
+    "prerelease": false,
+    "previousTag": null,
+    "tag": "v1.0.0",
+    "title": "v1"
+  },
+  "RemoveResult": {
+    "trashed": true
+  },
+  "Removed": {
+    "path": "p",
+    "source": "cloned"
+  },
+  "Rendered": {
+    "headings": [
+      {
+        "anchor": "x",
+        "level": 1,
+        "text": "x"
+      }
+    ],
+    "html": "<h1>x</h1>",
+    "sourcePath": "README.md"
+  },
+  "RepoDetail": {
+    "branchCount": 1,
+    "canFastForward": false,
+    "dirty": null,
+    "fetchable": true,
+    "head": {
+      "name": "main",
+      "type": "unborn"
+    },
+    "isBare": true,
+    "license": "MIT",
+    "releaseCount": 3,
+    "summary": {
+      "addedAt": 2,
+      "clonedAt": null,
+      "defaultBranch": "main",
+      "description": "d",
+      "homepage": null,
+      "id": 1,
+      "lastCommitAt": 1,
+      "lastFetchedAt": null,
+      "lastOpenedAt": 3,
+      "name": "demo",
+      "originHost": "github.com",
+      "originUrl": "https://github.com/o/demo.git",
+      "owner": "local",
+      "path": "C:\\x\\demo",
+      "primaryLanguage": "Rust",
+      "source": "imported",
+      "status": {
+        "message": "bad",
+        "type": "corrupt"
+      },
+      "topics": [
+        "rust"
+      ]
+    },
+    "tagCount": 2
+  },
+  "RepoStatus.corrupt": {
+    "message": "bad pack",
+    "type": "corrupt"
+  },
+  "RepoStatus.empty": {
+    "type": "empty"
+  },
+  "RepoStatus.missing": {
+    "type": "missing"
+  },
+  "RepoStatus.ok": {
+    "type": "ok"
+  },
+  "RepoSummary": {
+    "addedAt": 2,
+    "clonedAt": null,
+    "defaultBranch": "main",
+    "description": "d",
+    "homepage": null,
+    "id": 1,
+    "lastCommitAt": 1,
+    "lastFetchedAt": null,
+    "lastOpenedAt": 3,
+    "name": "demo",
+    "originHost": "github.com",
+    "originUrl": "https://github.com/o/demo.git",
+    "owner": "local",
+    "path": "C:\\x\\demo",
+    "primaryLanguage": "Rust",
+    "source": "imported",
+    "status": {
+      "message": "bad",
+      "type": "corrupt"
+    },
+    "topics": [
+      "rust"
+    ]
+  },
+  "ResolvedRev": {
+    "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "fullName": "refs/heads/main",
+    "input": "main",
+    "kind": "branch",
+    "tree": "dddddddddddddddddddddddddddddddddddddddd"
+  },
+  "Settings": {
+    "showDirtyNote": true,
+    "sort": {
+      "desc": true,
+      "key": "updated"
+    },
+    "sourceFilter": "all",
+    "theme": "system"
+  },
+  "SortKey.added": "added",
+  "SortKey.name": "name",
+  "SortKey.updated": "updated",
+  "SortSpec": {
+    "desc": false,
+    "key": "added"
+  },
+  "Source.cloned": "cloned",
+  "Source.imported": "imported",
+  "SourceFilter.all": "all",
+  "SourceFilter.cloned": "cloned",
+  "SourceFilter.imported": "imported",
+  "TagRow": {
+    "annotated": true,
+    "commit": {
+      "author": {
+        "email": "author@example.com",
+        "name": "A U Thor",
+        "time": {
+          "offsetMin": 60,
+          "secs": 1700000000
+        }
+      },
+      "committer": {
+        "email": "author@example.com",
+        "name": "A U Thor",
+        "time": {
+          "offsetMin": 60,
+          "secs": 1700000000
+        }
+      },
+      "oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "parents": [
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ],
+      "summary": "Initial"
+    },
+    "date": 5,
+    "item": {
+      "fullName": "refs/heads/main",
+      "isDefault": true,
+      "kind": "remoteBranch",
+      "name": "main",
+      "target": "cccccccccccccccccccccccccccccccccccccccc"
+    },
+    "tagger": {
+      "email": "author@example.com",
+      "name": "A U Thor",
+      "time": {
+        "offsetMin": 60,
+        "secs": 1700000000
+      }
+    }
+  },
+  "Theme.dark": "dark",
+  "Theme.light": "light",
+  "Theme.system": "system",
+  "Time": {
+    "offsetMin": -300,
+    "secs": 1
+  },
+  "TreeEntry": {
+    "kind": "submodule",
+    "name": "a",
+    "oid": "ffffffffffffffffffffffffffffffffffffffff",
+    "path": "src/a",
+    "pathRaw": [
+      255
+    ],
+    "size": 3,
+    "storableHere": false
+  },
+  "TreeListing": {
+    "entries": [
+      {
+        "kind": "submodule",
+        "name": "a",
+        "oid": "ffffffffffffffffffffffffffffffffffffffff",
+        "path": "src/a",
+        "pathRaw": [
+          255
+        ],
+        "size": 3,
+        "storableHere": false
+      }
+    ],
+    "path": "",
+    "readme": "README.md",
+    "rev": {
+      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "fullName": "refs/heads/main",
+      "input": "main",
+      "kind": "branch",
+      "tree": "dddddddddddddddddddddddddddddddddddddddd"
+    }
+  },
+  "Version": {
+    "extra": 0,
+    "major": 1,
+    "minor": 2,
+    "patch": 3,
+    "pre": "rc1"
+  }
+}

@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Main window. No dialog, opener, fs, shell or http permissions: dialogs and external links are opened from Rust commands (D-10).",
+  "description": "Main window: event listen/unlisten only (the startup library-refreshed event). App commands are not ACL-gated (no app manifest) and Channel data fetches are exempt, so nothing else is needed. No window, webview, app, dialog, opener, fs, shell or http permissions: dialogs and external links are opened from Rust commands (D-10).",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:event:default"]
 }
