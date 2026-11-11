@@ -464,16 +464,21 @@ repository page arrangement with our own tokens.
 - Router: `navigate(…, { keepScroll })` (D-68). Library store generation guard (D-75, fixed a flaky App test).
 - CSS: `src/styles/screens.css` (imported in main.tsx).
 
-Tests: 517 TS in 18 files (+65): paths/lang-colors 6, topics 3, RepoList 5 (filter "pars", replace history, sort
+Tests: 522 TS in 19 files (+70): mutations 5 (Edit About save → sidebar + dashboard row, invalid topic refused,
+header Remove → dashboard without the repo, imported Fetch confirm → "3 new commits", Fast-forward), plus paths/lang-colors 6, topics 3, RepoList 5 (filter "pars", replace history, sort
 3 orders, Locate, Remove dialog), CloneDialog 10 (8 rejected forms show the backend message, valid URL shows host +
 target, stale answers dropped), FileTable 5 (order, `..`, shimmer then messages, NFR-W3/R-7 badges, folder link),
 RefSwitcher 3 (filter + default + current, tag href `refs%2Ftags%2Fv0.3.0` keeps path, display names), CodeViewer 5
 (`?L=10-20`, click + shift-click, every placeholder + lossy + not-checked-out + dir redirect, raw + markdown tabs),
-contrast +12 (selected-line pairs), App test updated for the real Code tab. Shared harness `src/test/appHarness.tsx`.
+contrast +28 (12 hl + 2 text pairs on the selected-line background, both themes), App test updated for the real Code tab. Shared harness `src/test/appHarness.tsx`.
 
-Gate M6: `npm run typecheck` ok · `npm test` 517 passed · `npm run build` ok, initial JS `index-*.js` 388,446 bytes
-(< 1.5 MB) · `cargo test --workspace` 178 passed (41 + 135 + 1 ignored + 2) · `cargo clippy --workspace --all-targets
--D warnings` ok (Rust unchanged).
+Gate M6 (final, after the review commit): `npm run typecheck` ok · `npm test` 522 passed · `npm run build` ok, initial
+JS `index-*.js` 388,476 bytes (< 1.5 MB) · `cargo test --workspace` 178 passed (41 + 135 + 1 ignored + 2). Earlier
+gates re-run (Rust unchanged): `cargo build --workspace`, `cargo test -p rs-core --features ghreleases` (135 + 1
+ignored + 2), `cargo test -p reposhelf` 41, `--features e2e` 41, clippy `-D warnings` for the workspace and
+`-p reposhelf --features e2e` — all exit 0; M2 bench (`rs fixtures` + `rs bench` on `target\scratch\m2-bench`, exit 0:
+list_dir 3.1 ms, lastcommit 2nd visit 0.8 ms, page skip 0 / 9,965 40.5 / 40.8 ms, langs 50k 51.5 ms, 400-file diff
+2.0 ms; scratch dir removed).
 
 M6.9 browser check (hidden `npm run dev`, PID 30704, Browser pane; killed by tree, 5 processes, port 1450 free, no
 leftover node/headless Edge): dark — `#/`, `#/northwind/parsekit` (file table, latest commit, README, About,
@@ -482,7 +487,15 @@ releases, languages), `blob/main/src/lexer.rs?L=30-36` (highlighted, scrolled to
 notice, scrolled to line 20000 after the fix in D-72), `docs/logo.svg` (img on checkerboard); light — `#/`, Clone
 dialog (codeberg.org preview), `#/lumen-ui/lumen` (Fast-forward, cloned/last fetched, releases), Edit About dialog;
 `#/local/scratchpad` (empty), `tree/nope/` (ref not found + default link), `#/local/beacon` (detached `f10accc`),
-`#/sandbox/hostile-readme` (only blob:/data:png images, 0 scripts). Console: no errors or warnings. Mock settings in
+`#/sandbox/hostile-readme` (only blob:/data:png images, 0 scripts). Second pass (hidden `npm run dev`, PID 24588,
+killed by tree, 5 processes): light — `?empty` empty card, dashboard missing row (Locate… / Remove from shelf),
+tag ref `tree/refs%2Ftags%2Fv0.2.0/src/stream` (tag switcher label, breadcrumbs, `..` row, dir History), file view
+`docs/screenshot.png`, `assets/sample.bin`, `data/corpus.json`, `data/export.log`, `vendor/ucd`, `latest`,
+`odd/a:b.txt` (not-checked-out notice), `docs/legacy-notes.txt` (lossy notice), `docs/architecture.md` Preview /
+Raw; dark — Fetch confirm → "3 new commits", Import dialog picks new → "not a git repository" → duplicate (link to
+northwind/parsekit), Remove dialog for a clone (Recycle Bin wording) → removed, landed on `#/` with no "not found"
+flash, Fast-forward on lumen ("Fast-forwarded to d4b9dba", button gone), Edit About save (sidebar + dashboard row
+updated). Console: no errors or warnings. Mock settings in
 the pane's localStorage left at theme Light, sort updated/desc, source all. Saved light PNGs (headless Edge, scratch
 profile, `preferredColorScheme=1`, 1280×1000, no window shown): `docs/screenshots/m6-dashboard.png`,
 `docs/screenshots/m6-code.png` (reviewed: fonts loaded, no shimmers).
@@ -490,7 +503,10 @@ profile, `preferredColorScheme=1`, 1280×1000, no window shown): `docs/screensho
 Open items / deviations:
 - One source edit (RepoToolbar check-column labels) was made with a scripted replace instead of Edit/Write
   (content checked; no Windows paths involved). Everything else via Edit/Write.
-- `pathRaw` is not used for browsing (D-71). Dialog dark-theme screenshots were not taken separately (pane only).
+- `pathRaw` is not used for browsing (D-71). Remove for an imported repo was checked in the harness test (dashboard
+  missing row) and as wording only in the pane.
+- Text files > 5 MB offer Save a copy only (FR-25 says Raw/Save): `blob_text` returns `text: null` above 5 MB, so
+  there is nothing to show raw.
 - In the hidden Browser pane scroll events are throttled, so a virtual list may lag one scroll behind until the
   next frame; not seen with the pane visible / in screenshots.
 - Edit About's first focus is the description field (Dialog default), not topics.
