@@ -764,6 +764,76 @@ Keep M6/M7 screens reading through the swappable data-source layer so this fits 
 
 ---
 
+## v0.2.0 — hand-test feedback round (M11–M13), added 2026-11-12
+
+User feedback after hand-testing v0.1.0 (all hand tests passed except `-Network`):
+F1 no on-screen Back/Forward; F2 README remote images show as "Remote image: host" chips; F3 README `align="center"`
+content not centred like GitHub; F4 Releases page lacks GitHub-like list with links (title/tag/commit links + assets);
+user strongly wants auto-download of the latest release asset for this OS, disable-able per Fetch / Clone / Import;
+F5 contributor avatars in release notes must be removed, keeping usernames; F6 release notes and project descriptions
+fetched by default, configurable in Settings.
+
+### Lead decisions (defaults) — not open for re-analysis
+- **The user's v0.1.0 is installed and has real data.** Every schema change is a new migration, tested against a
+  v0.1.0-shaped DB with rows. Never read the user's real data/archive, never run the installer, never install over it.
+  v0.2.0 artifacts go to `_REVIVE\releases\v0.2.0\`; leave v0.1.0 files untouched.
+- **Webview stays offline.** All new network I/O happens in Rust; CSP unchanged; UI gets bytes → `blob:` as today.
+  The M8 "no foreign requests from the webview" check must still pass. Rewrite NFR "offline" wording + TESTING.md:
+  network is used on Clone/Fetch/Import(+GitHub metadata), README image loading and release downloads, each toggleable.
+- **Shared HTTP client (rs-core `net.rs`)**: https only; refuse IP-literal, loopback, link-local, private, `.local`
+  hosts (resolve and check every address); follow redirects manually ≤5 hops re-checking each hop; size + time caps;
+  no cookies, no credentials, generic UA `RepoShelf/<ver>`; behind a trait seam so tests are offline. D-49 still holds
+  for api.github.com JSON (no redirect), release-asset downloads use the redirect-checked path with an allow-list
+  (`github.com`, `objects.githubusercontent.com`, `release-assets.githubusercontent.com`, `github-releases.githubusercontent.com`).
+- **F2 remote images**: setting `loadRemoteImages` default ON. Rust fetches (≤5 MB, image/* only; SVG allowed and served
+  only as an inert `<img>` blob), caches on disk under data dir (`img-cache/`, keyed by URL hash, LRU cap 200 MB), so it
+  works offline after first view. Off → current chips. Lazy-load per image; failures fall back to the chip.
+- **F3 centring**: first render a fixture with `<div align="center">`, `<p align="center">`, `<h1 align="center">`,
+  `<table align="center">`, `<img align="right" width=…>` and check the sanitiser output; fix sanitiser allow-list
+  (align on div/p/h1-6/table/td/th/img; width/height on img) and/or CSS so it matches GitHub. No inline styles.
+- **F5 avatars**: in Rust, when rendering *release notes*, replace `<img>` whose src host is
+  `avatars.githubusercontent.com` (or GitHub's contributor-avatar pattern) with `@username` text (from alt or the
+  wrapping github.com/<user> link), rendered as a mention link. Done before the image-fetch step so avatars are never
+  fetched. Release notes only.
+- **F6 GitHub metadata**: settings `fetchReleaseNotes` and `fetchRepoInfo` default ON; apply to github.com origins on
+  Clone, Import and Fetch (and Fetch all). Fetched description/topics/homepage are stored separately from the user's
+  Edit About values; the user's values win when set. Use ETag/If-None-Match; rate limit (403/429) or 301 = non-fatal
+  note on the job, never a failed clone/fetch.
+- **F4 releases list**: Releases page shows GitHub-like cards: title (link to tag page), tag chip, commit short-oid link,
+  date, "Latest" badge, rendered notes, and an **Assets** list (name, size, download count if known, link). Each asset:
+  "Download" (Rust, to the release store) / "Show in folder" if downloaded, "Open on GitHub" via confirmExternal.
+  Source-code zip/tar links like GitHub (open external).
+- **F4 auto-download**: setting `autoDownloadLatestRelease` default ON; per-action checkbox in Clone and Import dialogs
+  (defaults from setting) and an option on the Fetch button (split/menu) — Fetch all does NOT auto-download unless
+  setting `autoDownloadOnFetchAll` (default OFF). Storage: `<archive>\_releases\<host>\<owner>\<name>\<tag>\<file>`
+  (never inside an imported repo). Asset picker: reuse the *ideas* of Project Manager's release picking
+  (`crates/pm-core/src/releases.rs`, read-only): current OS + arch, prefer portable/setup exe/msi/zip for Windows,
+  skip checksums/sigs/source; if no confident match, download nothing and say so. Size cap setting default 1 GB.
+  `.partial` + rename; skip if that tag's asset already exists; SHA-256 check when GitHub publishes a digest.
+  Never run or unpack a download. Progress in the jobs tray, cancellable. Offline tests behind the HTTP seam; repeat
+  the shipped-exe string check.
+- **F1 Back/Forward**: two buttons left of the header search, disabled when there's nothing to go to (own index in
+  `history.state`); also Alt+Left/Right and mouse buttons 4/5 keep working.
+- Settings page gets a "Network" section with all toggles above.
+
+### M11 — backend (rs-core + src-tauri)
+net.rs + seam; image fetch/cache; sanitiser fixes (F3) + avatar stripping (F5); GitHub repo info + ETag cache +
+separate storage + migration; release assets model (GitHub API assets) + picker + downloader job + store; settings keys;
+IPC commands (+ golden, mock, ARCH §5.1 table updated together); tests incl. migration from a v0.1.0 DB.
+Gate: cargo test --workspace, clippy -D warnings (default/e2e/no-default), npm typecheck/test/build. Tag `m11-done`.
+
+### M12 — frontend
+Back/Forward buttons; README remote images via new command; CSS centring parity; Releases page cards + assets +
+download state; Clone/Import checkboxes; Fetch menu option; Settings "Network" section; mock updated; tests.
+Gate: as M11 + browser check light/dark. Tag `m12-done`.
+
+### M13 — real-app run + release v0.2.0
+Extend run-e2e (offline via seams) for new flows; README/TESTING/DECISIONS/WORKLOG; version 0.2.0; NSIS installer +
+portable into `_REVIVE\releases\v0.2.0\` (never run the installer); string check. Tags `m13-done`, `v0.2.0`
+on the final commit only.
+
+---
+
 ## Traceability (FR/NFR → steps)
 
 | IDs | Backend steps | Frontend / integration steps |
