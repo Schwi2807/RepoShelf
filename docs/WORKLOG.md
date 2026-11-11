@@ -8,8 +8,10 @@ Steps: M0.1–M0.9 done; M0.10 (optional `npx tauri dev` smoke) skipped — mand
 
 - Workspace (`resolver = "3"`, edition 2024, version 0.0.1) with `crates/rs-core`, `crates/rs-cli` (bin `rs`, usage
   only), `src-tauri` (package `reposhelf`, lib `reposhelf_lib`, features `e2e = ["rs-core/testkit"]`). All registry
-  deps resolved and compiled on Rust 1.99.0: git2 0.21.0 (vendored, https), rusqlite 0.40.2, comrak 0.59.0, ammonia
-  4.2.4, ureq 3.4.2 (via `ghreleases`), tauri 2.11.5, dialog/opener plugins, trash.
+  deps resolved and compiled on Rust 1.99.0 (per `Cargo.lock`): git2 0.21.0 (vendored, https), rusqlite 0.40.2,
+  comrak 0.59.0, ammonia 4.2.4, ureq 3.5.1 (via `ghreleases`), tauri 2.12.5, tauri-plugin-dialog 2.8.4,
+  tauri-plugin-opener 2.7.3, trash 5.3.0. Note: newer than the "PM-lock" versions in ARCH §1.1 (fresh resolve, same
+  semver ranges) — M4 must verify Tauri APIs against 2.12.5.
 - comrak 0.59 option names verified in the registry source (`parser/options.rs`): `extension.table`,
   `extension.tasklist`, `render.r#unsafe` (not `unsafe_`), and header ids are `extension.header_id_prefix:
   Option<String>` (there is no `header_ids` field). M2.10 must use these names.
@@ -73,3 +75,14 @@ Handoff for M2+:
 - Wire shape D-32 applies to the M4 TS mirror and `jobs.kind_json`. Git converts LF → CRLF on checkout here
   (`core.autocrlf`): the M4 golden compare must normalise line endings or set `.gitattributes`.
 - Comrak field names: see M0 entry.
+- `types::samples` is `pub(crate)` + `cfg(test)` and lacks job types, `Settings` and some unit variants: M4.12 needs
+  its own complete sample set in src-tauri (or a `testkit`-gated public copy).
+- Non-bare testkit repos have no index either (only objects + refs): M2.1 dirty tests and M2.12 need index + work tree.
+- D-34 relaxes ARCH's literal `^[A-Za-z]:` rule (`c:x` now passes `git_path`); safe only because git paths are never
+  joined onto a filesystem path. Reverting is one line in `validate::is_drive_prefix`.
+- M3: D-35 emits on every phase change — a transfer callback alternating Receiving/Resolving bypasses the throttle;
+  emit Resolving only once receiving is complete. `winpath::refspecs` returns an empty list when every name was
+  skipped — do not let libgit2 fall back to the configured wildcard.
+- M4: on a read-only DB (`db.read_only()`) `JobRunner::load_persisted/submit` and `settings::save` fail — branch at
+  startup. `resolve_dirs` passes relative env values through and `long()` ignores relative paths: make
+  `target\scratch\m4` absolute.
