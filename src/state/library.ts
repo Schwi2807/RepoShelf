@@ -16,11 +16,16 @@ export interface LibraryState {
 export const libraryStore = createStore<LibraryState>({ repos: null, error: null, refreshing: false });
 
 let started: Promise<void> | null = null;
+let generation = 0;
 
 /** Load once (main.tsx). Safe under StrictMode (module-level). */
 export function startLibrary(): Promise<void> {
   started ??= (async () => {
-    void onEvent('library-refreshed', (repos) => libraryStore.set((p) => ({ ...p, repos })));
+    const gen = generation;
+    // (tests) an event from an earlier, reset run must not overwrite this run's list
+    void onEvent('library-refreshed', (repos) => {
+      if (gen === generation) libraryStore.set((p) => ({ ...p, repos }));
+    });
     try {
       const repos = await libraryList();
       libraryStore.set((p) => ({ ...p, repos, error: null }));
@@ -34,12 +39,13 @@ export function startLibrary(): Promise<void> {
 
 /** Re-read summaries (status, last commit). */
 export async function refreshLibrary(): Promise<void> {
+  const gen = generation;
   libraryStore.set((p) => ({ ...p, refreshing: true }));
   try {
     const repos = await libraryRefresh(newRequestId());
-    libraryStore.set({ repos, error: null, refreshing: false });
+    if (gen === generation) libraryStore.set({ repos, error: null, refreshing: false });
   } catch (e) {
-    libraryStore.set((p) => ({ ...p, refreshing: false, error: p.repos ? p.error : errorText(e) }));
+    if (gen === generation) libraryStore.set((p) => ({ ...p, refreshing: false, error: p.repos ? p.error : errorText(e) }));
   }
 }
 
@@ -102,5 +108,6 @@ export function sortRepos(repos: RepoSummary[], spec: SortSpec): RepoSummary[] {
 /** Tests only. */
 export function resetLibraryForTests(): void {
   started = null;
+  generation += 1;
   libraryStore.set({ repos: null, error: null, refreshing: false });
 }

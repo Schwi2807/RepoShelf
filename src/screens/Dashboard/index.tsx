@@ -1,75 +1,71 @@
-// S1 Dashboard — M5 placeholder (repo names + count, `?q=` filter, empty state). Full screen: M6.2.
+// S1 Dashboard (FR-1..4): "Repositories" + count, toolbar (filter `?q=`, Type, Sort, New), rows, missing rows,
+// sidebar (Recent, Archive, Fetch all), empty state.
 
-import { Download, FolderPlus, Library } from 'lucide-react';
-import { SourceBadge } from '../../components/layout/RepoHeader';
-import { Box } from '../../components/layout/Sidebar';
-import { Button } from '../../components/ui/Button';
-import { Empty, Shimmer } from '../../components/ui/bits';
+import { DashSidebar } from '../../components/dashboard/DashSidebar';
+import { EmptyState } from '../../components/dashboard/EmptyState';
+import { RepoList } from '../../components/dashboard/RepoList';
+import { RepoToolbar } from '../../components/dashboard/RepoToolbar';
+import { Columns } from '../../components/layout/Sidebar';
+import { Counter, Shimmer } from '../../components/ui/bits';
 import type { Route } from '../../router/routes';
-import { href } from '../../router/router';
-import { Link } from '../../router/Link';
 import { filterRepos, sortRepos, useLibrary } from '../../state/library';
 import { useSettings } from '../../state/settings';
-import { openDialog } from '../../state/ui';
 
 export default function Dashboard({ route }: { route: Route }) {
   const { repos, error } = useLibrary();
   const { settings } = useSettings();
   const q = route.query.q ?? '';
+
   if (repos === null) {
     return (
       <main className="container page">
-        <Shimmer width={200} height={20} />
+        <div className="stack">
+          <Shimmer width={200} height={24} />
+          <Shimmer width="100%" height={32} />
+          <Shimmer width="70%" />
+          <Shimmer width="60%" />
+        </div>
       </main>
     );
   }
+
   if (repos.length === 0) {
     return (
       <main className="container page">
-        <Box>
-          <Empty
-            icon={Library}
-            title="Your shelf is empty"
-            actions={
-              <>
-                <Button icon={FolderPlus} onClick={() => openDialog('import')}>
-                  Import folder…
-                </Button>
-                <Button variant="primary" icon={Download} onClick={() => openDialog('clone')}>
-                  Clone URL…
-                </Button>
-              </>
-            }
-          >
-            Import a repository from this PC or clone a public one.
-          </Empty>
-        </Box>
+        <h1 className="page-title">Repositories</h1>
+        <EmptyState />
         {error && <p className="field__error">{error}</p>}
       </main>
     );
   }
+
   const list = sortRepos(filterRepos(repos, q, settings.sourceFilter), settings.sort);
+  const filtered = list.length !== repos.length;
   return (
     <main className="container page">
-      <Box
-        header={
-          <>
-            <span className="box__title">Repositories</span>
-            <span className="counter">{repos.length}</span>
-            {q && <span className="muted">matching “{q}”</span>}
-          </>
-        }
-      >
-        {list.map((r) => (
-          <div key={r.id} className="box__row">
-            <Link to={href('code', { owner: r.owner, repo: r.name })}>
-              {r.owner} / <strong>{r.name}</strong>
-            </Link>
-            <SourceBadge summary={r} />
-            {r.status.type === 'missing' && <span className="badge badge--attention">missing</span>}
+      <Columns>
+        <section className="dash" aria-labelledby="dash-title">
+          <div className="dash__head">
+            <h1 id="dash-title" className="dash__title">
+              Repositories
+            </h1>
+            <Counter n={repos.length} />
+            {filtered && (
+              <span className="muted small" role="status">
+                {list.length} shown
+              </span>
+            )}
           </div>
-        ))}
-      </Box>
+          <RepoToolbar query={q} />
+          {error && (
+            <p className="field__error" role="alert">
+              {error}
+            </p>
+          )}
+          <RepoList repos={list} query={q} />
+        </section>
+        <DashSidebar repos={repos} />
+      </Columns>
     </main>
   );
 }

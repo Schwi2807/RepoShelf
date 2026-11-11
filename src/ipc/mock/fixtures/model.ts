@@ -13,7 +13,13 @@ export type FileSpec =
   | { symlink: string }
   | { submodule: string | null }
   | { lfs: number }
-  | { generatedText: { lines: number; seed: string } };
+  | { generatedText: { lines: number; seed: string } }
+  /** > 1 MB text: declared size, text generated only when read (no highlighting). */
+  | { bigText: { lines: number; seed: string; bytes: number } }
+  /** > 5 MB text: declared size only, the text is never materialised (not displayable). */
+  | { hugeText: number }
+  /** Non-UTF-8 text: shown decoded lossily (`meta.lossy`). */
+  | { lossy: string };
 
 export interface BranchDef {
   name: string;
@@ -57,4 +63,8 @@ export interface RepoDef {
   hugeCommitAt?: number;
   /** GitHub release notes served by `releases_fetch_github` (tag → html). */
   ghNotes?: Record<string, { title: string; html: string }>;
+  /** Paths Windows cannot store (`storableHere = false`, NFR-W3). */
+  unstorable?: string[];
+  /** Paths whose last segment is not valid UTF-8: raw bytes of the full path (`pathRaw`, R-7). */
+  rawNames?: Record<string, number[]>;
 }

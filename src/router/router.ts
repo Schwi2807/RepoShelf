@@ -168,7 +168,9 @@ export function subscribe(l: Listener): () => void {
 }
 
 /** Navigate to an in-app hash (`#/…`). Keeps `location.search` (mock switches). */
-export function navigate(to: string, opts: { replace?: boolean } = {}): void {
+/// `keepScroll`: same-page query changes (`?L=` line selection, `?q=` filter typing) keep the scroll position
+/// instead of jumping to the top.
+export function navigate(to: string, opts: { replace?: boolean; keepScroll?: boolean } = {}): void {
   const hash = to.startsWith('#') ? to : '#' + to;
   if (hash === location.hash && !opts.replace) return;
   scrollMemory.set(currentKey, window.scrollY);
@@ -177,7 +179,7 @@ export function navigate(to: string, opts: { replace?: boolean } = {}): void {
   if (opts.replace) history.replaceState({ key }, '', url);
   else history.pushState({ key }, '', url);
   currentKey = key;
-  pendingRestore = 0;
+  pendingRestore = opts.keepScroll ? null : 0;
   restoreGen += 1;
   emit();
 }

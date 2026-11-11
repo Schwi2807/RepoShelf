@@ -424,3 +424,82 @@ Handoff for M6/M7:
   in `src/components/dialogs/`. Use existing tokens/classes (`box`, `box__header`, `box__row`, `btn`, `badge`,
   `chip`, `counter`, `banner`, `menu`, `popover`) and avoid `style={{}}` except computed widths.
 - Mock fixtures: extend `src/ipc/mock/fixtures/*` (M6.8); `RepoDef.files` already has every placeholder kind.
+
+## M6 — Screens A: Dashboard, Code tab, File view, dialogs (2026-11-11)
+
+Steps M6.1–M6.9 done (one subagent, resumed once after a usage-limit stop; no work lost). Visual target: github.com's
+repository page arrangement with our own tokens.
+
+- M6.1 `src/util/paths.ts` (segments, parent, join, extension, markdown), `src/util/lang-colors.ts` (12 own slots,
+  D-70), `src/util/topics.ts` (mirror of `validate::topics`); tokens `--lang-*`, `--code-line-selected(-edge)`.
+- M6.2 `src/components/dashboard/` (RepoToolbar: `?q=` filter with replace + keepScroll, Type + Sort menus persisted,
+  New → Import/Clone; RepoList via WindowList; RepoRow: name, source badge, 2-line description, topic chips →
+  `?q=`, language dot, origin host/owner, "Updated …"; MissingRow: Locate… / Remove from shelf; DashSidebar: Recent 5,
+  archive count + size + dir, "Fetch all N clones"; EmptyState) + `screens/Dashboard`.
+- M6.3 dialogs: Import (pick → summary with bare/work tree, origin, duplicate link, backend refusal → confirm →
+  opens the repo), Clone (250 ms debounced `clone_preview`, stale answers dropped, host + repo + URL + target),
+  Edit About (description counter, website, topics chip input with client rules), Remove (imported: unregister only;
+  cloned: Recycle Bin), Fetch confirm (ARCH §0.2 wording, git dir path).
+- M6.4 RepoHeader: origin chip (confirmed external link), Fetch for clones and fetchable imported repos (confirm),
+  job result "N new commits[, N new tags]" / failure text, Fast-forward when `canFastForward`, "…" → Remove (then
+  home). RepoBanner: Locate… + Remove from shelf. `state/repoCache.ts` keeps store + slug/detail cache in step (D-69).
+- M6.5 `src/components/code/`: RefSwitcher (Branches | Tags tabs, filter, default badge, check on current, tags as
+  `refs/tags/<name>`, detached short oid, keeps the path), CountsLinks, CodeMenu (Copy clone URL, Open folder, bare
+  note, path), Breadcrumbs + Copy path, LatestCommitBox (root: `commit_latest` + shared `commit_count`; subdir:
+  `file_last_commit` + History, D-74), FileTable (`..`, EntryIcon, lazy LastCommitCell shimmer, virtual > 500),
+  ReadmeCard (outline popover, sticky header, MarkdownBody), AboutSidebar (gear → Edit About, homepage, topics,
+  origin (ssh origins as text + copy), license, imported/cloned lines, counts, ReleasesBox, LanguagesBox with
+  LangBar + LangList); edge states empty repo / ref not found / path not found; "Filter files…" box for the folder.
+- M6.6 FileTable badges "not checked out on this PC" (imported work tree, `storableHere=false`) and "non-UTF-8 name";
+  file view notices for both (D-71).
+- M6.7 `src/components/file/`: CodeViewer (fixed rows, worker chunks swapped in, click / shift-click `?L=`, two-frame
+  anchor scroll only on fresh visits, virtual > 500 with the width from the longest line, D-72/D-73), `lines.ts`,
+  FileCommitHeader, FileToolbar (Preview / Code / Raw segmented, stats, Copy link `#L10-L20`, Copy raw, Save a copy),
+  ImagePreview (blob: URL on a checkerboard, revoked, natural size), Placeholder (binary, > 5 MB, LFS, submodule,
+  symlink with in-repo link); `screens/FileView` (meta first, directory → tree redirect, lossy / large notices).
+- M6.8 mock: FileSpec `bigText` (declared size, lazy text), `hugeText` (never materialised), `lossy`; RepoDef
+  `unstorable`, `rawNames`; parsekit gains `data/readings.csv` (1.25 MB, 26k lines), `data/export.log` (6.4 MB),
+  `docs/legacy-notes.txt`, `odd/a:b.txt`, `odd/CON.txt`, `odd/caf�.txt`; `import_pick` cycles new → not a repo →
+  duplicate. `tools/shots/mock-shots.md` rows 18–19a.
+- Router: `navigate(…, { keepScroll })` (D-68). Library store generation guard (D-75, fixed a flaky App test).
+- CSS: `src/styles/screens.css` (imported in main.tsx).
+
+Tests: 517 TS in 18 files (+65): paths/lang-colors 6, topics 3, RepoList 5 (filter "pars", replace history, sort
+3 orders, Locate, Remove dialog), CloneDialog 10 (8 rejected forms show the backend message, valid URL shows host +
+target, stale answers dropped), FileTable 5 (order, `..`, shimmer then messages, NFR-W3/R-7 badges, folder link),
+RefSwitcher 3 (filter + default + current, tag href `refs%2Ftags%2Fv0.3.0` keeps path, display names), CodeViewer 5
+(`?L=10-20`, click + shift-click, every placeholder + lossy + not-checked-out + dir redirect, raw + markdown tabs),
+contrast +12 (selected-line pairs), App test updated for the real Code tab. Shared harness `src/test/appHarness.tsx`.
+
+Gate M6: `npm run typecheck` ok · `npm test` 517 passed · `npm run build` ok, initial JS `index-*.js` 388,446 bytes
+(< 1.5 MB) · `cargo test --workspace` 178 passed (41 + 135 + 1 ignored + 2) · `cargo clippy --workspace --all-targets
+-D warnings` ok (Rust unchanged).
+
+M6.9 browser check (hidden `npm run dev`, PID 30704, Browser pane; killed by tree, 5 processes, port 1450 free, no
+leftover node/headless Edge): dark — `#/`, `#/northwind/parsekit` (file table, latest commit, README, About,
+releases, languages), `blob/main/src/lexer.rs?L=30-36` (highlighted, scrolled to the range), `?huge` `tree/main/generated`
+(1,000 rows virtualised, rows follow scroll), `data/readings.csv?L=20000` (26k-line virtual plain viewer, large-file
+notice, scrolled to line 20000 after the fix in D-72), `docs/logo.svg` (img on checkerboard); light — `#/`, Clone
+dialog (codeberg.org preview), `#/lumen-ui/lumen` (Fast-forward, cloned/last fetched, releases), Edit About dialog;
+`#/local/scratchpad` (empty), `tree/nope/` (ref not found + default link), `#/local/beacon` (detached `f10accc`),
+`#/sandbox/hostile-readme` (only blob:/data:png images, 0 scripts). Console: no errors or warnings. Mock settings in
+the pane's localStorage left at theme Light, sort updated/desc, source all. Saved light PNGs (headless Edge, scratch
+profile, `preferredColorScheme=1`, 1280×1000, no window shown): `docs/screenshots/m6-dashboard.png`,
+`docs/screenshots/m6-code.png` (reviewed: fonts loaded, no shimmers).
+
+Open items / deviations:
+- One source edit (RepoToolbar check-column labels) was made with a scripted replace instead of Edit/Write
+  (content checked; no Windows paths involved). Everything else via Edit/Write.
+- `pathRaw` is not used for browsing (D-71). Dialog dark-theme screenshots were not taken separately (pane only).
+- In the hidden Browser pane scroll events are throttled, so a virtual list may lag one scroll behind until the
+  next frame; not seen with the pane visible / in screenshots.
+- Edit About's first focus is the description field (Dialog default), not topics.
+
+Handoff for M7:
+- Reuse `RefSwitcher` (`hrefFor(routeRef)` decides the target route; tags already `refs/tags/<name>`),
+  `CommitLine` (avatar + author + summary + oid + date) from `code/LatestCommitBox`, `ExternalText` from
+  `code/AboutSidebar` for any URL, `Placeholder`, `checked()` menu labels from `dashboard/RepoToolbar`.
+- History links already point at `commits/<ref>?path=<path>`; commit links at `commit/<oid>`.
+- After mutations use `state/repoCache.ts`; same-page query changes use `navigate(…, { replace: true, keepScroll: true })`.
+- Component tests: `src/test/appHarness.tsx` (`boot(search, hash)`, `go`, `click`, `typeInto`, `installHarness()`).
+- `screens/placeholder.tsx` is still used by Commits, Commit, Branches, Tags, Releases, Settings.

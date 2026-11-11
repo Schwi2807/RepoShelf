@@ -1,15 +1,23 @@
-// S2 repo header row 1: book icon, `owner / name`, source badge, Fetch / Open folder / "…". Fetch for imported
-// repos (with the D-3 confirm), Fast-forward and Remove land in M6.4.
+// S2 repo header row 1 (FR-10, FR-11, FR-12, FR-36): book icon, `owner / name`, source badge, origin link (confirmed),
+// Fetch (clones directly; fetchable imported repos after the D-3 confirm) with the "N new commits" result,
+// Fast-forward when `canFastForward`, Open folder, "…" → Copy location / Remove from shelf.
 
-import { Archive, BookMarked, Ellipsis, FolderOpen, HardDrive, Link2, RefreshCw, Trash2 } from 'lucide-react';
-import { useState } from 'react';
-import { fetchStart, repoOpenFolder } from '../../ipc/api';
+import { Archive, BookMarked, Ellipsis, FastForward, FolderOpen, Globe, HardDrive, Link2, RefreshCw, Trash2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { fastForward, fetchStart, repoOpenFolder } from '../../ipc/api';
 import { errorText } from '../../ipc/errors';
-import type { RepoDetail, RepoSummary } from '../../ipc/types';
-import { copyLocation, href } from '../../router/router';
+import { invalidate } from '../../ipc/query';
+import type { JobId, RepoDetail, RepoSummary } from '../../ipc/types';
+import { copyLocation, href, navigate } from '../../router/router';
 import { Link } from '../../router/Link';
+import { useJobs } from '../../state/jobs';
+import { refreshLibrary } from '../../state/library';
+import { plural, shortOid } from '../../util/format';
+import { FetchConfirmDialog } from '../dialogs/FetchConfirmDialog';
+import { RemoveDialog } from '../dialogs/RemoveDialog';
 import { Button } from '../ui/Button';
-import { Badge } from '../ui/bits';
+import { Badge, Spinner } from '../ui/bits';
+import { confirmExternal, externalKind } from '../ui/ConfirmExternalLink';
 import { Dropdown } from '../ui/Dropdown';
 
 export function SourceBadge({ summary }: { summary: RepoSummary }) {
@@ -24,10 +32,45 @@ export function SourceBadge({ summary }: { summary: RepoSummary }) {
   );
 }
 
+/** Text of a finished fetch job (FR-10). */
+export function fetchResultText(newCommits: number, newTags: string[]): string {
+  const parts = [newCommits === 0 ? 'No new commits' : plural(newCommits, 'new commit')];
+  if (newTags.length > 0) parts.push(plural(newTags.length, 'new tag'));
+  return parts.join(', ');
+}
+
 export function RepoHeader({ summary, detail }: { summary: RepoSummary; detail: RepoDetail | null }) {
-  const [msg, setMsg] = useState<string | null>(null);
-  const canFetch = detail?.fetchable === true && summary.source === 'cloned';
+  const [msg, setMsg] = useState<{ text: string; error: boolean } | null>(null);
+  const [jobId, setJobId] = useState<JobId | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const [ffBusy, setFfBusy] = useState(false);
+  const jobs = useJobs();
   const missing = summary.status.type === 'missing';
+  const canFetch = detail?.fetchable === true && !missing;
+  const job = jobId === null ? undefined : jobs.find((j) => j.id === jobId);
+  const running = job !== undefined && (job.state === 'waiting' || job.state === 'running');
+
+  useEffect(() => {
+    if (!job) return;
+    if (job.state === 'done' && job.result?.type === 'fetched') {
+      setMsg({ text: fetchResultText(job.result.newCommits, job.result.newTags), error: false });
+      setJobId(null);
+    } else if (job.state === 'failed') {
+      setMsg({ text: job.error ?? 'Fetch failed.', error: true });
+      setJobId(null);
+    } else if (job.state === 'cancelled') {
+      setMsg({ text: 'Fetch cancelled.', error: false });
+      setJobId(null);
+    }
+  }, [job]);
+
+  const startFetch = () => {
+    setMsg(null);
+    fetchStart(summary.id).then(setJobId, (e: unknown) => setMsg({ text: errorText(e), error: true }));
+  };
+
+  const origin = summary.originUrl;
   return (
     <div className="rh__row">
       <h1 className="rh__title">
@@ -39,23 +82,65 @@ export function RepoHeader({ summary, detail }: { summary: RepoSummary; detail: 
         </strong>
         <SourceBadge summary={summary} />
       </h1>
+      {origin && externalKind(origin) === 'web' && (
+        <a
+          className="rh__origin small"
+          href={origin}
+          title={`Open ${origin} in your browser`}
+          onClick={(e) => {
+            e.preventDefault();
+            confirmExternal(origin.replace(/\.git$/, ''));
+          }}
+        >
+          <Globe size={14} aria-hidden="true" />
+          {summary.originHost}
+        </a>
+      )}
       <div className="rh__spacer" />
       <div className="rh__actions">
         {msg && (
-          <span className="field__error" role="alert">
-            {msg}
+          <span className={msg.error ? 'field__error rh__msg' : 'rh__msg small muted'} role={msg.error ? 'alert' : 'status'}>
+            {msg.text}
           </span>
+        )}
+        {detail?.canFastForward === true && (
+          <Button
+            size="sm"
+            icon={FastForward}
+            disabled={ffBusy}
+            title={`Move ${summary.defaultBranch ?? 'the default branch'} forward to origin`}
+            onClick={async () => {
+              setFfBusy(true);
+              setMsg(null);
+              try {
+                const oid = await fastForward(summary.id);
+                setMsg({ text: `Fast-forwarded to ${shortOid(oid)}`, error: false });
+                invalidate();
+                void refreshLibrary();
+              } catch (e) {
+                setMsg({ text: errorText(e), error: true });
+              } finally {
+                setFfBusy(false);
+              }
+            }}
+          >
+            Fast-forward
+          </Button>
         )}
         {canFetch && (
           <Button
             size="sm"
-            icon={RefreshCw}
-            onClick={() => {
-              setMsg(null);
-              fetchStart(summary.id).catch((e: unknown) => setMsg(errorText(e)));
-            }}
+            icon={running ? undefined : RefreshCw}
+            disabled={running}
+            onClick={() => (summary.source === 'imported' ? setConfirming(true) : startFetch())}
           >
-            Fetch
+            {running ? (
+              <>
+                <Spinner size={14} label="Fetching" /> Fetching…
+              </>
+            ) : (
+              'Fetch'
+            )}
           </Button>
         )}
         <Button
@@ -64,7 +149,7 @@ export function RepoHeader({ summary, detail }: { summary: RepoSummary; detail: 
           disabled={missing}
           onClick={() => {
             setMsg(null);
-            repoOpenFolder(summary.id).catch((e: unknown) => setMsg(errorText(e)));
+            repoOpenFolder(summary.id).catch((e: unknown) => setMsg({ text: errorText(e), error: true }));
           }}
         >
           Open folder
@@ -78,10 +163,16 @@ export function RepoHeader({ summary, detail }: { summary: RepoSummary; detail: 
           items={[
             { key: 'copy', label: 'Copy location', icon: Link2, onSelect: () => void copyLocation() },
             'separator',
-            { key: 'remove', label: 'Remove from shelf…', icon: Trash2, danger: true, disabled: true, onSelect: () => undefined },
+            { key: 'remove', label: 'Remove from shelf…', icon: Trash2, danger: true, onSelect: () => setRemoving(true) },
           ]}
         />
       </div>
+      {confirming && (
+        <FetchConfirmDialog summary={summary} isBare={detail?.isBare ?? false} onConfirm={startFetch} onClose={() => setConfirming(false)} />
+      )}
+      {removing && (
+        <RemoveDialog summary={summary} onClose={() => setRemoving(false)} onRemoved={() => navigate(href('dashboard'))} />
+      )}
     </div>
   );
 }

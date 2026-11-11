@@ -72,7 +72,9 @@ describe('App shell (mock backend)', () => {
     const tabs = [...host.querySelectorAll('.tabs__tab')].map((t) => t.textContent);
     expect(tabs).toEqual(['Code', 'Commits148', 'Branches4', 'Tags4', 'Releases3']);
     expect(host.querySelector('.tabs__tab[aria-current="page"]')?.textContent).toBe('Code');
-    expect(host.textContent).toMatch(/branch main at [0-9a-f]{7}/);
+    expect(host.querySelector('.refswitch')?.textContent).toContain('main');
+    expect(host.querySelector('[data-testid="latest-commit"]')?.textContent).toMatch(/[0-9a-f]{7}/);
+    expect(host.querySelector('[data-testid="file-table"]')).not.toBeNull();
   });
 
   it('unknown repo and unknown route', async () => {

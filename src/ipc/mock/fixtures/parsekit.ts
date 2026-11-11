@@ -381,6 +381,13 @@ export function parsekit(huge: boolean): RepoDef {
     'vendor/ucd': { submodule: 'https://git.example.org/unicode/ucd-tables.git' },
     latest: { symlink: 'docs/architecture.md' },
     'src/generated_tables.rs': { generatedText: { lines: 1800, seed: 'tables' } },
+    // M6.8: every file-view placeholder / notice kind
+    'data/readings.csv': { bigText: { lines: 26_000, seed: 'readings', bytes: 1_310_720 } },
+    'data/export.log': { hugeText: 6_710_886 },
+    'docs/legacy-notes.txt': { lossy: 'Caf� notes (Latin-1)\nR�sum�: the old parser read ISO-8859-1 input.\n' },
+    'odd/a:b.txt': 'A colon is legal in git but not in a Windows file name.\n',
+    'odd/CON.txt': 'CON is a reserved device name on Windows.\n',
+    'odd/caf�.txt': 'The name of this file is Latin-1 encoded.\n',
   };
   if (huge) {
     for (let i = 0; i < 1000; i++) {
@@ -442,5 +449,7 @@ export function parsekit(huge: boolean): RepoDef {
       { name: 'Shell', bytes: 1_560, percent: 2.8 },
     ],
     hugeCommitAt: huge ? 0 : undefined,
+    unstorable: ['odd/a:b.txt', 'odd/CON.txt'],
+    rawNames: { 'odd/caf�.txt': [...new TextEncoder().encode('odd/caf'), 0xe9, ...new TextEncoder().encode('.txt')] },
   };
 }

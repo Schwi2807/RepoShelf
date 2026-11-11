@@ -51,11 +51,23 @@ function generatedText(lines: number, seed: string): string {
   return out.join('\n') + '\n';
 }
 
+function bigText(lines: number, seed: string): string {
+  const out: string[] = ['id,timestamp,sensor,value,status'];
+  for (let i = 1; i < lines; i++) {
+    const h = hash32(seed + i);
+    out.push(`${i},2026-11-${String((i % 28) + 1).padStart(2, '0')}T${String(h % 24).padStart(2, '0')}:00:00Z,s${h % 97},${(h % 100000) / 100},ok`);
+  }
+  return out.join('\n') + '\n';
+}
+
 function specText(spec: FileSpec): string | null {
   if (typeof spec === 'string') return spec;
   if ('exec' in spec) return spec.exec;
   if ('svg' in spec) return spec.svg;
   if ('generatedText' in spec) return generatedText(spec.generatedText.lines, spec.generatedText.seed);
+  if ('bigText' in spec) return bigText(spec.bigText.lines, spec.bigText.seed);
+  if ('hugeText' in spec) return null;
+  if ('lossy' in spec) return spec.lossy;
   if ('lfs' in spec) return `version https://git-lfs.github.com/spec/v1\noid sha256:${fakeOid('lfs')}${fakeOid('lfs2').slice(0, 24)}\nsize ${spec.lfs}\n`;
   if ('symlink' in spec) return spec.symlink;
   return null;
@@ -287,11 +299,11 @@ export class MockRepo {
         list.push({
           name: parts[i],
           path: p,
-          pathRaw: null,
+          pathRaw: this.def.rawNames?.[p] ?? null,
           kind,
           oid: fakeOid(this.def.summary.name, kind === 'dir' ? 'tree' : 'blob', p),
           size,
-          storableHere: true,
+          storableHere: !(this.def.unstorable ?? []).includes(p),
         });
       }
     }
@@ -318,6 +330,8 @@ export class MockRepo {
     if (spec === undefined) return 0;
     if (typeof spec !== 'string' && 'binary' in spec) return spec.binary;
     if (typeof spec !== 'string' && 'pngBase64' in spec) return b64ToBytes(spec.pngBase64).length;
+    if (typeof spec !== 'string' && 'bigText' in spec) return spec.bigText.bytes;
+    if (typeof spec !== 'string' && 'hugeText' in spec) return spec.hugeText;
     const t = this.text(path);
     return t === null ? 0 : enc.encode(t).length;
   }
@@ -374,6 +388,7 @@ export class MockRepo {
       if (this.isDir(path)) throw ipcError('notFound', 'file not found');
       throw ipcError('notFound', 'path not found');
     }
+    const spec = this.def.files[path];
     const kind = this.kindOf(path);
     const size = this.size(path);
     const text = kind.type === 'text' || kind.type === 'lfsPointer' ? this.text(path) : null;
@@ -386,7 +401,7 @@ export class MockRepo {
       kind,
       lines,
       sloc,
-      lossy: false,
+      lossy: typeof spec !== 'string' && 'lossy' in spec,
       highlight: size <= 1024 * 1024,
       displayable: size <= 5 * 1024 * 1024,
       langHint: kind.type === 'text' ? languageFor(path, (text ?? '').split('\n', 1)[0]) : null,

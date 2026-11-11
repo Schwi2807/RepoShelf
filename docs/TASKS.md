@@ -533,26 +533,26 @@ taken and reviewed; no console errors; tag `m5-done`.
 
 Goal: S1, S2 complete, S3, S4, S10 dialogs (Import, Clone, Edit About, Remove, Fetch confirm). ARCH §7.2.
 
-- [ ] M6.1 `src/util/paths.ts` (breadcrumb segments, parent dir, git path join) + `src/util/lang-colors.ts` (own
+- [x] M6.1 `src/util/paths.ts` (breadcrumb segments, parent dir, git path join) + `src/util/lang-colors.ts` (own
   palette, theme-aware), with tests.
-- [ ] M6.2 `src/screens/Dashboard/` + `src/components/dashboard/` ∥: `RepoToolbar` (filter bound to `?q=`, `SortMenu`
+- [x] M6.2 `src/screens/Dashboard/` + `src/components/dashboard/` ∥: `RepoToolbar` (filter bound to `?q=`, `SortMenu`
   persisted, `SourceFilter`, New → AddMenu), `RepoList` (virtual > 500), `RepoRow` (name link, `SourceBadge`, 2-line
   description, `TopicChips`, `LangDot` + name, origin host/owner, "Updated …"), `MissingRow` (Locate… →
   `repo_locate`, Remove from shelf), `Sidebar` (Recent 5, archive size + count from `app_info`, optional Fetch all),
   `EmptyState` (Import / Clone). Test `RepoList.test.tsx`: filter "pars", sort order, missing-row actions.
   (FR-1, FR-2, FR-3, FR-4, S1)
-- [ ] M6.3 `src/components/dialogs/` ∥: `ImportDialog` (`import_pick` → summary incl. duplicate/non-repo errors →
+- [x] M6.3 `src/components/dialogs/` ∥: `ImportDialog` (`import_pick` → summary incl. duplicate/non-repo errors →
   `import_confirm(token)`), `CloneDialog` (URL input, debounced `clone_preview` live validation, host shown for
   confirmation, target folder preview, Clone → `clone_start`; progress lives in the jobs popover), `EditAboutDialog`
   (description, homepage, topics chip input with client rules mirroring `validate::topics`; server errors shown),
   `RemoveDialog` (imported: "unregister only, folder untouched"; cloned: "moves <path> to the Recycle Bin"),
   `FetchConfirmDialog` for imported repos (ARCH §0.2 wording). Test `CloneDialog.test.tsx`: each rejected form shows
   the backend message; a valid URL shows host + target. (FR-5, FR-6, FR-10, FR-20, FR-36, S10)
-- [ ] M6.4 RepoLayout completion (S2, after M6.3): Fetch button (clones, and fetchable imported repos via confirm) →
+- [x] M6.4 RepoLayout completion (S2, after M6.3): Fetch button (clones, and fetchable imported repos via confirm) →
   `fetch_start`, result "N new commits"; Fast-forward button when `canFastForward`; Open folder; "…" → RemoveDialog;
   tab counts from `repo_detail` + cached commit count; missing/corrupt banner; origin link → ConfirmExternalLink.
   (FR-10, FR-11, FR-12, NFR-O3)
-- [ ] M6.5 `src/screens/RepoCode/` + `src/components/code/` ∥: `RefSwitcher` (Branches|Tags tabs, filter, default
+- [x] M6.5 `src/screens/RepoCode/` + `src/components/code/` ∥: `RefSwitcher` (Branches|Tags tabs, filter, default
   marked, tags linked as `refs/tags/<name>`, detached shows short oid), `CountsLinks`, `CodeMenu` ("Copy clone URL",
   "Open folder", "Archived as a bare repository"), `Breadcrumbs` + Copy path, `LatestCommitBox` (initials, author,
   summary link, short oid, relative date, `commit_count` spinner → "N commits"), `FileTable` (`useWindowVirtualizer`
@@ -562,9 +562,9 @@ Goal: S1, S2 complete, S3, S4, S10 dialogs (Import, Clone, Edit About, Remove, F
   `ReleasesBox`, `LanguagesBox` with `LangBar` + `LangList`), edge states (empty repo, detached, ref not found with
   link to default). Tests: `FileTable.test.tsx` (order, `..` row, shimmer then messages), `RefSwitcher.test.tsx`
   (filter, default marker, tag href). (FR-13..19, FR-21, S3, NFR-P2)
-- [ ] M6.6 NFR-W3 badge in `FileTable`/FileView: entries with `storableHere=false` in imported non-bare repos show
+- [x] M6.6 NFR-W3 badge in `FileTable`/FileView: entries with `storableHere=false` in imported non-bare repos show
   "not checked out on this PC"; non-UTF-8 names show a marker and browse via `pathRaw`. (NFR-W3, R-7)
-- [ ] M6.7 `src/screens/FileView/` + `src/components/file/` ∥: `FileCommitHeader` (`file_last_commit`, History →
+- [x] M6.7 `src/screens/FileView/` + `src/components/file/` ∥: `FileCommitHeader` (`file_last_commit`, History →
   commits `?path=`), `FileToolbar` (lines/sloc/size, Raw `?plain=1`, Copy, Save a copy → `blob_save_as`, History),
   `CodeViewer` (virtualised gutter + lines, raw first then highlighted chunks, click/shift-click selects `?L=a-b`,
   anchor scrolls + highlights, "Copy link" in `#L10-L20` form), `ImagePreview` (blob URL on a checkerboard; svg only
@@ -572,8 +572,8 @@ Goal: S1, S2 complete, S3, S4, S10 dialogs (Import, Clone, Edit About, Remove, F
   notice, not checked out), `MarkdownTabs` (Preview via `markdown_render_file` / Code). Directory path on a blob
   route → redirect to tree. Test `CodeViewer.test.tsx`: `?L=10-20` selects range, shift-click extends.
   (FR-21..25 incl. FR-24 images, NFR-P4, NFR-S7, D-8)
-- [ ] M6.8 Mock fixtures extended (every placeholder kind, security README, `?huge` dir); `mock-shots.md` updated.
-- [ ] M6.9 Browser check (mock): S1 (normal, `?empty`, missing row), S3 (root, subdir, tag, empty repo, detached, ref
+- [x] M6.8 Mock fixtures extended (every placeholder kind, security README, `?huge` dir); `mock-shots.md` updated.
+- [x] M6.9 Browser check (mock): S1 (normal, `?empty`, missing row), S3 (root, subdir, tag, empty repo, detached, ref
   not found, security README: no remote image loaded, no script), S4 (code with `?L=`, image, svg, each placeholder,
   markdown preview), `?huge` 1,000-entry dir, all dialogs; light + dark; console clean.
 

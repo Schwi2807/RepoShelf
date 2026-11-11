@@ -86,9 +86,26 @@
   --hl-meta: #4a5868;
   --hl-deletion: #b0261c;
   --hl-addition: #1b6e36;
-  /* language bar (own palette) */
+  /* selected code lines (?L=) */
+  --code-line-selected: #fbf1c7;
+  --code-line-selected-edge: #c99a12;
+  /* image checkerboard */
   --checker-a: #f1f3f6;
   --checker-b: #ffffff;
+  /* language bar / dots (own palette, lang-colors.ts) */
+  --lang-0: #c2562b;
+  --lang-1: #2f6fd0;
+  --lang-2: #c9a227;
+  --lang-3: #3b7d4f;
+  --lang-4: #1d9bb0;
+  --lang-5: #6d5bd0;
+  --lang-6: #c4407a;
+  --lang-7: #7b4fb3;
+  --lang-8: #a8652a;
+  --lang-9: #4a8f2c;
+  --lang-10: #5f6b7a;
+  --lang-11: #d0763a;
+  --lang-other: #9aa4b1;
 }
 
 :root[data-theme='dark'] {
@@ -145,6 +162,21 @@
   --hl-meta: #a2aebd;
   --hl-deletion: #ff8f86;
   --hl-addition: #7fe2a2;
+  --code-line-selected: #2e2a12;
+  --code-line-selected-edge: #c99a12;
   --checker-a: #1a2230;
   --checker-b: #121923;
+  --lang-0: #f07a4a;
+  --lang-1: #6ea2f5;
+  --lang-2: #e6c35a;
+  --lang-3: #6cc287;
+  --lang-4: #4fc8d8;
+  --lang-5: #a497f5;
+  --lang-6: #ec78a8;
+  --lang-7: #b48ae6;
+  --lang-8: #d89a5c;
+  --lang-9: #88c95e;
+  --lang-10: #96a3b4;
+  --lang-11: #f29b62;
+  --lang-other: #6b7787;
 }

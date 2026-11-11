@@ -1,16 +1,18 @@
 // Missing / corrupt repo banner (FR-4, NFR-O3). "Locate…" re-points a missing repo (`repo_locate`).
 
-import { FolderSearch, OctagonAlert, TriangleAlert } from 'lucide-react';
+import { FolderSearch, OctagonAlert, Trash2, TriangleAlert } from 'lucide-react';
 import { useState } from 'react';
+import { href, navigate } from '../../router/router';
+import { RemoveDialog } from '../dialogs/RemoveDialog';
 import { repoLocate } from '../../ipc/api';
 import { errorText } from '../../ipc/errors';
-import { invalidate } from '../../ipc/query';
 import type { IpcError, RepoSummary } from '../../ipc/types';
-import { upsertRepo } from '../../state/library';
+import { applySummaryAndRefresh } from '../../state/repoCache';
 import { Button } from '../ui/Button';
 
 export function RepoBanner({ summary, error }: { summary: RepoSummary; error?: IpcError }) {
   const [msg, setMsg] = useState<string | null>(null);
+  const [removing, setRemoving] = useState(false);
   const missing = summary.status.type === 'missing' || error?.code === 'repoMissing';
   const corrupt = summary.status.type === 'corrupt' || error?.code === 'repoCorrupt';
   if (!missing && !corrupt && !error) return null;
@@ -31,8 +33,7 @@ export function RepoBanner({ summary, error }: { summary: RepoSummary; error?: I
             try {
               const r = await repoLocate(summary.id);
               if (r) {
-                upsertRepo(r);
-                invalidate();
+                applySummaryAndRefresh(r);
               }
             } catch (e) {
               setMsg(errorText(e));
@@ -41,6 +42,10 @@ export function RepoBanner({ summary, error }: { summary: RepoSummary; error?: I
         >
           Locate…
         </Button>
+        <Button size="sm" variant="danger" icon={Trash2} onClick={() => setRemoving(true)}>
+          Remove from shelf
+        </Button>
+        {removing && <RemoveDialog summary={summary} onClose={() => setRemoving(false)} onRemoved={() => navigate(href('dashboard'))} />}
       </div>
     );
   }

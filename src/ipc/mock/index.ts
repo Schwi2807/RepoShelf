@@ -152,15 +152,17 @@ export function createMockBackend(search: string, opts: { tickMs?: number } = {}
     },
     import_pick: () => {
       importSeq += 1;
-      const path = 'C:\\Code\\notebook';
+      // M6.8: picks cycle through a new repo, a non-repo folder (refused) and an already-imported folder (duplicate).
+      if (importSeq % 3 === 2) throw ipcError('notARepo', 'C:\\Users\\demo\\Pictures is not a git repository.');
+      const path = importSeq % 3 === 0 ? 'C:\\Code\\parsekit' : 'C:\\Code\\notebook';
       const dup = [...repos.values()].find((r) => r.def.summary.path.toLowerCase() === path.toLowerCase());
       const token = `mock${importSeq}${Math.random().toString(16).slice(2, 10)}`;
       importTokens.set(token, path);
       const p: ImportPreview = {
         path,
-        name: 'notebook',
+        name: dup ? dup.def.summary.name : 'notebook',
         isBare: false,
-        originUrl: 'https://github.com/example-dev/notebook.git',
+        originUrl: dup ? dup.def.summary.originUrl : 'https://github.com/example-dev/notebook.git',
         duplicateOf: dup ? dup.id : null,
         token,
       };

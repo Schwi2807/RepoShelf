@@ -31,7 +31,7 @@ export function contrast(a: string, b: string): number {
 
 const SURFACES = ['bg-canvas', 'bg-subtle', 'bg-overlay', 'bg-hover', 'bg-inset', 'bg-selected'];
 const TEXT = ['fg-default', 'fg-muted', 'fg-subtle', 'fg-link', 'accent-fg', 'success', 'danger', 'attention', 'done'];
-const CODE_BG = ['bg-canvas', 'bg-subtle'];
+const CODE_BG = ['bg-canvas', 'bg-subtle', 'code-line-selected'];
 const HL = [
   'hl-keyword',
   'hl-string',
@@ -62,6 +62,8 @@ function pairs(): [string, string][] {
   for (const bg of ['attention-subtle', 'danger-subtle']) for (const fg of ['fg-default', 'fg-muted', 'danger']) p.push([fg, bg]);
   for (const bg of ['diff-add-bg', 'diff-del-bg', 'diff-add-num-bg', 'diff-del-num-bg']) p.push(['fg-default', bg]);
   for (const bg of ['diff-add-num-bg', 'diff-del-num-bg']) p.push(['fg-muted', bg]);
+  // selected code lines: text and gutter numbers
+  p.push(['fg-default', 'code-line-selected'], ['fg-muted', 'code-line-selected']);
   return p;
 }
 
