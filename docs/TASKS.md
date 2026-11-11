@@ -742,6 +742,23 @@ docs final; tags `m9-done` and `v0.1.0` (local only, never pushed).
 
 ---
 
+## M10 — Explore mode (PLAN ONLY — do not implement until the user says so)
+
+Added 2026-11-11 at the user's request as plan-only. Not part of v0.1.0; implementers of M5–M9 must not build it.
+Keep M6/M7 screens reading through the swappable data-source layer so this fits without redoing them.
+
+- Explore mode: type `owner/repo` and the same GitHub-style screens fill from GitHub's public API online instead of
+  from disk (Code tab, file view, README, commits, branches, tags, releases). Read-only.
+- "Save to shelf" button: starts the existing bare clone job (background progress, Windows-safe names); the repo then
+  appears in the local list.
+- Optional search page: search GitHub repos, then open or save one.
+- Constraints to resolve first: unauthenticated rate limit (~60 requests/hour) → cache responses, and optional token
+  sign-in would need OS-keychain token storage (sign-in was out of scope for v0.1); CSP `connect-src` and Rust HTTP
+  allow-list widened to `api.github.com` only; the app stays offline unless Explore is used.
+- Effort: about 1–2 milestones (~1–1.5 h).
+
+---
+
 ## Traceability (FR/NFR → steps)
 
 | IDs | Backend steps | Frontend / integration steps |
