@@ -51,7 +51,10 @@ let started: Promise<void> | null = null;
 export function startJobs(): Promise<void> {
   started ??= jobsSubscribe(applyJobUpdate).then(
     (snapshot) => {
+      // Channel updates can arrive before the snapshot resolves; they are newer, so the snapshot never overwrites them.
+      const seen = new Set(jobsStore.get().map((j) => j.id));
       for (const j of snapshot) {
+        if (seen.has(j.id)) continue;
         if (!isActive(j)) finishedSeen.add(j.id);
         applyJobUpdate(j);
       }

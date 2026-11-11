@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setBackendForTests, type Backend } from '../ipc/bridge';
 import type { RepoSummary, SortKey } from '../ipc/types';
-import { AUTO_HIDE_MS, applyJobUpdate, jobsStore, resetJobsForTests } from './jobs';
+import { AUTO_HIDE_MS, applyJobUpdate, jobsStore, resetJobsForTests, startJobs } from './jobs';
 import { filterRepos, sortRepos } from './library';
 import { recentRepos } from './recent';
 import { nextTheme, resolveTheme } from './theme';
@@ -118,6 +118,29 @@ describe('jobs auto-hide', () => {
     result: null,
     error: state === 'failed' ? 'Could not reach example.com' : null,
     startedAt: 0,
+  });
+
+  it('a snapshot never overwrites a newer channel update', async () => {
+    let push: ((j: ReturnType<typeof job>) => void) | null = null;
+    let resolveSnap: ((v: unknown) => void) | null = null;
+    setBackendForTests({
+      invoke: ((cmd: string, args: { channel?: { onmessage: (j: ReturnType<typeof job>) => void } }) => {
+        if (cmd === 'jobs_subscribe') {
+          push = args.channel!.onmessage;
+          return new Promise<unknown>((r) => {
+            resolveSnap = r;
+          });
+        }
+        return Promise.resolve(cmd === 'library_refresh' ? [] : null);
+      }) as Backend['invoke'],
+      listen: () => () => undefined,
+    });
+    const p = startJobs();
+    await vi.advanceTimersByTimeAsync(0);
+    push!(job(7, 'done'));
+    resolveSnap!([job(7, 'running')]);
+    await p;
+    expect(jobsStore.get().map((j) => [j.id, j.state])).toEqual([[7, 'done']]);
   });
 
   it('hides done rows after 5 s, keeps failures', async () => {

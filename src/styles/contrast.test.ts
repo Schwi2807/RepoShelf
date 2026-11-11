@@ -58,6 +58,8 @@ function pairs(): [string, string][] {
   p.push(['header-fg', 'header-bg'], ['header-fg-muted', 'header-bg'], ['header-fg', 'header-input-bg']);
   p.push(['header-fg-muted', 'header-input-bg']);
   p.push(['diff-hunk-fg', 'diff-hunk-bg']);
+  // banners (RepoBanner): text on the subtle state backgrounds
+  for (const bg of ['attention-subtle', 'danger-subtle']) for (const fg of ['fg-default', 'fg-muted', 'danger']) p.push([fg, bg]);
   for (const bg of ['diff-add-bg', 'diff-del-bg', 'diff-add-num-bg', 'diff-del-num-bg']) p.push(['fg-default', bg]);
   for (const bg of ['diff-add-num-bg', 'diff-del-num-bg']) p.push(['fg-muted', bg]);
   return p;
@@ -78,7 +80,14 @@ describe.each(['light', 'dark'] as const)('%s theme', (theme) => {
     const c = contrast(a!, b!);
     expect(c, `${fg} ${a} on ${bg} ${b} = ${c.toFixed(2)}`).toBeGreaterThanOrEqual(4.5);
   });
-  it('focus ring is visible on the canvas (≥ 3:1, WCAG non-text)', () => {
-    expect(contrast(vars.get('focus-ring')!, vars.get('bg-canvas')!)).toBeGreaterThanOrEqual(3);
+  it.each([
+    ['focus-ring', 'bg-canvas'],
+    ['focus-ring', 'bg-subtle'],
+    ['focus-ring', 'bg-overlay'],
+    ['header-focus-ring', 'header-bg'],
+    ['header-focus-ring', 'header-input-bg'],
+  ])('%s on %s ≥ 3:1 (WCAG non-text)', (fg, bg) => {
+    const c = contrast(vars.get(fg)!, vars.get(bg)!);
+    expect(c, `${fg} on ${bg} = ${c.toFixed(2)}`).toBeGreaterThanOrEqual(3);
   });
 });

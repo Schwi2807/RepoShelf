@@ -27,6 +27,7 @@ import type {
   TreeEntry,
   TreeListing,
 } from '../types';
+import { languageFor } from '../../hl/languages';
 import { fakeOid, genHistory, hash32, HOUR, sig, type GenCommit } from './fixtures/gen';
 import type { BranchDef, FileSpec, RepoDef } from './fixtures/model';
 
@@ -85,6 +86,12 @@ function isGenerated(path: string): boolean {
     name.startsWith('generated_') ||
     name.endsWith('.min.js')
   );
+}
+
+/** rs-core releases: first annotation line, unless empty or equal to the tag name. */
+function titleOf(message: string | undefined, tag: string): string {
+  const first = (message ?? '').split('\n', 1)[0].trim();
+  return first.length === 0 || first === tag ? tag : first;
 }
 
 interface Resolved {
@@ -192,13 +199,21 @@ export class MockRepo {
       const c = this.mainline[t.at];
       if (c) tags.push({ name: t.name, fullName: 'refs/tags/' + t.name, kind: 'tag', target: c.summary.oid, isDefault: false });
     }
+    // rs-core refs::list: by name (byte order), local branches with the default first.
+    const byName = (a: RefItem, b: RefItem) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+    const branches = this.def.branches
+      .map((b) => item(b, 'branch', 'refs/heads/'))
+      .filter((x): x is RefItem => x !== null)
+      .sort(byName)
+      .sort((a, b) => Number(b.isDefault) - Number(a.isDefault));
     return {
       defaultBranch: d,
-      branches: this.def.branches.map((b) => item(b, 'branch', 'refs/heads/')).filter((x): x is RefItem => x !== null),
+      branches,
       remoteBranches: this.def.remoteBranches
         .map((b) => item(b, 'remoteBranch', 'refs/remotes/'))
-        .filter((x): x is RefItem => x !== null),
-      tags,
+        .filter((x): x is RefItem => x !== null)
+        .sort(byName),
+      tags: tags.sort(byName),
     };
   }
 
@@ -225,6 +240,7 @@ export class MockRepo {
     if (/^[0-9a-f]{4,40}$/.test(input)) {
       const hits = [...this.byOid.keys()].filter((o) => o.startsWith(input));
       if (hits.length === 1) return mk('commit', null, hits[0]);
+      if (hits.length > 1) throw ipcError('invalidRev', `invalid ref: ambiguous commit prefix: ${input}`);
     }
     throw notFound();
   }
@@ -315,7 +331,8 @@ export class MockRepo {
     const entries = this.dirs.get(path);
     if (!entries) throw ipcError('notFound', 'path not found');
     const readmeEntry = entries.find((e) => e.kind !== 'dir' && /^readme(\.|$)/i.test(e.name));
-    return { rev: res.rev, path, entries, readme: readmeEntry ? readmeEntry.path : null };
+    // rs-core: `readme` is the entry NAME within the listed directory.
+    return { rev: res.rev, path, entries, readme: readmeEntry ? readmeEntry.name : null };
   }
 
   lastCommits(rev: string, path: string): LastCommits {
@@ -353,7 +370,8 @@ export class MockRepo {
   meta(rev: string, path: string): BlobMeta {
     this.resolve(rev);
     if (this.def.files[path] === undefined) {
-      if (this.isDir(path)) throw ipcError('invalidPath', 'path is a directory');
+      // rs-core blob: a directory → NotFound("file"), nothing at all → NotFound("path")
+      if (this.isDir(path)) throw ipcError('notFound', 'file not found');
       throw ipcError('notFound', 'path not found');
     }
     const kind = this.kindOf(path);
@@ -371,7 +389,7 @@ export class MockRepo {
       lossy: false,
       highlight: size <= 1024 * 1024,
       displayable: size <= 5 * 1024 * 1024,
-      langHint: null,
+      langHint: kind.type === 'text' ? languageFor(path, (text ?? '').split('\n', 1)[0]) : null,
     };
   }
 
@@ -383,7 +401,7 @@ export class MockRepo {
 
   bytes(rev: string, path: string): ArrayBuffer {
     const meta = this.meta(rev, path);
-    if (meta.size > 5 * 1024 * 1024) throw ipcError('invalidInput', 'file is larger than 5 MB; use Save a copy');
+    if (meta.size > 5 * 1024 * 1024) throw ipcError('refused', 'The file is larger than 5 MB. Use Save a copy.');
     const spec = this.def.files[path];
     let u8: Uint8Array;
     if (typeof spec !== 'string' && 'pngBase64' in spec) u8 = b64ToBytes(spec.pngBase64);
@@ -557,12 +575,16 @@ export class MockRepo {
   // -- branches / tags / releases -----------------------------------------------------------------------------
 
   branches(): BranchRow[] {
+    // rs-core refs::branches: local + origin/*, default first, then newest commit, then name.
     const r = this.refs();
-    return [...r.branches, ...r.remoteBranches].map((item) => ({
-      item,
-      last: this.commit(item.target).summary,
-      aheadBehind: null,
-    }));
+    return [...r.branches, ...r.remoteBranches]
+      .map((item) => ({ item, last: this.commit(item.target).summary, aheadBehind: null }))
+      .sort(
+        (a, b) =>
+          Number(b.item.isDefault) - Number(a.item.isDefault) ||
+          b.last.committer.time.secs - a.last.committer.time.secs ||
+          (a.item.name < b.item.name ? -1 : a.item.name > b.item.name ? 1 : 0),
+      );
   }
 
   aheadBehind(names: string[]): [string, AheadBehind][] {
@@ -604,7 +626,8 @@ export class MockRepo {
     let latestGiven = false;
     return tags.map((t, i) => {
       const d = defs.get(t.item.name);
-      const pre = /-/.test(t.item.name);
+      // rs-core Version::is_prerelease: the suffix after the numbers starts with '-'
+      const pre = /^v?\d+(\.\d+)*-/.test(t.item.name);
       const latest = !pre && !latestGiven;
       if (latest) latestGiven = true;
       const gh = withGh ? this.def.ghNotes?.[t.item.name] : undefined;
@@ -612,7 +635,7 @@ export class MockRepo {
         tag: t.item.name,
         commit: t.commit.oid,
         date: t.date,
-        title: gh?.title ?? d?.message?.split('\n')[0] ?? t.item.name,
+        title: gh?.title ?? (t.annotated ? titleOf(d?.message, t.item.name) : t.item.name),
         notesHtml: gh?.html ?? d?.notesHtml ?? null,
         prerelease: pre,
         latest,

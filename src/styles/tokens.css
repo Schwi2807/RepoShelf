@@ -65,6 +65,7 @@
   --header-fg-muted: #b4c2d4;
   --header-input-bg: #1e3555;
   --header-border: #2f4a6e;
+  --header-focus-ring: #8fd8e3;
   /* diff */
   --diff-add-bg: #e4f6e9;
   --diff-add-num-bg: #ccecd6;
@@ -125,6 +126,7 @@
   --header-fg-muted: #9aa7b8;
   --header-input-bg: #121b28;
   --header-border: #263244;
+  --header-focus-ring: #8fd8e3;
   --diff-add-bg: #11301e;
   --diff-add-num-bg: #18452b;
   --diff-del-bg: #3a181a;

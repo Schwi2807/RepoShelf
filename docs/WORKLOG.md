@@ -366,8 +366,31 @@ Gate M5: `npm run typecheck` ok · `npm test` 430 passed · `npm run build` ok, 
 (< 1.5 MB), 48 language chunks + `hl.worker-*.js` + `mock-*.js` separate, none referenced by `dist\index.html` ·
 `cargo test --workspace` 178 passed. Earlier gates re-run (Rust unchanged): `cargo build --workspace`,
 `cargo test -p rs-core` (+ `--features ghreleases` 135 + 1 ignored), `cargo test -p reposhelf` 41 (+ `--features e2e`
-41), clippy `-D warnings` for the workspace and `-p reposhelf --features e2e` — all exit 0. Not re-run: the M2
-release-mode bench (no Rust change since m4-done).
+41), clippy `-D warnings` for the workspace and `-p reposhelf --features e2e` — all exit 0. M2 bench re-run
+(`rs fixtures` + `rs bench` on `target\scratch\m2-bench`, exit 0, all six under target: list_dir 3.2 ms, lastcommit
+2nd visit 0.8 ms, page skip 0 / 9,965 44 ms, langs 50k 56 ms, 400-file diff 1.9 ms; scratch dir removed).
+
+Review fixes (second commit, after cd7c698; the lead's 16ba3ff (M10 plan only) sits between — not implemented):
+- Mock checked against the Rust sources and fixed: `tree_list.readme` is the entry name (not a path); `blob_*` on a
+  directory → `notFound` "file not found", nothing there → "path not found"; `blob_bytes` > 5 MB → `refused`;
+  refs sorted like `refs::list` (default branch first, then byte order; remotes/tags by name); `branches_list` =
+  local + `origin/*`, default first, newest commit, name; ambiguous short oid → `invalidRev`; `commit_detail` /
+  `commit_file_diff` / `commits_page.tip` need a full 40-hex oid (`invalidRev`, as `validate::oid`); `langHint`
+  filled (hljs id from path/shebang); releases: prerelease = numeric version followed by `-`, title = first
+  annotation line unless empty/equal to the tag; jobs: cancel of an unknown/finished job → `false`, cancelled jobs
+  carry no error text, retry of a non-failed job → `refused`, retry replaces the old row, dismiss leaves
+  waiting/running jobs alone. Verified by name in a new mock test. Not verified against Rust: annotated-tag notes
+  come from the fixture's `notesHtml` (real: rendered annotation body); `lastCommits`/path-filter choices are
+  synthetic.
+- Light-theme header focus ring was ~2.4:1 on the navy header: new `--header-focus-ring` (both themes) for
+  `.gh :focus-visible` and the search field (popovers keep `--focus-ring`); contrast test adds ≥ 3:1 checks for
+  both rings (canvas, subtle, overlay, header, header input) and the banner text pairs (fg-default / fg-muted /
+  danger on attention-subtle and danger-subtle).
+- Jobs store: the `jobs_subscribe` snapshot no longer overwrites channel updates that arrived first (test).
+- Built `dist` served by a hidden `vite preview` on 4173: README code highlighted by `hl.worker-*.js`, logo via
+  blob: URL; server killed by tree, 4173 and 1450 free, 0 leftover node processes.
+- Final gate: typecheck ok · `npm test` 452 passed · build ok, initial JS 287,300 bytes · `cargo test --workspace`
+  178 passed.
 
 M5.13 browser check (hidden `npm run dev`, Browser pane, D-67): `#/` (dark, system), `#/northwind/parsekit` light +
 dark (header, tab counts 148/4/4/3, README: table, highlighted toml/rust via the worker, svg logo via blob: URL,
@@ -381,6 +404,10 @@ Dev server killed by tree (5 processes), port 1450 free, no leftover node proces
 Open items:
 - Clone dialog error stays until the next submit (live validation is M6.3).
 - The mock ships in `dist` as an unreachable chunk (D-61).
+- The mock's settings (theme Dark) and the theme hint stay in the `localhost:1450` localStorage of the Browser pane
+  from the M5.13 check; the header toggle changes them back.
+- Not exercised by hand: mouse buttons 3/4 (unit test only). `sed -i` was used once to tick TASKS boxes / fix counts
+  (diff checked: line-level only).
 - Pane screenshots are the only visual record (no files saved); M8 takes the real-app light/dark pass.
 
 Handoff for M6/M7:

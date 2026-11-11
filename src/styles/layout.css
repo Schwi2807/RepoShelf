@@ -26,6 +26,15 @@
   border-bottom: 1px solid var(--header-border);
 }
 
+.gh :focus-visible {
+  outline-color: var(--header-focus-ring);
+}
+
+/* popovers opened from the header sit on --bg-overlay: back to the normal ring */
+.gh .popover :focus-visible {
+  outline-color: var(--focus-ring);
+}
+
 .gh__inner {
   height: 100%;
   display: flex;

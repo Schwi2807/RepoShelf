@@ -112,12 +112,12 @@ export class MockJobs {
   }
 
   cancel(id: JobId): boolean {
+    // As rs-core JobRunner: unknown or finished → false; a cancelled job has no error text.
     const j = this.jobs.find((x) => x.id === id);
-    if (!j) throw ipcError('notFound', 'job not found');
-    if (j.state !== 'waiting' && j.state !== 'running') return false;
+    if (!j || (j.state !== 'waiting' && j.state !== 'running')) return false;
     j.state = 'cancelled';
     j.progress = null;
-    j.error = 'cancelled';
+    j.error = null;
     if (this.timer !== null && this.running() === undefined) {
       clearTimeout(this.timer);
       this.timer = null;
@@ -131,14 +131,15 @@ export class MockJobs {
   retry(id: JobId): JobId {
     const j = this.jobs.find((x) => x.id === id);
     if (!j) throw ipcError('notFound', 'job not found');
-    if (j.state !== 'failed' && j.state !== 'cancelled') throw ipcError('invalidInput', 'only failed or cancelled jobs can be retried');
-    return this.start(j.kind, j.title);
+    if (j.state !== 'failed' && j.state !== 'cancelled') throw ipcError('refused', 'Only failed or cancelled jobs can be retried.');
+    // As rs-core: the retry is a NEW row and the old row is removed.
+    const next = this.start(j.kind, j.title);
+    this.jobs = this.jobs.filter((x) => x.id !== id);
+    return next;
   }
 
+  /** Removes a finished job; waiting/running jobs are left alone (no error), as rs-core. */
   dismiss(id: JobId): void {
-    const j = this.jobs.find((x) => x.id === id);
-    if (!j) return;
-    if (j.state === 'waiting' || j.state === 'running') throw ipcError('invalidInput', 'job is still running');
-    this.jobs = this.jobs.filter((x) => x.id !== id);
+    this.jobs = this.jobs.filter((x) => x.id !== id || x.state === 'waiting' || x.state === 'running');
   }
 }

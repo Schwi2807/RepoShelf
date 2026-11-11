@@ -449,8 +449,8 @@ a.chip:hover {
 }
 
 .jump__field:focus-within {
-  border-color: var(--focus-ring);
-  outline: 2px solid var(--focus-ring);
+  border-color: var(--header-focus-ring);
+  outline: 2px solid var(--header-focus-ring);
   outline-offset: 0;
 }
 

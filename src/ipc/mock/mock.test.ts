@@ -166,16 +166,57 @@ describe('backend behaviour the UI relies on', () => {
     const snap0 = await m.invoke('jobs_subscribe', { channel: { onmessage: (j) => seen.push(j) } });
     expect(snap0).toEqual([]);
     const id = await m.invoke('fetch_start', { repoId: LUMEN });
+    // running jobs cannot be retried and are not dismissed (rs-core JobRunner)
+    await expect(m.invoke('jobs_retry', { jobId: id })).rejects.toMatchObject({ code: 'refused' });
+    await m.invoke('jobs_dismiss', { jobId: id });
     expect(await m.invoke('jobs_cancel', { jobId: id })).toBe(true);
-    expect(seen.filter((j) => j.id === id).pop()?.state).toBe('cancelled');
+    const cancelled = seen.filter((j) => j.id === id).pop();
+    expect([cancelled?.state, cancelled?.error]).toEqual(['cancelled', null]);
+    expect(await m.invoke('jobs_cancel', { jobId: id })).toBe(false);
+    expect(await m.invoke('jobs_cancel', { jobId: 999 })).toBe(false);
     const again = await m.invoke('jobs_retry', { jobId: id });
     expect(again).not.toBe(id);
     await until(() => seen.some((j) => j.id === again && j.state === 'done'));
-    // a reload re-subscribes and gets the snapshot
+    // a reload re-subscribes and gets the snapshot; the retried row was replaced by the new one
     const snap = await m.invoke('jobs_subscribe', { channel: { onmessage: () => undefined } });
-    expect(snap.map((j) => j.id)).toEqual([id, again]);
-    await m.invoke('jobs_dismiss', { jobId: id });
-    expect((await m.invoke('jobs_subscribe', { channel: { onmessage: () => undefined } })).map((j) => j.id)).toEqual([again]);
+    expect(snap.map((j) => j.id)).toEqual([again]);
+    await m.invoke('jobs_dismiss', { jobId: again });
+    expect(await m.invoke('jobs_subscribe', { channel: { onmessage: () => undefined } })).toEqual([]);
+  });
+
+  it('matches rs-core shapes checked against the Rust sources', async () => {
+    const m = createMockBackend('');
+    const t = await m.invoke('tree_list', { repoId: PARSEKIT, rev: 'main', path: '' });
+    expect(t.readme).toBe('README.md'); // entry name, not a path
+    const kinds = t.entries.map((e) => e.kind === 'dir');
+    expect(kinds.indexOf(false)).toBeGreaterThan(0);
+    expect(kinds.slice(kinds.indexOf(false)).every((d) => !d)).toBe(true); // dirs first
+    await expect(m.invoke('blob_meta', { repoId: PARSEKIT, rev: 'main', path: 'src' })).rejects.toEqual({
+      code: 'notFound',
+      message: 'file not found',
+    });
+    await expect(m.invoke('blob_meta', { repoId: PARSEKIT, rev: 'main', path: 'nope.rs' })).rejects.toEqual({
+      code: 'notFound',
+      message: 'path not found',
+    });
+    expect((await m.invoke('blob_meta', { repoId: PARSEKIT, rev: 'main', path: 'scripts/release.sh' })).langHint).toBe('bash');
+    await expect(m.invoke('commit_detail', { repoId: PARSEKIT, oid: 'abcd123' })).rejects.toMatchObject({ code: 'invalidRev' });
+    const refs = await m.invoke('refs_list', { repoId: PARSEKIT });
+    expect(refs.branches[0]).toMatchObject({ name: 'main', isDefault: true });
+    expect(refs.branches.slice(1).map((b) => b.name)).toEqual(['docs/tutorial', 'feature/streaming', 'fix/utf8']);
+    expect(refs.remoteBranches.map((b) => b.name)).toEqual(['origin/feature/streaming', 'origin/main']);
+    const rows = await m.invoke('branches_list', { repoId: PARSEKIT });
+    expect(rows[0].item.isDefault).toBe(true);
+    expect(rows.some((r) => r.item.kind === 'remoteBranch')).toBe(true);
+    const rel = await m.invoke('releases_list', { repoId: LUMEN });
+    expect(rel.map((r) => [r.tag, r.prerelease, r.latest])).toEqual([
+      ['v2.0.0-beta.1', true, false],
+      ['v1.1.0', false, true],
+      ['v1.0.0', false, false],
+      ['v0.9.0', false, false],
+    ]);
+    expect(rel[1].previousTag).toBe('v1.0.0');
+    expect(rel[3].title).toBe('v0.9.0');
   });
 
   it('library-refreshed fires once after the first listener', async () => {

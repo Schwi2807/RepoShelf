@@ -48,6 +48,12 @@ function loadSettings(): Settings {
   return { ...DEFAULT_SETTINGS };
 }
 
+/** As rs-core `validate::oid`: exactly 40 hex digits. */
+function fullOid(s: string): string {
+  if (!/^[0-9a-fA-F]{40}$/.test(s)) throw ipcError('invalidRev', `invalid ref: not a full commit id: ${JSON.stringify(s.slice(0, 60))}`);
+  return s.toLowerCase();
+}
+
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 export interface MockBackend extends Backend {
@@ -255,12 +261,12 @@ export function createMockBackend(search: string, opts: { tickMs?: number } = {}
       return `C:\\Users\\demo\\Downloads\\${path.split('/').pop() ?? 'file'}`;
     },
     file_last_commit: ({ repoId, rev, path }) => open(repoId).fileLastCommit(rev, path),
-    commits_page: ({ repoId, rev, path, since, skip, tip }) => open(repoId).page(rev, { path, since, skip, tip }),
-    commit_detail: ({ repoId, oid }) => {
-      if (!/^[0-9a-f]{4,40}$/.test(oid)) throw ipcError('invalidRev', `invalid ref: ${oid}`);
-      return open(repoId).detail(oid);
+    commits_page: ({ repoId, rev, path, since, skip, tip }) => {
+      if (tip !== null) fullOid(tip);
+      return open(repoId).page(rev, { path, since, skip, tip: tip?.toLowerCase() ?? null });
     },
-    commit_file_diff: ({ repoId, oid, index }) => open(repoId).fileDiff(oid, index),
+    commit_detail: ({ repoId, oid }) => open(repoId).detail(fullOid(oid)),
+    commit_file_diff: ({ repoId, oid, index }) => open(repoId).fileDiff(fullOid(oid), index),
     branches_list: ({ repoId }) => open(repoId).branches(),
     branches_ahead_behind: ({ repoId, names }) => open(repoId).aheadBehind(names),
     tags_list: ({ repoId }) => open(repoId).tags(),
