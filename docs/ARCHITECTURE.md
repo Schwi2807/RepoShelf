@@ -9,7 +9,7 @@ and must be copied into `docs/DECISIONS.md` in M0 (one line: decision — why �
 
 | # | Decision | Effect on requirements |
 |---|---|---|
-| D-1 | Clone hosts: any public `https://` host. `owner/repo` and `github.com/owner/repo` shorthand = github.com. No credentials ever (no credential callback registered at all). | FR-6, NFR-S5, R-10 |
+| D-1 | Clone hosts: any public `https://` host. Shorthand: `owner/repo` (two segments) = github.com; `host.tld/owner/repo` (first segment contains a dot) = `https://host.tld/...`. No credentials ever (no credential callback registered at all). | FR-6, NFR-S5, R-10 |
 | D-2 | Managed clones are **bare**: `<archive>/<host>/<owner>/<name>.git`. No checkout ever. | See §0.1 |
 | D-3 | Fetch is offered for managed clones **and** imported repos with an `https` origin. It writes only `refs/remotes/origin/*`, new tags (via staging namespace) and `FETCH_HEAD`. | FR-10; the one write exception to NFR-O2, §0.2 |
 | D-4 | Markdown rendered in Rust: `comrak` (GFM) → `ammonia` allow-list. One pipeline for READMEs, `.md` previews, tag annotations and (optional) GitHub release bodies. | FR-17, FR-31, NFR-S1, R-2 |
@@ -22,7 +22,7 @@ and must be copied into `docs/DECISIONS.md` in M0 (one line: decision — why �
 | D-11 | No asset protocol. Images (README + file view) are fetched as bytes over IPC (`tauri::ipc::Response`) and shown via `blob:` URLs. So `img-src` drops `asset:` from NFR-S2's string (nothing to serve, no fs scope to get wrong). | NFR-S2 |
 | D-12 | Repo identity in the UI = slug `owner/name` (origin owner, or `local`); numeric `repoId` over IPC. Collisions get `-2`, `-3`… | FR-12, NFR-S4 |
 | D-13 | Default archive dir `Documents\RepoShelf` (lead's decision; overrides FR-35's "under the app id" for the archive dir). Data dir = `%LOCALAPPDATA%\dev.schwi.reposhelf`. Env `RS_DATA_DIR`, `RS_ARCHIVE_DIR` win. Archive dir is shown in Settings, not editable in the PoC. | FR-35 |
-| D-14 | Test seam for local clone sources: `rs_core::clone::clone_from_unchecked` exists only under `cfg(any(test, feature = "testkit"))`; `testkit` is never enabled by `src-tauri`. Release builds cannot reach it. | FR-6 tests |
+| D-14 | Test seam for local clone sources: `rs_core::clone::clone_from_unchecked` exists only under `cfg(any(test, feature = "testkit"))`; `src-tauri` enables `testkit` only through its own non-default feature `e2e`, used for a **separate e2e build** (`--features e2e`, own target dir); the shipped installer/portable exe is built without it and M9 checks that the marker string `RS_TEST_FILE_CLONE` is absent from it. | FR-6 tests |
 | D-15 | `crates/rs-cli` is included (dev tool, not shipped): builds fixture repos and runs the perf benchmark (PoC success criterion 3). | §9 |
 | D-16 | Optional "uncommitted changes" note for imported non-bare repos is **off by default** (setting). It uses `statuses()` without `UPDATE_INDEX`; the `.git` hash test runs with it on and off. | NFR-O2 |
 | D-17 | Diff highlighting is out of the PoC (plain monospace diff lines, coloured by add/del). | FR-27 (GitHub has it; ours later) |
@@ -189,6 +189,12 @@ variants also get `rename_all_fields = "camelCase"` (PM lesson L-10). Oids cross
 shows a "non-UTF-8 name" marker and browsing that entry uses `pathRaw`). Timestamps: `Time { secs: i64, offset_min: i32 }`.
 
 git2 0.21 accessors returning `Result` (names, messages, emails) are handled with lossy fallbacks, never `unwrap`.
+`tauri.conf.json`: `productName: "RepoShelf"`, `identifier: "dev.schwi.reposhelf"`, window `main` 1320x840, min
+900x560. WebView2 user data normally lands in `%LOCALAPPDATA%\dev.schwi.reposhelf\EBWebView`; the app keeps **no**
+state in localStorage/IndexedDB (everything is in the DB), and when `RS_DATA_DIR` is set the main window is created in
+`lib.rs` with `data_directory(<RS_DATA_DIR>/webview)` so test runs never share a profile with a real install (verify
+the builder API in M4).
+
 `Repository` is opened per call (`Repository::open_ext(path, RepositoryOpenFlags::NO_SEARCH, [] as [&OsStr; 0])`),
 cheap; never shared across threads. **No long git walk ever holds the DB mutex**: read cache → release → compute → write cache.
 
@@ -249,12 +255,14 @@ pub fn load(db: &Db) -> Result<Settings>;  pub fn save(db: &Db, s: &Settings) ->
 // validate.rs  (NFR-S4, NFR-S5, FR-20)
 pub fn git_path(p: &str) -> Result<GitPath>;    // "" = root. Refuses: leading '/', '\\', NUL, ':' drive prefix
                                                 // (^[A-Za-z]:), "." or ".." components, empty components, > 4096 bytes
-pub fn rev(s: &str) -> Result<RevSpec>;         // 4..=40 hex → OidPrefix; else must pass Reference::is_valid_name
-                                                // for "refs/heads/<s>"; refuses "..", "@{", "^", "~", ":", "\\", spaces, ctrl
+pub fn rev(s: &str) -> Result<RevSpec>;         // syntax only, no classification: must pass Reference::is_valid_name
+                                                // for "refs/heads/<s>" (or be HEAD); a hex-looking name like `dead`
+                                                // or `2024` stays a name (§3.5 tries refs first); refuses "..", "@{", "^", "~", ":", "\\", spaces, ctrl
 pub fn clone_url(input: &str) -> Result<CloneUrl>; // §5.3
 pub fn topics(v: &[String]) -> Result<Vec<String>>; // lowercase, ^[a-z0-9][a-z0-9-]{0,49}$, ≤ 20, dedup
 pub fn homepage(s: &str) -> Result<Option<String>>; // http/https, no userinfo
-pub struct GitPath(String);  pub enum RevSpec { Name(String), OidPrefix(String) }
+pub struct GitPath(String);  pub struct RevSpec(String);   // validated raw string
+pub struct MetadataInput { pub description: Option<String> /* ≤ 350 chars */, pub homepage: Option<String>, pub topics: Vec<String> }
 pub struct CloneUrl { pub url: String /* rebuilt https://host[:port]/path.git? */, pub host: String,
                       pub owner: String, pub name: String, pub rel_dir: PathBuf /* host/owner/name.git */ }
 
@@ -267,20 +275,25 @@ pub fn refspecs(src: &str, dst: &str, keep: &[String], skipped: &[String]) -> Ve
 
 // jobs.rs  — no Tauri; the command layer passes a sink closure
 pub type JobId = u64;
-pub enum JobKind { Clone { url: String }, Fetch { repo_id: i64 }, FetchAll }
+pub enum JobKind { Clone { url: String }, Fetch { repo_id: i64 }, FetchAll }   // pure data, so re-runnable
 pub enum JobState { Waiting, Running, Done, Failed, Cancelled }
 pub struct JobInfo { pub id: JobId, pub kind: JobKind, pub state: JobState, pub progress: Option<Progress>,
                      pub title: String, pub result: Option<JobResult>, pub error: Option<String>, pub started_at: i64 }
 pub enum Progress { Connecting, Receiving { received: usize, total: usize, bytes: usize },
                     Resolving { done: usize, total: usize }, Finalizing }
-pub struct JobRunner { /* Mutex<Vec<JobInfo>>, gate: Gate(3), cancel flags, sink */ }
+/// Runs a job from its kind; supplied once by the owner (Shelf-aware closure calling clone::clone / fetch::fetch).
+pub type Worker = Arc<dyn Fn(&JobKind, &JobCtx) -> Result<JobResult> + Send + Sync>;
+pub struct JobRunner { /* Mutex<Vec<JobInfo>>, gate: Gate(3), cancel flags, worker, sink, Db */ }
 impl JobRunner {
-    pub fn new(max_concurrent: usize, sink: Arc<dyn Fn(&JobInfo) + Send + Sync>) -> Self;
-    pub fn submit(&self, kind: JobKind, title: String,
-                  work: impl FnOnce(&JobCtx) -> Result<JobResult> + Send + 'static) -> JobId; // spawns a thread
-    pub fn cancel(&self, id: JobId) -> bool;     pub fn retry(&self, id: JobId) -> Result<JobId>;
-    pub fn list(&self) -> Vec<JobInfo>;          pub fn dismiss(&self, id: JobId);
+    pub fn new(db: Db, max_concurrent: usize, worker: Worker, sink: Arc<dyn Fn(&JobInfo) + Send + Sync>) -> Self;
+    pub fn load_persisted(&self) -> Result<()>;  // startup: rows running/waiting -> Failed "Interrupted (app closed)"
+    pub fn submit(&self, kind: JobKind, title: String) -> Result<JobId>; // INSERT into `jobs` -> id; spawns a thread
+    pub fn cancel(&self, id: JobId) -> bool;
+    pub fn retry(&self, id: JobId) -> Result<JobId>; // re-submits the stored kind as a NEW row; the old row is deleted
+    pub fn list(&self) -> Vec<JobInfo>;          pub fn dismiss(&self, id: JobId); // DELETE row
 }
+// jobs.rs is the only writer of the `jobs` table; JobId = jobs.id (INTEGER rowid). Progress stays in memory;
+// state transitions (state, error, result JSON) are written on change, so Retry works after a restart.
 pub struct JobCtx { pub cancel: Arc<AtomicBool>, /* … */ }
 impl JobCtx { pub fn progress(&self, p: Progress); /* throttled ≥ 80 ms except terminal */ pub fn cancelled(&self) -> bool; }
 pub struct Gate;  // Mutex<usize> + Condvar; acquire(cancel) waits in 100 ms slices so a Waiting job can be cancelled
@@ -344,6 +357,11 @@ pub struct ClonePreview { url: String, host: String, owner: String, name: String
 pub enum JobResult { Cloned { repo_id: i64, skipped_refs: Vec<String> }, Fetched(FetchOutcome) }
 pub struct FetchOutcome { new_commits: u32, new_tags: Vec<String>, kept_local_tags: Vec<String>, skipped_refs: Vec<String>,
                           updated_branches: Vec<String> }
+pub struct Removed { path: String, source: Source }          // src-tauri trashes managed clones
+pub enum Theme { Light, Dark, System }
+pub struct SortSpec { key: SortKey /* Updated|Name|Added */, desc: bool }
+pub enum SourceFilter { All, Imported, Cloned }
+pub struct Version { major: u64, minor: u64, patch: u64, extra: u64, pre: Option<String> } // release ordering
 pub struct AppInfo { version: String, data_dir: String, archive_dir: String, cache_bytes: u64, repo_count: u32,
                      archive_bytes: Option<u64> }
 ```
@@ -511,16 +529,18 @@ CREATE TABLE cache_gh_releases (                  -- optional FR-31
   repo_id INTEGER PRIMARY KEY REFERENCES repos(id) ON DELETE CASCADE,
   fetched_at INTEGER NOT NULL, json TEXT NOT NULL
 );
-CREATE TABLE clone_jobs (                         -- FR-7 failures survive restart with Retry
-  id INTEGER PRIMARY KEY, url TEXT NOT NULL, state TEXT NOT NULL,   -- waiting|running|done|failed|cancelled
-  error TEXT, repo_id INTEGER REFERENCES repos(id) ON DELETE SET NULL,
-  skipped_json TEXT, created_at INTEGER NOT NULL, finished_at INTEGER
+CREATE TABLE jobs (                               -- FR-7: clone/fetch jobs; failures survive restart. Written only by jobs.rs
+  id INTEGER PRIMARY KEY,                        -- = JobId
+  kind_json TEXT NOT NULL,                       -- serialized JobKind (Clone{url} | Fetch{repoId} | FetchAll)
+  title TEXT NOT NULL, state TEXT NOT NULL,      -- waiting|running|done|failed|cancelled
+  error TEXT, result_json TEXT,                  -- JobResult (repoId, skipped refs, fetch outcome)
+  created_at INTEGER NOT NULL, finished_at INTEGER
 );
 CREATE INDEX cache_last_commit_age ON cache_last_commit(created_at);
 ```
 
 Cache pruning: on start, keep at most 2,000 `cache_last_commit` rows (oldest deleted) and drop cache rows whose
-`tip` is neither a current ref tip nor used in the last 30 days (cheap: `created_at`). Rows in `clone_jobs` with
+`tip` is neither a current ref tip nor used in the last 30 days (cheap: `created_at`). Rows in `jobs` with
 state `running`/`waiting` at startup become `failed` with "Interrupted (app closed)" — Retry available.
 
 ---
@@ -559,7 +579,7 @@ camelCase; Rust command names snake_case.
 | `languages` | `repoId, rev, requestId` | `Languages` | 19 |
 | `blob_meta` | `repoId, rev, path` | `BlobMeta` | 22–25 |
 | `blob_text` | `repoId, rev, path` | `BlobText` | 22, 23 |
-| `blob_bytes` | `repoId, rev, path` | raw `ArrayBuffer` (`tauri::ipc::Response`), ≤ 20 MB | 17 images, 24 |
+| `blob_bytes` | `repoId, rev, path` | raw `ArrayBuffer` (`tauri::ipc::Response`), ≤ 5 MB (NFR-P4; larger: Save a copy only) | 17 images, 24 |
 | `blob_save_as` | `repoId, rev, path` | `string \| null` (save dialog in Rust, writes bytes) | 23 |
 | `file_last_commit` | `repoId, rev, path, requestId` | `CommitSummary \| null` | 22 |
 | `commits_page` | `repoId, rev, path?, since?, skip, tip?` | `CommitsPage` | 26, 31 compare |
@@ -591,7 +611,7 @@ camelCase; Rust command names snake_case.
 - `url` (open_external) → parsed with `url::Url`, scheme `http`/`https`, no userinfo; anything else refused.
 - Filesystem paths **never** arrive from the UI: import/locate use the Rust-side folder dialog, save-as the Rust-side
   save dialog. `import_confirm` takes an opaque token mapped to the path the dialog returned (expires after 10 min).
-- `blob_bytes` refuses > 20 MB; `blob_text` returns `text: null` > 5 MB (NFR-P4).
+- `blob_bytes` refuses > 5 MB; `blob_text` returns `text: null` > 5 MB (NFR-P4).
 - Tests: a table of hostile inputs (`..`, `a/../b`, `/etc`, `C:\x`, `c:/x`, `a\b`, `a\0b`, `refs/../x`, `HEAD~1`,
   `a..b`, `@{-1}`) asserts `InvalidPath`/`InvalidRev` for every command that takes them (PoC criterion 4).
 
@@ -599,7 +619,8 @@ camelCase; Rust command names snake_case.
 
 `validate::clone_url(input)`: trim; reject `git@…`, `ssh://`, `git://`, `file://`, `http://`, anything with `\`, a
 drive letter, a leading `/` or `.`; `owner/repo` (exactly two segments, `[A-Za-z0-9._-]`) → `https://github.com/owner/repo`;
-`host/owner/repo` without scheme → `https://host/owner/repo`. Then `url::Url::parse`: scheme `https`, host is a
+`host.tld/owner/repo...` without scheme (≥ 3 segments, first contains a `.`) → `https://host.tld/owner/repo...`;
+three or more segments whose first has no dot → refused ("add the host, e.g. github.com/..."). Then `url::Url::parse`: scheme `https`, host is a
 domain or IP (no empty host), no userinfo (refused, not stripped, so the user sees why), query/fragment dropped,
 path ≥ 2 segments, each segment `[A-Za-z0-9._~-]+` and not `.`/`..`; trailing `.git` and `/` normalised. Rebuilt
 string = `https://<host>[:port]/<seg>/…/<name>.git`. owner = first segment, name = last segment (without `.git`);
@@ -612,9 +633,10 @@ pure and `clone()` only accepts a `CloneUrl` value (type-level guarantee).
 **Clone** (`clone.rs`), inside a job (gate ≤ 3; others `Waiting`):
 1. `partial = <archive>/<host>/<owner>/.<name>.git.partial-<ms>-<seq>`; `Repository::init_bare(long(partial))`;
    set `core.longpaths=true` (Windows), `core.ignorecase` as init recorded.
-2. `remote("origin", url)`; connect with proxy auto, **no credentials callback**, `RemoteRedirect::Initial`
-   (libgit2 option `follow_redirects`; https→https only since only https URLs are ever given and WinHTTP refuses
-   downgrade); list advertised heads, tags, default branch (PM `advertised` logic: symref target, else
+2. `remote("origin", url)`; connect with proxy auto, **no credentials callback**, redirects limited
+   to the initial request (`FetchOptions::follow_redirects(RemoteRedirect::Initial)`). *Verify in M3* that a
+   redirect to `http://` is refused by libgit2/WinHTTP; if not, check the final URL in a transport callback and
+   fail the job; list advertised heads, tags, default branch (PM `advertised` logic: symref target, else
    `default_branch()`, else main/master at HEAD oid).
 3. `storable_refs` for heads (prefer default) and tags; if the default branch itself is unstorable → `Refused`.
 4. `fetch(refspecs(heads → refs/remotes/origin/), refspecs(tags → refs/tags/))`, `AutotagOption::None`,
@@ -680,12 +702,17 @@ for C in walk (stop at cap = 10_000 or pending empty or cancel):
         if changed: result[e] = summary(C); pending.remove(e)
 remaining pending → None ("older than 10,000 commits", capped=true)
 ```
+Extra condition (this is what the tip oids kept in `pending` are for): `changed` also requires
+`oid_C == pending[e]`, i.e. C produced the content the tip has. This handles side-branch changes that a merge
+dropped (git never visits them; without the check the entry would be attributed to the dropped side commit).
 
 Only subtree oid comparisons and one tree read per touched commit; unchanged subtrees are skipped with an oid compare
 (cheap). Subtree lookups per commit are memoised by commit oid within the walk (parents are looked up again as
-children). The "differs from every parent" rule matches git's history simplification for merges well enough for a
-"last touched" column; a test compares against `git log -1 --format=%H -- <path>` on linear and merge fixtures
-(merge fixture: entries touched only on a side branch must report the side commit, not the merge). Result cached as
+children). This approximates git's history simplification (git follows only a TREESAME parent; we walk all parents). Tests
+compare against `git log -1 --format=%H -- <path>` on: linear history; an ordinary merge (side-branch change merged:
+report the side commit); a merge that drops a side change (report the older first-parent commit). Known divergence,
+documented and tested as such: a change made and then reverted *on a side branch* before a TREESAME merge (we report
+the revert commit, git reports an older first-parent commit). Result cached as
 JSON; file view's "last commit for this file" reads the parent directory's cache entry or runs the same walk with
 `E = {name}`.
 
@@ -736,14 +763,16 @@ In the listed directory, case-insensitive match, priority: `README.md`, `README.
 and `docs/README.md` if none found. Markdown → `markdown::render`; others → escaped `<pre class="readme-plain">`.
 Rendering pipeline (`markdown.rs`):
 1. comrak with `extension.{table, strikethrough, tasklist, autolink, footnotes, header_ids = "user-content-"}`,
-   `render.unsafe_ = true` (raw HTML passes to step 3 — ammonia is the single gate), `render.github_pre_lang = false`.
+   `render.unsafe_ = true` (raw HTML passes to step 3 — ammonia is the single gate), `render.github_pre_lang = false`
+   (*verify the option names against comrak 0.59 in M0*; they have moved between releases).
 2. Rewrite via ammonia's `url_relative(UrlRelative::Custom)`: relative URLs are resolved against `base_dir` into
    `rsrepo:/<git path>[#frag]` (`..` resolved lexically; escaping above root → link dropped). Fragment-only links
    stay `#user-content-…`.
 3. ammonia allow-list: GFM tags (h1–h6, p, a, img, ul/ol/li, table/thead/tbody/tr/th/td, pre, code, blockquote,
    em/strong/del, hr, br, details/summary, sup/sub, kbd, input[type=checkbox, disabled, checked]); attributes:
    `a[href,title,id]`, `img[src,alt,title,width,height]`, `th/td[align]`, `h*[id]`, `code[class]` only for
-   `language-<id>` from a fixed list; URL schemes `http`, `https`, `mailto`, `rsrepo`; `data:image/(png|gif|jpeg|webp)`
+   `language-<id>` from a fixed list; ammonia `id_prefix("user-content-")` so raw-HTML ids in a README can
+   never collide with app ids (comrak's heading ids already carry the prefix); URL schemes `http`, `https`, `mailto`, `rsrepo`; `data:image/(png|gif|jpeg|webp)`
    only in `img` (ammonia attribute filter); everything else (script, style, iframe, object, embed, form, `on*`,
    `style=`, `javascript:`) stripped. `rel="noopener noreferrer"` set on links.
 4. Headings collected for the outline button.
@@ -907,7 +936,8 @@ previews.
 **Links**: a global click handler in `MarkdownBody` and for About/origin links: in-app (`rsrepo:`, `#/…`) →
 router; `http(s)`/`mailto` → `ConfirmExternalLink` dialog showing the full URL → `open_external` (Rust re-validates,
 opener plugin). Everything else ignored. `window.open` is never used; Tauri's default new-window handling is
-denied via `on_navigation` returning false for any non-app URL (defence in depth).
+denied via `on_navigation` returning false for any non-app URL (defence in depth; *verify in M4* that the hook applies to the
+config-defined window, otherwise create the window in `lib.rs` with the builder).
 
 **Network**: only `clone_start`, `fetch_start`/`fetch_all_start`, `releases_fetch_github`. No credentials callback,
 no ssh transport compiled in, no submodule recursion, no LFS. `GIT_TERMINAL_PROMPT` irrelevant (libgit2). A
@@ -947,8 +977,8 @@ test asserts no git2 remote or ureq call happens outside those commands (a count
   switches listed in `tools/shots/mock-shots.md` using the browser preview; screenshots reviewed; no console errors.
 - **Real app / e2e (M8)**: `tools/e2e/run-e2e.ps1` modelled on PM: builds scratch `RS_DATA_DIR`/`RS_ARCHIVE_DIR`,
   fixtures via `rs fixtures`, starts the portable exe through tauri-driver + msedgedriver (window moved offscreen
-  in-process), smoke dashboard → repo → file → commits → commit → branches/tags/releases → clone (debug-only file
-  clone seam `RS_TEST_FILE_CLONE=1`, compiled only with `debug_assertions`) → fetch; network clone of 2 small public
+  in-process), smoke dashboard → repo → file → commits → commit → branches/tags/releases → clone (file-clone seam
+  `RS_TEST_FILE_CLONE=1`, present only in the separate `--features e2e` build, D-14) → fetch; network clone of 2 small public
   repos is a separate opt-in `-Network` switch. Kills its process tree (`taskkill /T /F`), then counts leftover
   `reposhelf`, `tauri-driver`, `msedgedriver`, `msedgewebview2` children it started → must be 0.
 
@@ -974,7 +1004,9 @@ Builds use the repo's own `target\`. Commands run from `C:\Dev\projects\repo-she
 
 ### M1 — Framework layer (rs-core)
 - Scope: `error`, `paths`, `db` + `migrations/0001_init.sql`, `settings`, `validate`, `winpath`, `jobs` (Gate,
-  JobRunner, throttle, CancelToken), `types`, `testkit` builder basics.
+  JobRunner, `jobs` table persistence, retry from kind, throttle, CancelToken), `types`, `testkit` builder basics.
+- Files: `crates/rs-core/src/{lib,error,paths,db,settings,validate,winpath,jobs,types,testkit}.rs`,
+  `crates/rs-core/src/migrations/0001_init.sql`, `crates/rs-core/Cargo.toml` (features).
 - Done when: `cargo test -p rs-core` covers: env overrides honoured (`RS_DATA_DIR`, `RS_ARCHIVE_DIR`), migration on
   fresh + reopen (user_version), settings round-trip, hostile path/rev/url tables, topics/homepage rules, winpath PM
   cases, gate never > 3 running with 6 submitted, waiting job cancel, progress throttle ≥ 80 ms; `cargo clippy
@@ -984,6 +1016,8 @@ Builds use the repo's own `target\`. Commands run from `C:\Dev\projects\repo-she
 - Scope: `repo`, `refs`, `tree`, `blob`, `commits`, `diff`, `lastcommit`, `langs`(+table), `readme`, `markdown`,
   `license`, `releases`; testkit fixtures (basic, wide-dir, long-history, merges, binaries, security-readme,
   releases); `rs fixtures` + `rs bench` in rs-cli.
+- Files: `crates/rs-core/src/{repo,refs,tree,blob,commits,diff,lastcommit,langs,langs_table,readme,markdown,license,
+  releases,testkit}.rs`, `tests/fixtures/security/*`, `crates/rs-cli/src/{main,fixtures,bench}.rs`.
 - Done when: `cargo test -p rs-core` passes all read-model tests in §9 (incl. paging-equals-full-walk on merges,
   lastcommit vs `git log -1 -- path`, diff stats vs `git show --stat`, markdown security fixture);
   immutability hash test green; `cargo run -p rs-cli --release -- fixtures <scratch>` +
@@ -992,6 +1026,8 @@ Builds use the repo's own `target\`. Commands run from `C:\Dev\projects\repo-she
 ### M3 — Data layer: library, clone, fetch (rs-core)
 - Scope: `library` (import, list, refresh, slug, metadata, relocate, remove record), `clone` (bare, atomic,
   refclash skip, cleanup_partials, `clone_from_unchecked`), `fetch` (staging tags, new-commit count), fast-forward.
+- Files: `crates/rs-core/src/{library,clone,fetch}.rs` (+ tests), `testkit.rs` (winnames, refclash, upstream/
+  downstream pair fixtures).
 - Done when: `cargo test -p rs-core` covers FR-5 (import/duplicate/non-repo/bare, repo hash unchanged), FR-6 (every
   rejected form refused, validator pure), FR-7/8 (cancel → no folder; leftover partial removed at startup), FR-9
   (refclash + invalid ref names skipped and reported; `a:b.txt`/`CON.txt` fixture clones bare fine), FR-10 (2 commits +
@@ -1001,7 +1037,9 @@ Builds use the repo's own `target\`. Commands run from `C:\Dev\projects\repo-she
 ### M4 — IPC commands + tests (src-tauri)
 - Scope: `state.rs` (Shelf, JobRunner with Channel subscribers, CancelRegistry, compute gate), `ipc_error.rs`, all
   commands in §5.1 under `cmd/`, Rust-side dialogs/opener/trash, startup (dirs, DB, cleanup_partials, interrupted
-  jobs), CSP + devCsp + capabilities, `on_navigation` guard.
+  jobs), CSP + devCsp + capabilities, `on_navigation` guard, `e2e` feature.
+- Files: `src-tauri/src/{lib,main,state,ipc_error}.rs`, `src-tauri/src/cmd/*.rs`, `src-tauri/tauri.conf.json`,
+  `src-tauri/capabilities/default.json`, `src-tauri/Cargo.toml`, `src/ipc/types.ts`, `src/ipc/types.test.ts`.
 - Done when: `cargo test -p reposhelf` (command-layer tests call the command functions with a test `Shelf`, no
   window): hostile inputs refused for every path/rev-taking command; `open_external` refuses non-http(s); `blob_bytes`
   cap; job subscribe snapshot; `cargo build -p reposhelf` ok; `npx tauri dev` opens the M0 page with no CSP errors
@@ -1013,6 +1051,8 @@ Builds use the repo's own `target\`. Commands run from `C:\Dev\projects\repo-she
 - Scope: router, bridge/api/query, mock backend with all switches, theme store + tokens.css/base/layout/components
   CSS, GlobalHeader (search jump, Add menu, jobs popover, theme toggle, settings link), RepoLayout with header + tabs
   (placeholder tab bodies), hl worker + splitLines, MarkdownBody pipeline, dialogs skeleton.
+- Files: `src/router/*`, `src/ipc/{bridge,api,query,errors}.ts`, `src/ipc/mock/**`, `src/state/*`, `src/hl/*`,
+  `src/markdown/*`, `src/styles/*.css`, `src/components/{layout,ui}/*`, `src/App.tsx`, `tools/shots/mock-shots.md`.
 - Done when: `npm run typecheck`, `npm test` (router, splitLines, languages, linkRewrite, query cancel, contrast,
   mock switches) green; `npm run build` initial JS < 1.5 MB (check `dist/assets` sizes; highlight languages are
   separate chunks); mock in browser on 1450: header works on every route, `?empty`/`?slow` visible, light + dark
@@ -1022,6 +1062,8 @@ Builds use the repo's own `target\`. Commands run from `C:\Dev\projects\repo-she
 - Scope: S1, S2 complete, S3 (ref switcher, latest commit, file table with lazy last-commit + virtualisation,
   README card, About sidebar, languages, edge states), S4 (code viewer with line anchors/selection, raw, copy, save,
   image, placeholders, markdown preview/code tabs), EditAbout/Import/Clone/Remove dialogs wired.
+- Files: `src/screens/{Dashboard,RepoCode,FileView}/*`, `src/components/{dashboard,code,file,dialogs}/*`,
+  `src/util/{format,paths,lang-colors}.ts`, mock fixtures extended, tests beside components.
 - Done when: component tests (FileTable order + `..`, RefSwitcher filter, CodeViewer `?L=` selection, Clone dialog
   validation) green; mock screenshots of S1, S3, S4 (+ every placeholder fixture, `?huge` 1000-entry dir) in light and
   dark reviewed; no console errors.
@@ -1030,13 +1072,17 @@ Builds use the repo's own `target\`. Commands run from `C:\Dev\projects\repo-she
 - Scope: S5 (day groups, paging with pinned tip, path filter chip, since), S6 (header, summary, file cards, collapsed
   large/binary, Load diff, rename display, virtualised), S7 (sections, lazy ahead/behind bars), S8, S9 (+ optional GH
   notes button behind a feature check), S10 Settings page, jobs popover final (auto-hide, retry).
+- Files: `src/screens/{Commits,Commit,Branches,Tags,Releases,Settings}/*`, `src/components/{commits,diff,refs}/*`,
+  `src/styles/diff.css`, mock fixtures (`?huge` commit, fail switches), tests beside components.
 - Done when: vitest for day grouping, pager, diff table rendering, ahead/behind bar; mock screenshots of S5–S10 in
   light/dark incl. `?huge` 400-file commit and `?clonefail`/`?fetchfail`; no console errors.
 
 ### M8 — Integration / real-app run
 - Scope: real app against scratch dirs; `tools/e2e/{run-e2e.ps1,wd-e2e.mjs,check-e2e.ps1}`; security pass;
-  performance pass; network-off pass; `docs/TESTING.md`.
-- Done when: `npm run build:portable` produces the exe; `powershell -ExecutionPolicy Bypass -File
+  performance pass; network-off pass; `docs/TESTING.md`. The e2e exe is a separate build:
+  `npm run build && cargo build --release -p reposhelf --features e2e --target-dir target/e2e`.
+- Files: `tools/e2e/{run-e2e.ps1,wd-e2e.mjs,check-e2e.ps1}`, `docs/TESTING.md`, fixes found anywhere.
+- Done when: the e2e build exists; `powershell -ExecutionPolicy Bypass -File
   tools\e2e\run-e2e.ps1` passes the smoke path of PoC criterion 5 (file-clone seam) and prints JSON results;
   `-Network` run clones 2 small public repos (one with Windows-invalid names) and fetches; console shows **zero CSP
   violations** across all screens (worker, virtual lists, security README); hostile IPC table refused in the real
@@ -1047,12 +1093,15 @@ Builds use the repo's own `target\`. Commands run from `C:\Dev\projects\repo-she
 ### M9 — Docs + release build
 - Scope: `README.md` (what it is, data locations, env overrides, build/test commands), DECISIONS/WORKLOG final,
   version 0.1.0 in `package.json`/`Cargo.toml`/`tauri.conf.json`, NSIS installer (`bundle.targets: ["nsis"]`,
-  `installMode: currentUser`) and portable exe via `tools/build-portable.mjs` (as PM), copies into
-  `_REVIVE/releases/` if the kit exists.
+  `installMode: currentUser`) and portable exe via `tools/build-portable.mjs` (as PM, no `e2e` feature), copies
+  into `_REVIVE/releases/` if the kit exists.
+- Files: `README.md`, `docs/{DECISIONS,WORKLOG,TESTING}.md`, `tools/build-portable.mjs`, version fields in
+  `package.json`, `Cargo.toml`, `src-tauri/tauri.conf.json`.
 - Done when: `npm run build:installer` produces `target/release/bundle/nsis/RepoShelf_0.1.0_x64-setup.exe` and
   `npm run build:portable` produces `target/release/portable/RepoShelf_0.1.0_x64-portable.exe`; the portable exe
   starts against scratch `RS_DATA_DIR`/`RS_ARCHIVE_DIR` and shows the dashboard (then killed, leftovers 0); the
-  installer is **built but never run** (no install/uninstall on this machine); all test commands from M0–M8 green;
+  marker string `RS_TEST_FILE_CLONE` is absent from both shipped exes (`Select-String -SimpleMatch` on the
+  binary); the installer is **built but never run** (no install/uninstall on this machine); all test commands from M0–M8 green;
   tag `v0.1.0` (local).
 
 ---
