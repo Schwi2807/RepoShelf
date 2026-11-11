@@ -4,6 +4,8 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, vi } from 'vitest';
 import App from '../App';
+import { resetCommitsPageCache } from '../components/commits/paging';
+import { resetGhNotesState } from '../components/refs/GhNotesButton';
 import { setBackendForTests } from '../ipc/bridge';
 import { createMockBackend, type MockBackend } from '../ipc/mock';
 import { resetQueryCache } from '../ipc/query';
@@ -72,6 +74,8 @@ export async function typeInto(el: Element | null | undefined, value: string): P
 export function installHarness(): void {
   beforeEach(() => {
     resetQueryCache();
+    resetCommitsPageCache();
+    resetGhNotesState();
     resetLibraryForTests();
     resetJobsForTests();
     resetSettingsForTests();

@@ -6,6 +6,7 @@ import { call, createChannel } from './bridge';
 import type { ChannelLike } from './commands';
 import type {
   AheadBehindEntry,
+  AppDir,
   AppInfo,
   BlobMeta,
   BlobText,
@@ -47,6 +48,7 @@ export const appInfo = (): Promise<AppInfo> => call('app_info', {});
 export const settingsGet = (): Promise<Settings> => call('settings_get', {});
 export const settingsSet = (settings: Settings): Promise<Settings> => call('settings_set', { settings });
 export const cacheClear = (): Promise<AppInfo> => call('cache_clear', {});
+export const appOpenDir = (which: AppDir): Promise<void> => call('app_open_dir', { which }).then(() => undefined);
 export const requestCancel = (requestId: string): Promise<boolean> => call('request_cancel', { requestId });
 export const openExternal = (url: string): Promise<void> => call('open_external', { url }).then(() => undefined);
 

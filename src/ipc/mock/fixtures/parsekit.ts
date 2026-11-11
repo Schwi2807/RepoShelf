@@ -421,14 +421,16 @@ export function parsekit(huge: boolean): RepoDef {
     license: 'MIT',
     fetchable: true,
     canFastForward: null,
-    dirty: null,
+    // M7.6: shown only with Settings → "Note uncommitted changes" on (D-16)
+    dirty: true,
     files,
     history: { seed: 'parsekit', count: huge ? 10_000 : 148, newest: NOW - 3 * HOUR, summaries: SUMMARIES },
     branches: [
       { name: 'main', at: 0 },
       { name: 'feature/streaming', at: 6, ahead: ['Streaming: refill from Read', 'Streaming: back-pressure', 'WIP: async adapter'] },
       { name: 'fix/utf8', at: 2 },
-      { name: 'docs/tutorial', at: 30, ahead: ['Tutorial: first draft'] },
+      // `?huge`: 6,000 behind → the mock's ahead/behind cap (1,000) shows the capped marker
+      { name: 'docs/tutorial', at: huge ? 6_000 : 30, ahead: ['Tutorial: first draft'] },
     ],
     remoteBranches: [
       { name: 'origin/main', at: 0 },
@@ -449,6 +451,9 @@ export function parsekit(huge: boolean): RepoDef {
       { name: 'Shell', bytes: 1_560, percent: 2.8 },
     ],
     hugeCommitAt: huge ? 0 : undefined,
+    // M7.8: a merge on page 2 of the commits list, and one commit with a rename, a deletion and a no-newline change
+    merges: [{ at: 40, branch: 'feature/lexer-tables', commits: ['Lexer: table-driven keyword lookup', 'Lexer: tests for the keyword table'] }],
+    special: { 3: { rename: { from: 'docs/design.md', to: 'docs/architecture.md' }, deleted: 'docs/old-notes.md', noNewline: 'rustfmt.toml' } },
     unstorable: ['odd/a:b.txt', 'odd/CON.txt'],
     rawNames: { 'odd/caf�.txt': [...new TextEncoder().encode('odd/caf'), 0xe9, ...new TextEncoder().encode('.txt')] },
   };

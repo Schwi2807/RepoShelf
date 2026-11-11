@@ -558,6 +558,7 @@ camelCase; Rust command names snake_case.
 | `app_info` | – | `AppInfo` | 35, S10 |
 | `settings_get` / `settings_set` | – / `Settings` | `Settings` | 3, 33 |
 | `cache_clear` | – | `AppInfo` | S10 |
+| `app_open_dir` | `which` (`"data"` \| `"archive"`; never a path, D-76) | `()` (opener, from Rust) | 35, S10 |
 | `library_list` | – | `RepoSummary[]` (DB) | 1, NFR-P1 |
 | `library_refresh` | `requestId` | `RepoSummary[]` | 1, 4, R-9 |
 | `repo_by_slug` | `owner, name` | `RepoSummary` | 12, 34 |

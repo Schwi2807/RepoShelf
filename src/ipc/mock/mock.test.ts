@@ -81,7 +81,7 @@ describe('switches', () => {
 
 describe('backend behaviour the UI relies on', () => {
   it('implements every command', () => {
-    expect(COMMAND_NAMES).toHaveLength(47);
+    expect(COMMAND_NAMES).toHaveLength(48);
   });
 
   it('rejects with { code, message }', async () => {
@@ -217,6 +217,41 @@ describe('backend behaviour the UI relies on', () => {
     ]);
     expect(rel[1].previousTag).toBe('v1.0.0');
     expect(rel[3].title).toBe('v0.9.0');
+  });
+
+  it('M7.8 fixtures: merge commit with an openable second parent, rename / delete / no-newline, capped ahead/behind', async () => {
+    const m = createMockBackend('');
+    const page = await m.invoke('commits_page', { repoId: LUMEN, rev: 'main', path: null, since: null, skip: 0, tip: null });
+    const merge = page.commits.find((c) => c.summary === "Merge branch 'next-dialog'")!;
+    expect(merge.parents).toHaveLength(2);
+    const d = await m.invoke('commit_detail', { repoId: LUMEN, oid: merge.oid });
+    expect(d.isMerge).toBe(true);
+    expect(d.parentCompared).toBe(merge.parents[0]);
+    const side = await m.invoke('commit_detail', { repoId: LUMEN, oid: merge.parents[1] });
+    expect(side.commit.summary).toBe('Dialog: fix Escape in nested menus');
+
+    const pk = await m.invoke('commits_page', { repoId: PARSEKIT, rev: 'main', path: null, since: null, skip: 0, tip: null });
+    const sp = await m.invoke('commit_detail', { repoId: PARSEKIT, oid: pk.commits[3].oid });
+    const kinds = Object.fromEntries(sp.files.map((f) => [f.newPath ?? f.oldPath, [f.kind, f.oldPath]]));
+    expect(kinds['docs/architecture.md']).toEqual(['renamed', 'docs/design.md']);
+    expect(kinds['docs/old-notes.md']).toEqual(['deleted', 'docs/old-notes.md']);
+    const nl = sp.diffs.find((x) => x.index === sp.files.find((f) => f.newPath === 'rustfmt.toml')!.index)!;
+    expect(nl.hunks[0].lines.filter((l) => l.kind === 'noNewline')).toHaveLength(2);
+    expect(sp.additions).toBe(sp.files.reduce((s, f) => s + f.additions, 0));
+
+    const huge = createMockBackend('?huge');
+    const [[, ab]] = await huge.invoke('branches_ahead_behind', { repoId: PARSEKIT, names: ['docs/tutorial'], requestId: 'ab1' });
+    expect(ab).toEqual({ ahead: 1, behind: 1000, capped: true });
+    const big = await huge.invoke('commits_page', { repoId: PARSEKIT, rev: 'main', path: null, since: null, skip: 0, tip: null });
+    const bd = await huge.invoke('commit_detail', { repoId: PARSEKIT, oid: big.commits[0].oid });
+    expect([bd.files.length, bd.diffsDeferred, bd.diffs.length]).toEqual([400, true, 0]);
+    await expect(huge.invoke('commit_file_diff', { repoId: PARSEKIT, oid: big.commits[0].oid, index: 0, force: true })).resolves.toMatchObject({ index: 0 });
+  });
+
+  it('app_open_dir takes a keyword only', async () => {
+    const m = createMockBackend('');
+    await expect(m.invoke('app_open_dir', { which: 'data' })).resolves.toBeNull();
+    await expect(m.invoke('app_open_dir', { which: 'C:\\Windows' as never })).rejects.toMatchObject({ code: 'invalidInput' });
   });
 
   it('library-refreshed fires once after the first listener', async () => {

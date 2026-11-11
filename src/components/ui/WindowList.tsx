@@ -1,10 +1,13 @@
 // Long lists (> 500 rows) virtualised against the WINDOW scroll (D-31: `useWindowVirtualizer`), so the router's
 // scroll memory restores them on back/forward like any other page. Short lists render plainly.
+// `scrollTo` (M7, `?file=N` on the commit page) brings row N to the top, below the sticky global header.
 
 import { useWindowVirtualizer } from '@tanstack/react-virtual';
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 
 export const VIRTUAL_THRESHOLD = 500;
+/** Space kept above a row scrolled to the top: the sticky global header plus a little air. */
+export const SCROLL_TOP_GAP = 76;
 
 export interface WindowListProps {
   count: number;
@@ -15,22 +18,34 @@ export interface WindowListProps {
   rowKey?: (index: number) => string | number;
   threshold?: number;
   className?: string;
+  /** Scroll row `index` to the top whenever `seq` changes. */
+  scrollTo?: { index: number; seq: number } | null;
 }
 
-export function WindowList({ count, estimate, row, rowKey, threshold = VIRTUAL_THRESHOLD, className }: WindowListProps) {
-  if (count <= threshold) {
-    return (
-      <div className={className}>
-        {Array.from({ length: count }, (_, i) => (
-          <div key={rowKey ? rowKey(i) : i}>{row(i)}</div>
-        ))}
-      </div>
-    );
-  }
-  return <Virtual count={count} estimate={estimate} row={row} rowKey={rowKey} className={className} />;
+export function WindowList({ count, estimate, row, rowKey, threshold = VIRTUAL_THRESHOLD, className, scrollTo }: WindowListProps) {
+  if (count <= threshold) return <Plain count={count} row={row} rowKey={rowKey} className={className} scrollTo={scrollTo} />;
+  return <Virtual count={count} estimate={estimate} row={row} rowKey={rowKey} className={className} scrollTo={scrollTo} />;
 }
 
-function Virtual({ count, estimate, row, rowKey, className }: Omit<WindowListProps, 'threshold'>) {
+function Plain({ count, row, rowKey, className, scrollTo }: Omit<WindowListProps, 'threshold' | 'estimate'>) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!scrollTo) return;
+    const el = ref.current?.querySelector<HTMLElement>(`:scope > [data-index="${scrollTo.index}"]`);
+    if (el) window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - SCROLL_TOP_GAP);
+  }, [scrollTo]);
+  return (
+    <div ref={ref} className={className}>
+      {Array.from({ length: count }, (_, i) => (
+        <div key={rowKey ? rowKey(i) : i} data-index={i}>
+          {row(i)}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Virtual({ count, estimate, row, rowKey, className, scrollTo }: Omit<WindowListProps, 'threshold'>) {
   const ref = useRef<HTMLDivElement>(null);
   const [margin, setMargin] = useState(0);
   useLayoutEffect(() => {
@@ -42,8 +57,13 @@ function Virtual({ count, estimate, row, rowKey, className }: Omit<WindowListPro
     estimateSize: () => estimate,
     overscan: 12,
     scrollMargin: margin,
+    scrollPaddingStart: SCROLL_TOP_GAP,
     getItemKey: rowKey,
   });
+  useEffect(() => {
+    if (scrollTo && scrollTo.index < count) v.scrollToIndex(scrollTo.index, { align: 'start' });
+    // only when a new request arrives (not when the virtualiser or count change)
+  }, [scrollTo]);
   return (
     <div ref={ref} className={className} style={{ height: v.getTotalSize(), position: 'relative' }}>
       {v.getVirtualItems().map((it) => (

@@ -1,14 +1,372 @@
-/* Diff table (S6). Filled in M7; tokens live in tokens.css (--diff-*). D-17: no syntax highlighting in diffs. */
+/* S6 commit page: header card, summary, file list, file cards, diff table. Colours from tokens.css (--diff-*);
+   D-17: no syntax highlighting in diffs. */
 
-.diff-line--add {
+/* ---- header card ----------------------------------------------------------------------------------------------- */
+
+.chead {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+
+.chead__top {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.chead__summary {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.chead__browse {
+  flex: none;
+}
+
+.chead__body {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+  color: var(--fg-default);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.chead__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-muted);
+  font-size: 13.5px;
+}
+
+.chead__people {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 260px;
+  color: var(--fg-muted);
+}
+
+.chead__people strong {
+  color: var(--fg-default);
+}
+
+.chead__ids {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+}
+
+.chead__parents,
+.chead__full {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chead__parents svg {
+  color: var(--fg-muted);
+}
+
+.chead__oid {
+  font-size: 12.5px;
+}
+
+.chead__fulloid {
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+  color: var(--fg-default);
+  font-size: 12px;
+}
+
+/* ---- summary line, notes, file list -------------------------------------------------------------------------- */
+
+.dsum {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 32px;
+  font-size: 14px;
+}
+
+.dsum__icon {
+  color: var(--fg-muted);
+}
+
+.dsum__text {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font-weight: 600;
+}
+
+.dfiles {
+  margin: 0;
+  padding: var(--space-1) 0;
+  list-style: none;
+}
+
+.dfiles__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 32px;
+  padding: 2px var(--space-4);
+  font-size: 13px;
+}
+
+.dfiles__row:hover {
+  background: var(--bg-subtle);
+}
+
+.dfiles__path {
+  min-width: 0;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+}
+
+/* ---- mini bar ------------------------------------------------------------------------------------------------- */
+
+.minibar {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.minibar__add {
+  color: var(--success);
+}
+
+.minibar__del {
+  color: var(--danger);
+}
+
+.minibar__blocks {
+  display: inline-flex;
+  gap: 1px;
+}
+
+.minibar__b {
+  width: 8px;
+  height: 8px;
+  border-radius: 1px;
+  background: var(--border-default);
+}
+
+.minibar__b--add {
+  background: var(--success);
+}
+
+.minibar__b--del {
+  background: var(--danger);
+}
+
+/* ---- file cards ------------------------------------------------------------------------------------------------ */
+
+.dcards > div {
+  padding-bottom: var(--space-4);
+}
+
+/* no overflow on the card: it would become the sticky header's scroll container */
+.dcard > :last-child {
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+}
+
+.dcard__header {
+  position: sticky;
+  top: var(--header-h);
+  z-index: 2;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 44px;
+  padding: 4px var(--space-2) 4px 4px;
+  border-bottom: 1px solid var(--border-default);
+  background: var(--bg-subtle);
+  font-size: 13px;
+}
+
+.dcard--closed .dcard__header {
+  border-bottom: 0;
+  border-radius: var(--radius-md);
+}
+
+.dcard__toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-muted);
+}
+
+.dcard__toggle:hover {
+  background: var(--bg-hover);
+  color: var(--fg-default);
+}
+
+.dcard__path {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fg-default);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dcard__old {
+  color: var(--fg-muted);
+  font-weight: 400;
+}
+
+.dcard__arrow {
+  color: var(--fg-muted);
+}
+
+.dcard__view {
+  flex: none;
+}
+
+.dcard__collapsed {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  color: var(--fg-muted);
+  font-size: 13.5px;
+  text-align: center;
+}
+
+.dcard__note {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  font-size: 13px;
+}
+
+/* ---- diff table ------------------------------------------------------------------------------------------------ */
+
+.dtable__scroll {
+  overflow-x: auto;
+}
+
+.dtable {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: auto;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 20px;
+}
+
+.dtable__col-num {
+  width: 1%;
+}
+
+.dtable__col-mark {
+  width: 20px;
+}
+
+.dtable td {
+  padding: 0;
+  vertical-align: top;
+}
+
+.dtable__num {
+  min-width: 44px;
+  padding: 0 10px !important;
+  color: var(--fg-muted);
+  text-align: right;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.dtable__mark {
+  padding-left: 8px !important;
+  color: var(--fg-default);
+  user-select: none;
+  white-space: pre;
+}
+
+.dtable__code {
+  padding-right: var(--space-4) !important;
+  color: var(--fg-default);
+  white-space: pre;
+}
+
+.dtable__line--add {
   background: var(--diff-add-bg);
 }
 
-.diff-line--del {
+.dtable__line--add .dtable__num {
+  background: var(--diff-add-num-bg);
+}
+
+.dtable__line--del {
   background: var(--diff-del-bg);
 }
 
-.diff-line--hunk {
+.dtable__line--del .dtable__num {
+  background: var(--diff-del-num-bg);
+}
+
+.dtable__hunk {
   background: var(--diff-hunk-bg);
+}
+
+.dtable__hunk td {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+.dtable__hunktext {
   color: var(--diff-hunk-fg);
+}
+
+.dtable__nonl {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--fg-muted);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-style: italic;
+}
+
+.dtable__nonl::before {
+  content: '⊘';
+  font-style: normal;
 }

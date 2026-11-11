@@ -63,6 +63,14 @@ export interface RepoDef {
   hugeCommitAt?: number;
   /** GitHub release notes served by `releases_fetch_github` (tag → html). */
   ghNotes?: Record<string, { title: string; html: string }>;
+  /**
+   * M7.8 merge commits (applied after generation, so the generated history stays identical): mainline commit `at`
+   * becomes "Merge branch '<branch>'" with a second parent = the tip of `commits` (side commits forked from the
+   * commit below `at`).
+   */
+  merges?: { at: number; branch: string; commits: string[] }[];
+  /** M7.8 extra changes of one mainline commit: a rename (old → new), a deletion, a file without a final newline. */
+  special?: Record<number, { rename?: { from: string; to: string }; deleted?: string; noNewline?: string }>;
   /** Paths Windows cannot store (`storableHere = false`, NFR-W3). */
   unstorable?: string[];
   /** Paths whose last segment is not valid UTF-8: raw bytes of the full path (`pathRaw`, R-7). */

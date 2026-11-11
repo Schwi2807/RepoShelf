@@ -175,6 +175,8 @@ export function lumen(): RepoDef {
       { name: 'JavaScript', bytes: 3_900, percent: 5.0 },
       { name: 'Markdown', bytes: 1_800, percent: 2.3 },
     ],
+    // M7.8: a merge commit on the first commits page
+    merges: [{ at: 28, branch: 'next-dialog', commits: ['Dialog: initial focus option', 'Dialog: docs', 'Dialog: fix Escape in nested menus'] }],
     ghNotes: {
       'v1.1.0': { title: 'Lumen 1.1 — theming', html: '<p>Release notes from GitHub: <strong>theming guide</strong>, focus fixes.</p>\n' },
     },

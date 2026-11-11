@@ -1,84 +1,107 @@
-// Jobs indicator (S0, FR-7, NFR-P7): button with active-count badge; popover rows with progress, Cancel, Retry,
-// Dismiss. Done rows vanish after 5 s (jobs store); failures stay with the backend's message.
+// Jobs indicator (S0, FR-7, FR-9, FR-10, NFR-P7): button with active-count badge; popover rows per job with a
+// per-kind heading, progress from the `Progress` variants, Cancel (waiting and running), Retry (failed only — the
+// backend refuses others), Dismiss. Done rows vanish after 5 s (jobs store); failures stay with the backend's
+// message. Results: clones list the refs Windows could not store (FR-9) and link to the new repo; fetches report
+// new commits, new tags, kept local tags and skipped refs.
 
-import { Activity, CircleAlert, CircleCheck, CircleSlash, LoaderCircle, RotateCcw, X } from 'lucide-react';
+import { Activity, Archive, CircleAlert, CircleCheck, CircleSlash, LoaderCircle, RefreshCw, RotateCcw, X, type LucideIcon } from 'lucide-react';
 import { useRef, useState } from 'react';
-import type { JobInfo, Progress } from '../../ipc/types';
+import { errorText } from '../../ipc/errors';
+import type { JobInfo } from '../../ipc/types';
+import { href } from '../../router/router';
+import { Link } from '../../router/Link';
 import { cancelJob, dismissJob, isActive, retryJob, useJobs } from '../../state/jobs';
-import { formatBytes } from '../../util/format';
+import { useLibrary } from '../../state/library';
+import { cloneReport, fetchReport, kindLabel, progressFraction, progressText } from '../../util/jobText';
 import { Button } from '../ui/Button';
 import { useDismiss } from '../ui/Popover';
 
-export function progressText(p: Progress | null, state: JobInfo['state']): string {
-  if (state === 'waiting') return 'Waiting…';
-  if (state === 'done') return 'Done';
-  if (state === 'cancelled') return 'Cancelled';
-  if (state === 'failed') return 'Failed';
-  if (!p) return 'Starting…';
-  switch (p.type) {
-    case 'connecting':
-      return 'Connecting…';
-    case 'receiving':
-      return `Receiving objects: ${p.total > 0 ? Math.floor((p.received / p.total) * 100) : 0}% (${p.received}/${p.total}), ${formatBytes(p.bytes)}`;
-    case 'resolving':
-      return `Resolving deltas: ${p.total > 0 ? Math.floor((p.done / p.total) * 100) : 0}% (${p.done}/${p.total})`;
-    case 'finalizing':
-      return 'Finishing…';
-  }
+const STATE_ICON: Record<JobInfo['state'], LucideIcon> = {
+  waiting: LoaderCircle,
+  running: LoaderCircle,
+  done: CircleCheck,
+  failed: CircleAlert,
+  cancelled: CircleSlash,
+};
+
+/** What the job works on, without the kind word the backend puts in front ("Clone owner/name" → "owner/name"). */
+export function jobTarget(j: JobInfo): string {
+  if (j.kind.type === 'fetchAll') return 'every clone on the shelf';
+  const t = j.title.replace(/^(clone|fetch)\s+/i, '');
+  return t.length > 0 ? t : j.kind.type === 'clone' ? j.kind.url : j.title;
 }
 
-function fraction(p: Progress | null): number | null {
-  if (!p) return null;
-  if (p.type === 'receiving' && p.total > 0) return p.received / p.total;
-  if (p.type === 'resolving' && p.total > 0) return p.done / p.total;
-  if (p.type === 'finalizing') return 1;
-  return null;
-}
-
-function resultText(j: JobInfo): string | null {
+function resultLines(j: JobInfo): string[] {
   const r = j.result;
-  if (!r) return null;
-  if (r.type === 'cloned') {
-    return r.skippedRefs.length > 0
-      ? `Cloned. ${r.skippedRefs.length} refs could not be stored on Windows: ${r.skippedRefs.join(', ')}`
-      : 'Cloned.';
-  }
-  const n = r.newCommits;
-  return `${n === 0 ? 'No' : n} new commit${n === 1 ? '' : 's'}${r.newTags.length > 0 ? `, ${r.newTags.length} new tag(s)` : ''}.`;
+  if (!r) return ['Done.'];
+  return r.type === 'cloned' ? cloneReport(r.skippedRefs) : fetchReport(r);
 }
 
-function JobRow({ job }: { job: JobInfo }) {
-  const f = fraction(job.progress);
+export function JobRow({ job }: { job: JobInfo }) {
+  const [actionError, setActionError] = useState<string | null>(null);
+  const lib = useLibrary();
+  const f = progressFraction(job.progress);
   const active = isActive(job);
-  const Icon =
-    job.state === 'done' ? CircleCheck : job.state === 'failed' ? CircleAlert : job.state === 'cancelled' ? CircleSlash : LoaderCircle;
+  const Icon = STATE_ICON[job.state];
+  const KindIcon = job.kind.type === 'clone' ? Archive : RefreshCw;
+  const res = job.result;
+  const cloned = job.state === 'done' && res?.type === 'cloned' ? lib.repos?.find((r) => r.id === res.repoId) : undefined;
+
+  const run = (p: Promise<unknown>) => {
+    setActionError(null);
+    p.catch((e: unknown) => setActionError(errorText(e)));
+  };
+
   return (
-    <li className="job">
+    <li className={`job job--${job.state}`} data-state={job.state} data-kind={job.kind.type}>
       <div className="job__title">
-        <Icon
-          size={16}
-          aria-hidden="true"
-          className={`job__icon job__icon--${job.state}${active ? ' spin' : ''}`}
-        />
-        <span className="truncate">{job.title}</span>
+        <Icon size={16} aria-hidden="true" className={`job__icon job__icon--${job.state}${active ? ' spin' : ''}`} />
+        <span className="job__kind">
+          <KindIcon size={12} aria-hidden="true" />
+          {kindLabel(job.kind)}
+        </span>
+        <span className="truncate job__target" title={job.kind.type === 'clone' ? job.kind.url : job.title}>
+          {jobTarget(job)}
+        </span>
       </div>
-      <div className="job__status" aria-live="polite">
-        {job.state === 'done' ? (resultText(job) ?? 'Done') : progressText(job.progress, job.state)}
-      </div>
+      {job.state === 'done' ? (
+        <div className="job__status job__status--done" aria-live="polite">
+          {resultLines(job).map((l, i) => (
+            <div key={i}>{l}</div>
+          ))}
+        </div>
+      ) : (
+        <div className="job__status" aria-live="polite">
+          {progressText(job.progress, job.state)}
+        </div>
+      )}
       {active && (
-        <div className={`progress${f === null ? ' progress--indeterminate' : ''}`} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={f === null ? undefined : Math.round(f * 100)}>
+        <div
+          className={`progress${f === null ? ' progress--indeterminate' : ''}`}
+          role="progressbar"
+          aria-label={`${kindLabel(job.kind)} progress`}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={f === null ? undefined : Math.round(f * 100)}
+        >
           <div className="progress__bar" style={f === null ? undefined : { width: `${Math.round(f * 100)}%` }} />
         </div>
       )}
-      {job.state === 'failed' && job.error && <div className="job__error">{job.error}</div>}
+      {job.state === 'failed' && <div className="job__error">{job.error ?? 'The job failed.'}</div>}
+      {actionError && <div className="job__error">{actionError}</div>}
       <div className="job__actions">
+        {cloned && (
+          <Link to={href('code', { owner: cloned.owner, repo: cloned.name })} className="btn btn--sm">
+            Open repository
+          </Link>
+        )}
         {active && (
-          <Button size="sm" icon={X} onClick={() => void cancelJob(job.id)}>
+          <Button size="sm" icon={X} onClick={() => run(cancelJob(job.id))}>
             Cancel
           </Button>
         )}
-        {(job.state === 'failed' || job.state === 'cancelled') && (
-          <Button size="sm" icon={RotateCcw} onClick={() => void retryJob(job.id)}>
+        {job.state === 'failed' && (
+          <Button size="sm" icon={RotateCcw} onClick={() => run(retryJob(job.id))}>
             Retry
           </Button>
         )}
@@ -89,6 +112,17 @@ function JobRow({ job }: { job: JobInfo }) {
         )}
       </div>
     </li>
+  );
+}
+
+export function JobsList({ jobs }: { jobs: JobInfo[] }) {
+  if (jobs.length === 0) return <div className="menu__note jobs__empty">No clones or fetches running.</div>;
+  return (
+    <ul className="menu jobs__list scroll-y">
+      {jobs.map((j) => (
+        <JobRow key={j.id} job={j} />
+      ))}
+    </ul>
   );
 }
 
@@ -114,20 +148,12 @@ export function JobsButton() {
         onClick={() => setOpen((o) => !o)}
       >
         <Activity size={16} aria-hidden="true" />
-        {(active > 0 || failed > 0) && <span className="gh__count">{active > 0 ? active : '!'}</span>}
+        {(active > 0 || failed > 0) && <span className={`gh__count${active === 0 ? ' gh__count--failed' : ''}`}>{active > 0 ? active : '!'}</span>}
       </button>
       {open && (
         <div className="popover popover--right jobs" role="dialog" aria-label="Background jobs">
           <div className="popover__header">Background jobs</div>
-          {jobs.length === 0 ? (
-            <div className="menu__note jobs__empty">No clones or fetches running.</div>
-          ) : (
-            <ul className="menu jobs__list scroll-y">
-              {jobs.map((j) => (
-                <JobRow key={j.id} job={j} />
-              ))}
-            </ul>
-          )}
+          <JobsList jobs={jobs} />
         </div>
       )}
     </div>

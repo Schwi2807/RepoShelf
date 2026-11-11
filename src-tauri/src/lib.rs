@@ -109,6 +109,7 @@ pub fn run() {
             cmd::app::cache_clear,
             cmd::app::request_cancel,
             cmd::app::open_external,
+            cmd::app::app_open_dir,
             cmd::library::library_list,
             cmd::library::library_refresh,
             cmd::library::repo_by_slug,

@@ -3,6 +3,7 @@
 
 import type {
   AheadBehindEntry,
+  AppDir,
   AppInfo,
   BlobMeta,
   BlobText,
@@ -54,6 +55,7 @@ export interface Commands {
   settings_get: { args: NoArgs; ret: Settings };
   settings_set: { args: { settings: Settings }; ret: Settings };
   cache_clear: { args: NoArgs; ret: AppInfo };
+  app_open_dir: { args: { which: AppDir }; ret: null };
   library_list: { args: NoArgs; ret: RepoSummary[] };
   library_refresh: { args: Req; ret: RepoSummary[] };
   repo_by_slug: { args: { owner: string; name: string }; ret: RepoSummary };
@@ -109,12 +111,13 @@ export type CommandName = keyof Commands;
 export type ArgsOf<K extends CommandName> = Commands[K]['args'];
 export type RetOf<K extends CommandName> = Commands[K]['ret'];
 
-/** Every command name, in ARCH §5.1 order (47). */
+/** Every command name, in ARCH §5.1 order (48). */
 export const COMMAND_NAMES = [
   'app_info',
   'settings_get',
   'settings_set',
   'cache_clear',
+  'app_open_dir',
   'library_list',
   'library_refresh',
   'repo_by_slug',

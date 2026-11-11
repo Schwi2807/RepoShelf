@@ -98,6 +98,22 @@ pub fn open_external_impl(st: &AppState, url: &str) -> Result<()> {
     st.opener.open_url(&url).map_err(|e| Error::Refused(format!("Could not open the browser: {e}")))
 }
 
+/// S10 "Open" next to the data / archive folder (D-76): a keyword, never a path from the webview.
+pub fn app_open_dir_impl(st: &AppState, which: &str) -> Result<()> {
+    let dir = match which {
+        "data" => &st.shelf.dirs.data,
+        "archive" => &st.shelf.dirs.archive,
+        _ => return Err(Error::InvalidInput("unknown folder: expected \"data\" or \"archive\"".into())),
+    };
+    std::fs::create_dir_all(rs_core::paths::long(dir))?;
+    st.opener.open_folder(dir).map_err(|e| Error::Refused(format!("Could not open the folder: {e}")))
+}
+
+#[tauri::command]
+pub async fn app_open_dir(state: St<'_>, which: String) -> CmdResult<()> {
+    blocking(&state, move |st| app_open_dir_impl(st, &which)).await
+}
+
 #[tauri::command]
 pub async fn app_info(state: St<'_>) -> CmdResult<AppInfo> {
     blocking(&state, app_info_impl).await

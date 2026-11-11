@@ -12,7 +12,8 @@ import { copyLocation, href, navigate } from '../../router/router';
 import { Link } from '../../router/Link';
 import { useJobs } from '../../state/jobs';
 import { refreshLibrary } from '../../state/library';
-import { plural, shortOid } from '../../util/format';
+import { shortOid } from '../../util/format';
+import { fetchResultText } from '../../util/jobText';
 import { FetchConfirmDialog } from '../dialogs/FetchConfirmDialog';
 import { RemoveDialog } from '../dialogs/RemoveDialog';
 import { Button } from '../ui/Button';
@@ -30,13 +31,6 @@ export function SourceBadge({ summary }: { summary: RepoSummary }) {
       Imported
     </Badge>
   );
-}
-
-/** Text of a finished fetch job (FR-10). */
-export function fetchResultText(newCommits: number, newTags: string[]): string {
-  const parts = [newCommits === 0 ? 'No new commits' : plural(newCommits, 'new commit')];
-  if (newTags.length > 0) parts.push(plural(newTags.length, 'new tag'));
-  return parts.join(', ');
 }
 
 export function RepoHeader({ summary, detail }: { summary: RepoSummary; detail: RepoDetail | null }) {

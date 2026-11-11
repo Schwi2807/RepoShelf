@@ -28,7 +28,7 @@ import type {
   TreeListing,
 } from '../types';
 import { languageFor } from '../../hl/languages';
-import { fakeOid, genHistory, hash32, HOUR, sig, type GenCommit } from './fixtures/gen';
+import { fakeOid, genHistory, hash32, HOUR, PEOPLE, sig, type GenCommit } from './fixtures/gen';
 import type { BranchDef, FileSpec, RepoDef } from './fixtures/model';
 
 export const PAGE_LIMIT = 35;
@@ -111,6 +111,16 @@ interface Resolved {
   chain: GenCommit[];
 }
 
+interface Change {
+  path: string;
+  kind: 'added' | 'modified' | 'renamed' | 'deleted';
+  oldPath?: string;
+  noNewline?: boolean;
+}
+
+/** Mock cap for ahead/behind counts (rs-core uses a larger one); `?huge` shows the capped marker. */
+const AB_CAP = 1_000;
+
 export class MockRepo {
   readonly def: RepoDef;
   readonly mainline: GenCommit[];
@@ -124,6 +134,7 @@ export class MockRepo {
     this.def = def;
     this.mainline = def.history ? genHistory(def.history) : [];
     for (const c of this.mainline) this.byOid.set(c.summary.oid, c);
+    this.applyMerges();
     for (const b of [...def.branches, ...def.remoteBranches]) this.side(b);
     if (def.head.type === 'detached' && def.head.oid === '' && this.mainline.length > 0) {
       def.head = { type: 'detached', oid: this.mainline[0].summary.oid };
@@ -137,6 +148,37 @@ export class MockRepo {
   }
 
   // -- history ------------------------------------------------------------------------------------------------
+
+  /** M7.8: turn chosen mainline commits into merges whose second parent is a short side chain (in `byOid`). */
+  private applyMerges(): void {
+    for (const m of this.def.merges ?? []) {
+      const c = this.mainline[m.at];
+      const base = this.mainline[m.at + 1];
+      if (!c || !base || m.commits.length === 0) continue;
+      const t0 = base.summary.committer.time.secs;
+      const span = c.summary.author.time.secs - t0;
+      let parent = base.summary.oid;
+      m.commits.forEach((s, j) => {
+        const author = PEOPLE[(hash32(m.branch) + j) % PEOPLE.length];
+        const t = t0 + Math.floor((span * (j + 1)) / (m.commits.length + 1));
+        const sc: GenCommit = {
+          summary: {
+            oid: fakeOid(this.def.summary.name, 'merge', m.branch, j),
+            summary: s,
+            author: sig(author, t),
+            committer: sig(author, t),
+            parents: [parent],
+          },
+          message: s,
+        };
+        this.byOid.set(sc.summary.oid, sc);
+        parent = sc.summary.oid;
+      });
+      c.summary.parents = [c.summary.parents[0], parent].filter((p): p is string => p !== undefined);
+      c.summary.summary = `Merge branch '${m.branch}'`;
+      c.message = `${c.summary.summary}\n\nBrings in ${m.commits.length} commit${m.commits.length === 1 ? '' : 's'} from ${m.branch}:\n${m.commits.map((s) => `* ${s}`).join('\n')}`;
+    }
+  }
 
   private side(b: BranchDef): GenCommit[] {
     const cached = this.sideChains.get(b.name);
@@ -494,24 +536,39 @@ export class MockRepo {
     return this.resolve(rev).chain.length;
   }
 
-  private changedFiles(c: GenCommit): string[] {
+  private changedFiles(c: GenCommit): Change[] {
     const idx = this.mainline.indexOf(c);
     if (this.def.hugeCommitAt !== undefined && idx === this.def.hugeCommitAt) {
-      return this.fileList.filter((p) => p.startsWith('generated/')).slice(0, 400);
+      return this.fileList
+        .filter((p) => p.startsWith('generated/'))
+        .slice(0, 400)
+        .map((path) => ({ path, kind: 'modified' }));
     }
-    if (c.summary.parents.length === 0) return this.fileList.slice(0, 12);
+    if (c.summary.parents.length === 0) return this.fileList.slice(0, 12).map((path) => ({ path, kind: 'added' }));
     const texts = this.fileList.filter((p) => typeof this.def.files[p] === 'string');
     if (texts.length === 0) return [];
     const n = 1 + (hash32(c.summary.oid) % Math.min(4, texts.length));
     const out = new Set<string>();
     for (let i = 0; out.size < n && i < 20; i++) out.add(texts[hash32(c.summary.oid + i) % texts.length]);
-    return [...out].sort();
+    const sp = idx >= 0 ? this.def.special?.[idx] : undefined;
+    const changes: Change[] = [];
+    if (sp?.rename) out.delete(sp.rename.to);
+    if (sp?.noNewline) out.add(sp.noNewline);
+    for (const path of out) changes.push({ path, kind: 'modified', noNewline: path === sp?.noNewline });
+    if (sp?.rename) changes.push({ path: sp.rename.to, kind: 'renamed', oldPath: sp.rename.from });
+    if (sp?.deleted) changes.push({ path: sp.deleted, kind: 'deleted', oldPath: sp.deleted });
+    // rs-core: deltas in path order (new path, else old path)
+    return changes.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   }
 
-  private diffFor(c: GenCommit, path: string, index: number, added: boolean): { change: FileChange; diff: FileDiff } {
+  private diffFor(c: GenCommit, ch: Change, index: number): { change: FileChange; diff: FileDiff } {
+    const path = ch.path;
     const spec = this.def.files[path];
     const binary = spec !== undefined && typeof spec !== 'string' && ('pngBase64' in spec || 'binary' in spec);
-    const text = this.text(path) ?? '';
+    const text =
+      ch.kind === 'deleted'
+        ? Array.from({ length: 9 }, (_, i) => `Old note ${i + 1}: superseded by docs/architecture.md`).join('\n') + '\n'
+        : (this.text(path) ?? '');
     const lines = text.split('\n');
     if (lines[lines.length - 1] === '') lines.pop();
     const hunkLines: DiffLine[] = [];
@@ -519,19 +576,26 @@ export class MockRepo {
     let deletions = 0;
     let header = '';
     if (!binary) {
-      if (added) {
+      if (ch.kind === 'added') {
         const shown = lines.slice(0, FILE_LINES);
         shown.forEach((t, i) => hunkLines.push({ kind: 'add', oldNo: null, newNo: i + 1, text: t }));
         additions = lines.length;
         header = `@@ -0,0 +1,${lines.length} @@`;
+      } else if (ch.kind === 'deleted') {
+        lines.forEach((t, i) => hunkLines.push({ kind: 'del', oldNo: i + 1, newNo: null, text: t }));
+        deletions = lines.length;
+        header = `@@ -1,${lines.length} +0,0 @@`;
       } else {
-        const at = lines.length > 0 ? hash32(c.summary.oid + path) % lines.length : 0;
+        // noNewline: the change is on the last line, which had no final newline before and after
+        const at = ch.noNewline ? lines.length - 1 : lines.length > 0 ? hash32(c.summary.oid + path) % lines.length : 0;
         const from = Math.max(0, at - 3);
         const to = Math.min(lines.length, at + 4);
         for (let i = from; i < to; i++) {
           if (i === at) {
             hunkLines.push({ kind: 'del', oldNo: i + 1, newNo: null, text: lines[i].replace(/\S+\s*$/, 'old();') });
+            if (ch.noNewline) hunkLines.push({ kind: 'noNewline', oldNo: null, newNo: null, text: '\\ No newline at end of file' });
             hunkLines.push({ kind: 'add', oldNo: null, newNo: i + 1, text: lines[i] });
+            if (ch.noNewline) hunkLines.push({ kind: 'noNewline', oldNo: null, newNo: null, text: '\\ No newline at end of file' });
             additions += 1;
             deletions += 1;
           } else {
@@ -539,15 +603,16 @@ export class MockRepo {
           }
         }
         header = `@@ -${from + 1},${to - from} +${from + 1},${to - from} @@`;
+        if (ch.kind === 'renamed') header += ' (renamed)';
       }
     }
-    const kind: ChangeKind = added ? 'added' : 'modified';
+    const kind: ChangeKind = ch.kind;
     return {
       change: {
         index,
         kind,
-        oldPath: added ? null : path,
-        newPath: path,
+        oldPath: ch.kind === 'added' ? null : (ch.oldPath ?? path),
+        newPath: ch.kind === 'deleted' ? null : path,
         additions,
         deletions,
         binary,
@@ -561,11 +626,11 @@ export class MockRepo {
   detail(oid: string): CommitDetail {
     const c = this.commit(oid);
     const files = this.changedFiles(c);
-    const root = c.summary.parents.length === 0;
-    const parts = files.map((p, i) => this.diffFor(c, p, i, root));
+    const parts = files.map((ch, i) => this.diffFor(c, ch, i));
     const deferred = files.length > MAX_FILES;
     const changes = parts.map((p) => (deferred ? { ...p.change, additions: 0, deletions: 0 } : p.change));
-    const shown = parts.filter((p) => !deferred && !p.change.binary && !p.change.generated && p.change.additions + p.change.deletions <= FILE_LINES);
+    // rs-core: generated files are inlined too (the UI collapses them); binary / > 2,000 changed lines are not
+    const shown = parts.filter((p) => !deferred && !p.change.binary && p.change.additions + p.change.deletions <= FILE_LINES);
     return {
       commit: c.summary,
       message: c.message,
@@ -582,9 +647,12 @@ export class MockRepo {
   fileDiff(oid: string, index: number): FileDiff {
     const c = this.commit(oid);
     const files = this.changedFiles(c);
-    const p = files[index];
-    if (p === undefined) throw ipcError('notFound', 'file index out of range');
-    return this.diffFor(c, p, index, c.summary.parents.length === 0).diff;
+    const ch = files[index];
+    if (ch === undefined) throw ipcError('notFound', 'file index out of range');
+    const out = this.diffFor(c, ch, index);
+    // rs-core: `force` still refuses binary files
+    if (out.change.binary) throw ipcError('refused', 'Binary file: no text diff.');
+    return out.diff;
   }
 
   // -- branches / tags / releases -----------------------------------------------------------------------------
@@ -614,7 +682,8 @@ export class MockRepo {
       for (const o of set) if (!baseSet.has(o)) ahead += 1;
       let behind = 0;
       for (const o of baseSet) if (!set.has(o)) behind += 1;
-      return [n, { ahead, behind, capped: false }];
+      const capped = ahead > AB_CAP || behind > AB_CAP;
+      return [n, { ahead: Math.min(ahead, AB_CAP), behind: Math.min(behind, AB_CAP), capped }];
     });
   }
 

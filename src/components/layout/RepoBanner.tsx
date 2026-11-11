@@ -1,6 +1,6 @@
 // Missing / corrupt repo banner (FR-4, NFR-O3). "Locate…" re-points a missing repo (`repo_locate`).
 
-import { FolderSearch, OctagonAlert, Trash2, TriangleAlert } from 'lucide-react';
+import { FilePen, FolderSearch, OctagonAlert, Trash2, TriangleAlert } from 'lucide-react';
 import { useState } from 'react';
 import { href, navigate } from '../../router/router';
 import { RemoveDialog } from '../dialogs/RemoveDialog';
@@ -9,6 +9,16 @@ import { errorText } from '../../ipc/errors';
 import type { IpcError, RepoSummary } from '../../ipc/types';
 import { applySummaryAndRefresh } from '../../state/repoCache';
 import { Button } from '../ui/Button';
+
+/** D-16: shown only when Settings → "Note uncommitted changes" is on and the imported work tree differs. */
+export function DirtyNote() {
+  return (
+    <div className="notice notice--attention" data-testid="dirty-note">
+      <FilePen size={16} aria-hidden="true" />
+      <span>The working folder has uncommitted changes. RepoShelf shows the committed history only.</span>
+    </div>
+  );
+}
 
 export function RepoBanner({ summary, error }: { summary: RepoSummary; error?: IpcError }) {
   const [msg, setMsg] = useState<string | null>(null);

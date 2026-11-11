@@ -343,6 +343,9 @@ export interface Version {
   pre: string | null;
 }
 
+/** `app_open_dir` argument (D-76): which app folder to open; never a path. */
+export type AppDir = 'data' | 'archive';
+
 export interface AppInfo {
   version: string;
   dataDir: string;

@@ -9,7 +9,7 @@ import type { Route } from '../../router/routes';
 import { href } from '../../router/router';
 import { Link } from '../../router/Link';
 import { Empty, Shimmer } from '../ui/bits';
-import { RepoBanner } from './RepoBanner';
+import { DirtyNote, RepoBanner } from './RepoBanner';
 import { RepoHeader } from './RepoHeader';
 import { RepoContext, defaultRef, type RepoContextValue } from './repoContext';
 import { TabBar } from './TabBar';
@@ -105,6 +105,7 @@ export function RepoLayout({ route, children }: { route: Route; children: ReactN
       <main className="container page">
         <div className="stack">
           <RepoBanner summary={summary} error={detail.error} />
+          {d?.dirty === true && <DirtyNote />}
           {!detail.error && children}
         </div>
       </main>

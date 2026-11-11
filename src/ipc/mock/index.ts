@@ -115,6 +115,17 @@ export function createMockBackend(search: string, opts: { tickMs?: number } = {}
         const r = get(kind.repoId);
         if (sw.fetchfail) throw `Could not reach ${r.def.summary.originHost ?? 'the host'}: the connection timed out.`;
         r.def.summary.lastFetchedAt = now();
+        // M7.7: clones report tags too (a new tag, a local tag kept because the remote moved it, a skipped ref)
+        if (r.def.summary.source === 'cloned') {
+          return {
+            type: 'fetched',
+            newCommits: 3,
+            newTags: ['v2.0.0-beta.2'],
+            keptLocalTags: ['v1.1.0'],
+            skippedRefs: ['refs/remotes/origin/AUX'],
+            updatedBranches: ['origin/main'],
+          };
+        }
         return { type: 'fetched', newCommits: 3, newTags: [], keptLocalTags: [], skippedRefs: [], updatedBranches: ['origin/main'] };
       }
       if (sw.fetchfail) throw 'Fetch failed for 2 repositories:\nlumen-ui/lumen: git: timed out\ninkwell/quill: git: timed out';
@@ -140,6 +151,12 @@ export function createMockBackend(search: string, opts: { tickMs?: number } = {}
     cache_clear: () => {
       cacheBytes = 0;
       return appInfo();
+    },
+    app_open_dir: ({ which }) => {
+      if (which !== 'data' && which !== 'archive') {
+        throw ipcError('invalidInput', 'unknown folder: expected "data" or "archive"');
+      }
+      return null;
     },
     library_list: () => list(),
     library_refresh: () => list(),

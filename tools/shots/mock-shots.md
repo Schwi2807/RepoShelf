@@ -35,8 +35,9 @@ default branch `trunk`), `local/beacon` (imported Go, detached HEAD, plain-text 
 | 18b | M6 | `#/northwind/parsekit/tree/main/odd`, `#/local/beacon`, `#/northwind/parsekit/tree/nope/` | – | NFR-W3 + non-UTF-8 badges, detached HEAD (short oid), ref not found |
 | 19 | M6 | all dialogs (Import: picks cycle new → not a repo → duplicate; Clone; Edit About; Remove; Fetch confirm on `northwind/parsekit`) | – | S10 dialogs |
 | 19a | M6 | saved PNGs (light, headless Edge 1280×1000): `docs/screenshots/m6-dashboard.png`, `docs/screenshots/m6-code.png` | – | reference look |
-| 20 | M7 | `#/northwind/parsekit/commits/main` | – / `?huge` | S5 day groups, pager |
-| 21 | M7 | `#/northwind/parsekit/commit/<oid>` | – / `?huge` | S6 diff cards; 400-file commit (diffs deferred) |
-| 22 | M7 | `#/northwind/parsekit/branches`, `/tags`, `#/lumen-ui/lumen/releases` | – | S7–S9 |
-| 23 | M7 | `#/settings` | – | S10 settings page |
-| 24 | M7 | jobs popover | `?fetchfail` | fetch failure text |
+| 20 | M7 | `#/northwind/parsekit/commits/main` (Older → page 2 has the merge `feature/lexer-tables`), `…/commits/main?path=src/lexer.rs` (`?huge` for several pages), `#/lumen-ui/lumen/commits/refs%2Ftags%2Fv2.0.0-beta.1?since=refs%2Ftags%2Fv1.1.0` | – / `?huge` | S5 day groups, expandable description, copy oid, pager with pinned tip, path chip, since banner |
+| 21 | M7 | `#/northwind/parsekit/commit/38ce93f337ce92603ace971939ce95863cce9a3f` (rename, deletion, no-newline; `?file=4`), lumen `Merge branch 'next-dialog'` (2 parents), quill root (last commit, `commits/trunk?page=2`), parsekit first commit under `?huge` (400 files, deferred, Load diff) | – / `?huge` | S6 header, notes, file list, cards, collapsed + Load diff |
+| 22 | M7 | `#/northwind/parsekit/branches` (`?huge`: `docs/tutorial` capped "1,000+"), `/tags`, `#/lumen-ui/lumen/releases` (Load GitHub release notes → confirm) | – / `?huge` | S7 lazy bars, S8 badges, S9 cards (Latest / Pre-release, notes, compare) |
+| 23 | M7 | `#/settings` (theme radio, folders + Open, Clear cache, uncommitted-changes toggle → note on `northwind/parsekit`) | – | S10 settings page |
+| 24 | M7 | jobs popover: Fetch on `lumen-ui/lumen` (report with new tag / kept tag / skipped ref), Clone URL… | `?fetchfail` / `?clonefail` | failure text + Retry; clone done → Open repository |
+| 25 | M7 | saved PNGs (light, headless Edge 1280×1000): `docs/screenshots/m7-commits.png`, `docs/screenshots/m7-commit.png` | – | reference look |

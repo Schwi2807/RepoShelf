@@ -519,3 +519,94 @@ Handoff for M7:
 - After mutations use `state/repoCache.ts`; same-page query changes use `navigate(…, { replace: true, keepScroll: true })`.
 - Component tests: `src/test/appHarness.tsx` (`boot(search, hash)`, `go`, `click`, `typeInto`, `installHarness()`).
 - `screens/placeholder.tsx` is still used by Commits, Commit, Branches, Tags, Releases, Settings.
+
+## M7 — Screens B: Commits, Commit, Branches, Tags, Releases, Settings, jobs final (2026-11-12)
+
+Steps M7.1–M7.9 done (one subagent). Same visual language as M6 (boxes, muted meta, mono oids, own tokens);
+`screens/placeholder.tsx` is gone (every screen is real now).
+
+- M7.1 `src/components/commits/`: `paging.ts` (`?page=` + pinned `?tip=`, `path`, `since`; unfiltered pages start at
+  (N-1)·35, path-filtered pages are chained through the returned `skip` via a module cache, D-77), `CommitRow`
+  (summary link, "…" loads the description from `commit_detail`, D-78; author + "committed …" / "authored and X
+  committed"; `CopyOid` = short-oid link + copy; browse-tree button), `DayGroup` (local day of the committer time,
+  timeline dot), `PathChip` ("History for <path>" → file, × drops the filter), `Pager` (Newer / Older links keep the
+  tip; capped → "Search older commits"); screen with ref switcher (keeps the path, drops tip/page), since banner,
+  "pinned at <oid>" notice when the ref moved, empty / past-the-end / capped-empty states.
+- M7.2 `src/components/diff/`: `CommitHeader` (summary, pre-wrapped body, author / committer with dates, "N parents"
+  links, full oid + copy, Browse files), `DiffSummary` ("Showing N changed files with A additions and D deletions"
+  + mini bar, merge / root / large-commit notes, collapsible file list → `?file=N`), `FileDiffCard` (sticky header:
+  chevron, `MiniBar`, change badge, `old → new`, copy path, View file — deleted files at the parent), collapsed
+  bodies (binary, > 1 MB, generated, deferred, large → Load diff = `commit_file_diff(force)`, D-82), `DiffTable`
+  (old | new | marker | text, hunk rows tinted, NoNewline row, React text only), `diffs.ts`; screen with short-oid
+  resolve, cards virtualised past 40 through `WindowList` (now with `scrollTo`, D-83); `src/styles/diff.css`.
+- M7.3 `src/components/refs/`: `AheadBehindBar` (behind left / ahead right, scaled to the page max, "1,000+" when
+  capped), `BranchRow` + `BranchChunk` (chunks of 20, requested once on screen, cancellable, D-79); Branches screen
+  with `?q=` filter, sections Default / Your branches / Remote branches, HEAD badge, "compared with <HEAD branch>".
+- M7.4 Tags: `ReleasesTagsToggle`, `TagRow` (name → tree `refs/tags/…`, annotated / lightweight badge, tagger, date,
+  short oid → commit, Browse files).
+- M7.5 Releases: `ReleaseCard` (side: date, tag, oid; title, Latest / Pre-release / GitHub-notes badges,
+  `MarkdownBody` notes, "Commits since <prev>" with full tag refs, D-81), `GhNotesButton` (github.com only, confirm,
+  primes `releases_list`, hides on `unsupported`, session date, D-80).
+- M7.6 Settings: theme radio cards, data + archive folders (Copy, Open via the new `app_open_dir`, D-76), repo count /
+  archive size / cache size + Clear cache, "Note uncommitted changes" (evicts `repo_detail`; `DirtyNote` under the
+  repo header when `detail.dirty`), version. Rust: `cmd::app::app_open_dir` + test; ARCH §5.1 row; 48 commands.
+- M7.7 Jobs popover: per-kind chip (Clone / Fetch / Fetch all clones) + target, `util/jobText.ts` (progress text and
+  fraction, clone report with skipped refs, fetch report with new tags / kept local tags / skipped refs, header
+  short text shared with RepoHeader), Cancel on waiting + running, Retry on failed only (errors shown in the row),
+  Dismiss, "Open repository" after a clone, red badge when only failures remain.
+- M7.8 Mock: `RepoDef.merges` (lumen #28, parsekit #40 with side commits in `byOid`), `special` (parsekit #3: rename
+  `docs/design.md → docs/architecture.md`, deletion, no-newline change on `rustfmt.toml`), ahead/behind cap 1,000
+  (`?huge` `docs/tutorial` at 6,000 → capped), generated files inlined like rs-core, binary `Load diff` refused,
+  cloned-repo fetch reports a new tag / kept tag / skipped ref, parsekit `dirty: true`, `app_open_dir`. All opt-in
+  after generation, so M6 data is unchanged. `mock-shots.md` rows 20–25.
+
+Tests: 572 TS in 24 files (+50): Commits 10 (midnight split, author offset ignored, interrupted day, pager hrefs keep
+tip/path/since, last page / capped, query parsing, Older → Newer over one tip, path-filtered page 2 with cold caches,
+stubbed capped scan → "Search older commits", description + since banner), DiffTable/commit page 7 (hunk with
+NoNewline, no-content / truncated notes, collapse rules, labels + mini bar, `?huge` collapsed card → Load diff,
+rename/delete/no-newline commit with parent + full oid + View file at parent + chevron, merge note + second parent
+opens + root note), refs 9 (bar widths ahead/behind/capped, Branches sections + lazy bars + `?q=`, `?huge` capped
+"1,000+", tags order/badges/links, release cards + compare href, GitHub notes confirm flow, other hosts /
+unsupported hide the button), jobs 5 (rows for waiting / receiving / resolving / done clone / done fetch / failed /
+cancelled / fetch-all with their actions, `?clonefail`, clone → Open repository + fetch report, `?fetchfail` Retry),
+Settings 3 (theme radio, folders + Open + Clear cache + version, dirty toggle → note), mock +2 (M7.8 fixtures,
+`app_open_dir`), contrast +7 pairs per theme. Rust: +1 (`app_open_dir_takes_a_keyword_only`), command count 48.
+
+Gate M7: `npm run typecheck` ok · `npm test` 572 passed · `npm run build` ok, initial JS `index-*.js` 435,638 bytes
+(< 1.5 MB) · `cargo test --workspace` 179 passed (42 + 135 + 1 ignored + 2). Earlier gates re-run: `cargo build
+--workspace`, `cargo test -p rs-core --features ghreleases` (135 + 1 ignored + 2), `cargo test -p reposhelf` 42,
+`--features e2e` 42, clippy `-D warnings` workspace and `-p reposhelf --features e2e` — all exit 0; M2 bench exit 0
+(list_dir 3.1 ms, lastcommit 2nd visit 0.9 ms, page skip 0 / 9,965 43.9 / 44.0 ms, langs 50k 53.5 ms, 400-file diff
+2.1 ms; scratch dir removed).
+
+M7.9 browser check (hidden `npm run dev`, PID 14344 then 12816, Browser pane at 1280×1000; both killed by tree, 5
+processes each, port 1450 free, 0 node / msedge / reposhelf left): light — S5 parsekit commits (groups, description
+expand, Older → page 2 with the merge, pinned tip in the URL), S6 merge commit (2 parents, first-parent note), the
+rename/delete/no-newline commit (`?file=4` reload scrolls to the end), `?huge` 400-file commit (16 cards rendered,
+deferred note, Load diff), quill root commit (root note, all Added), S7 branches (lazy bars, HEAD badge), S8 tags,
+S9 lumen releases + GitHub notes confirm → "Lumen 1.1 — theming", compare link → since banner (3 commits), S10
+settings, `?huge` path-filtered page 2 reload (same commits), edge states (`local/scratchpad` commits / branches /
+tags / releases "This repository is empty.", `commits/nope`, unknown commit), jobs popover: clone done/fetch report,
+`?fetchfail` failure → Retry, `?clonefail` failure with Retry; dark — Settings (radio cards), S6 cards with
+NoNewline rows and sticky headers, S5, S7, S8, S9, dirty note on parsekit, jobs popover. Fixed during the check: card
+`overflow: hidden` broke the sticky header (D-83), `?file=` on a reload (fresh-visit test as FileView), "new tags"
+singular. Console: no errors or warnings. Pane localStorage left at theme Light, dirty note off. Saved light PNGs
+(headless Edge, scratch profile, `preferredColorScheme=1`, 1280×1000, no window): `docs/screenshots/m7-commits.png`,
+`docs/screenshots/m7-commit.png` (reviewed: fonts loaded, no shimmers).
+
+Open items / deviations:
+- One source edit (BranchRow: `RefObject` import + failed-count dash) was made with a scripted replace instead of
+  Edit/Write (content checked, no Windows paths). Everything else via Edit/Write.
+- New IPC command `app_open_dir` (D-76) — touches src-tauri, ARCH §5.1 and the command count (48).
+- The GitHub-notes "fetched date" is session-only (D-80); release links use full tag refs (D-81).
+- Mock side commits of merges are not in the commits list walk (the list stays linear); the merge's second parent
+  opens on the commit page only.
+- The real rs-core walk cap (`SCAN_CAP` 20,000) is never reached by the mock; "Search older commits" is covered by a
+  stubbed test only.
+
+Handoff for M8:
+- All screens S0–S10 are real; M8's light/dark real-app pass can follow `tools/shots/mock-shots.md` rows 14–25.
+- Check against the real backend: `commits_page` returned `skip` with a path filter (chaining, D-77), the
+  `branches_ahead_behind` base (HEAD's branch), `releases_fetch_github` with the feature on/off, `app_open_dir` in the
+  built exe, generated-file inlining (D-82), and `?file=N` with real large commits.
+- `WindowList` now takes `scrollTo`; `util/jobText.ts` holds all job wording.

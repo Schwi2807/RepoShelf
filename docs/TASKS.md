@@ -594,37 +594,37 @@ no console errors; tag `m6-done`.
 
 ## M7 — Screens B: Commits, Commit, Branches, Tags, Releases, Settings, jobs final
 
-- [ ] M7.1 `src/screens/Commits/` + `src/components/commits/` ∥: RefSwitcher, `PathChip` ("History for <path> ×"),
+- [x] M7.1 `src/screens/Commits/` + `src/components/commits/` ∥: RefSwitcher, `PathChip` ("History for <path> ×"),
   `DayGroup` ("Commits on Nov 11, 2026", local date), `CommitRow` (summary link, expandable body, author + relative
   date, `CopyOid`, browse-tree icon), `Pager` (Newer/Older with pinned `?tip=` + `?page=`), "Search older commits"
   when `capped`, `?since=` banner. Tests: day grouping across midnight/time-zone offsets, pager hrefs keep `tip`.
   (FR-26, FR-31 compare, NFR-P5, D-9)
-- [ ] M7.2 `src/screens/Commit/` + `src/components/diff/` ∥: `CommitHeader` (summary, pre-wrapped body,
+- [x] M7.2 `src/screens/Commit/` + `src/components/diff/` ∥: `CommitHeader` (summary, pre-wrapped body,
   author/committer, parent links, full oid copy, merge note), `DiffSummary` ("Showing N changed files with A
   additions and D deletions"), `FileDiffCard` (chevron, `MiniBar`, path or `old → new`, View file), `DiffTable` (old
   no | new no | marker | text; hunk rows tinted; add/del from tokens; no highlighting, D-17), collapsed cards
   (large / binary / generated / deferred → "Load diff" → `commit_file_diff(force)`), virtualised card list, `?file=N`
   scroll; `src/styles/diff.css`. Tests: DiffTable renders a hunk with NoNewline; collapsed card loads on click.
   (FR-27, FR-28, S6)
-- [ ] M7.3 `src/screens/Branches/` + `src/components/refs/` ∥: filter, sections Default / Your branches / Remote
+- [x] M7.3 `src/screens/Branches/` + `src/components/refs/` ∥: filter, sections Default / Your branches / Remote
   branches, `BranchRow` (tree link, "Updated … by X", commit link), `AheadBehindBar` filled lazily by
   `branches_ahead_behind` (visible rows only, cancellable, capped marker). Test: bar widths for ahead/behind/capped.
   (FR-29, S7)
-- [ ] M7.4 `src/screens/Tags/` ∥: Releases | Tags toggle, `TagRow` (name, date, short oid, annotated/lightweight
+- [x] M7.4 `src/screens/Tags/` ∥: Releases | Tags toggle, `TagRow` (name, date, short oid, annotated/lightweight
   badge, Browse files + commit links). (FR-30, S8)
-- [ ] M7.5 `src/screens/Releases/` ∥: `ReleaseCard` (left: tag, short oid, date; right: title, Latest / Pre-release
+- [x] M7.5 `src/screens/Releases/` ∥: `ReleaseCard` (left: tag, short oid, date; right: title, Latest / Pre-release
   badge, `MarkdownBody` notes, "Commits since <prev>" → `commits/<tag>?since=<prev>`); `GhNotesButton` only for
   github.com origins and when the command is not `unsupported`, with a confirm ("one request to api.github.com"),
   fetched date shown. (FR-31, S9, NFR-O1)
-- [ ] M7.6 `src/screens/Settings/` ∥: theme radio (light/dark/system), data dir + archive dir (read-only, open via
+- [x] M7.6 `src/screens/Settings/` ∥: theme radio (light/dark/system), data dir + archive dir (read-only, open via
   backend), cache size + Clear cache, dirty-note toggle (D-16), app version. (FR-33, FR-35, S10)
-- [ ] M7.7 Jobs popover final ∥: per-kind titles, progress from `Progress` variants, Cancel (waiting + running),
+- [x] M7.7 Jobs popover final ∥: per-kind titles, progress from `Progress` variants, Cancel (waiting + running),
   Retry on failed, Dismiss, done rows auto-hide after 5 s, clone result lists skipped refs (FR-9 report), fetch result
   "N new commits, new tags …, kept local tags …"; `?clonefail` / `?fetchfail` states. Test: popover rows for each
   state. (FR-7, FR-9, FR-10)
-- [ ] M7.8 Mock: `?huge` 400-file commit, branches with ahead/behind, releases incl. prerelease; `mock-shots.md`
+- [x] M7.8 Mock: `?huge` 400-file commit, branches with ahead/behind, releases incl. prerelease; `mock-shots.md`
   updated.
-- [ ] M7.9 Browser check (mock): S5 (paging, path chip, since), S6 (normal, merge, root, `?huge`), S7, S8, S9, S10,
+- [x] M7.9 Browser check (mock): S5 (paging, path chip, since), S6 (normal, merge, root, `?huge`), S7, S8, S9, S10,
   jobs popover with `?clonefail` / `?fetchfail`; light + dark; console clean.
 
 Order: M7.1 ∥ M7.2 ∥ M7.3 ∥ M7.4 ∥ M7.5 ∥ M7.6 ∥ M7.7 (separate folders; routes exist since M5.11) → M7.8 → M7.9.

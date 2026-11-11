@@ -298,6 +298,19 @@ fn app_info_settings_and_cache_clear() {
 }
 
 #[test]
+fn app_open_dir_takes_a_keyword_only() {
+    let e = env();
+    app::app_open_dir_impl(&e.st, "data").unwrap();
+    app::app_open_dir_impl(&e.st, "archive").unwrap();
+    let opened = e.opener.folders.lock().unwrap().clone();
+    assert_eq!(opened, vec![shelf(&e).dirs.data.clone(), shelf(&e).dirs.archive.clone()]);
+    for bad in ["", "Data", "cache", "C:\\Windows", "..", "data/.."] {
+        assert_eq!(code(app::app_open_dir_impl(&e.st, bad)), "invalidInput", "{bad:?}");
+    }
+    assert_eq!(e.opener.folders.lock().unwrap().len(), 2, "nothing opened for refused input");
+}
+
+#[test]
 fn archive_size_is_capped() {
     let t = tempfile::tempdir().unwrap();
     for i in 0..5 {
@@ -850,7 +863,7 @@ fn every_arch_command_is_registered() {
         .collect();
     want.sort();
     got.sort();
-    assert_eq!(want.len(), 47, "{want:?}");
+    assert_eq!(want.len(), 48, "{want:?}");
     assert_eq!(got, want);
 }
 
