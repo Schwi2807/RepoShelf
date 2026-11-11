@@ -749,9 +749,11 @@ Steps M9.1–M9.8 done (one subagent). Decisions D-91..D-95.
 - M9.2 `tauri.conf.json` bundle was already `nsis` / `currentUser` / icons. `tools/build-portable.mjs` implemented
   (D-92): name + version from `tauri.conf.json`, `npx tauri build --no-bundle`, refuses a set `CARGO_TARGET_DIR` and
   any `RS_TEST_FILE_CLONE` / `RS_E2E_` bytes, copies to `target\release\portable\`.
-- M9.3 builds: `npm run build:installer` → `RepoShelf_0.1.0_x64-setup.exe` (never run). The tauri bundler
-  re-downloaded NSIS 3.13 + `nsis_tauri_utils` 0.5.3 into `%LOCALAPPDATA%\tauri` (hash-validated build-tool cache; no
-  Bitdefender interference seen; the setup exe still existed after the build). Markers (D-93): `RS_TEST_FILE_CLONE`,
+- M9.3 builds: `npm run build:installer` → `RepoShelf_0.1.0_x64-setup.exe` (never run). On the first build
+  the tauri bundler warned "NSIS.exe is outdated. Recreating it." (cache from 2026-10-07 predates its NSIS 3.13) and
+  re-downloaded NSIS 3.13 + `nsis_tauri_utils` 0.5.3 into `%LOCALAPPDATA%\tauri\NSIS` (hash-validated build-tool
+  cache); the gate build ~20 min later used the cache without downloading, so nothing removed files in between (no
+  sign of Bitdefender); the setup exe still existed after each build. Exe VersionInfo: RepoShelf 0.1.0. Markers (D-93): `RS_TEST_FILE_CLONE`,
   `RS_E2E_` absent from `target\release\reposhelf.exe` (installer payload), the portable and the setup exe; present in
   the e2e exe (positive control). The testkit has no string surviving LTO + strip (absent even from the e2e exe), so
   D-26 rests on the build path, not a byte search.

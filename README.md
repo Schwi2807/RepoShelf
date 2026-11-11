@@ -24,12 +24,12 @@ Version **0.1.0** (Windows first; Tauri 2 + Rust + React 19 + TypeScript + Vite)
 | Repo header | `owner / name`, source badge, Fetch (clones and https-origin imports), Open folder, Remove; tabs Code · Commits · Branches · Tags · Releases with counts |
 | Code tab | Branch/tag switcher, file table with last-commit message and date per entry (loaded lazily), rendered README (sanitised), About sidebar (description, topics, homepage, origin — editable, stored in the app DB), language bar, latest-commit strip, commit count |
 | File view | Breadcrumbs, syntax highlighting (in a worker) with line numbers, raw view, Markdown rendering, images (SVG only as `<img>`), binary / large / LFS-pointer placeholders, Save as… |
-| Commits / Commit | Paged history per branch (optional path filter), commit page with a unified diff per file, merge commits with parent switch |
+| Commits / Commit | Paged history per branch (optional path filter), commit page with a unified diff per file (merge commits compared with their first parent, parents linked) |
 | Branches / Tags / Releases | Ahead / behind compared with the checked-out (HEAD) branch, tags with dates, releases from tags + annotated messages; optional GitHub release notes for github.com origins (one request, on demand) |
 | Settings | Theme, data and archive folders (Open), cache size + Clear cache, version |
 
-Clones are bare (`<archive>\<host>\<owner>\<name>.git`), use Windows-safe handling (refs and paths Windows cannot store are
-skipped and reported), run in the background with progress, and can be cancelled. Removing a cloned repo moves its
+Clones are bare (`<archive>\<host>\<owner>\<name>.git`), use Windows-safe handling (refs Windows cannot store are skipped and
+reported; nothing is checked out, so file names never hit the disk), run in the background with progress, and can be cancelled. Removing a cloned repo moves its
 folder to the Recycle Bin; removing an imported repo only takes it off the shelf.
 
 ## Download / run
