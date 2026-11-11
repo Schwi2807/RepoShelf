@@ -3133,6 +3133,9 @@ name = "rs-cli"
 version = "0.0.1"
 dependencies = [
  "rs-core",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -3143,6 +3146,7 @@ dependencies = [
  "comrak",
  "dirs 6.0.0",
  "git2",
+ "rs-core",
  "rusqlite",
  "serde",
  "serde_json",

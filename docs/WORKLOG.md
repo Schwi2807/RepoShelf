@@ -86,3 +86,66 @@ Handoff for M2+:
 - M4: on a read-only DB (`db.read_only()`) `JobRunner::load_persisted/submit` and `settings::save` fail — branch at
   startup. `resolve_dirs` passes relative env values through and `long()` ignores relative paths: make
   `target\scratch\m4` absolute.
+
+## M2 — Data layer: git read model (2026-11-11)
+
+Steps: M2.1–M2.14 done. New decisions D-36..D-43 (DECISIONS.md). D-34 confirmed by the lead.
+
+- `repo.rs`: `summary(s, id)` (repos + repo_meta + topics → `RepoSummary`), `open_path`, `open` (missing →
+  `RepoMissing`, not a repo → `RepoCorrupt`), `head_state`, `origin_url`, `is_fetchable` (https + `clone_url`),
+  `detail` (HEAD commit/tree unreadable → `RepoCorrupt`; release count = version-like tag names; FF possible only for
+  cloned), `dirty` (no `UPDATE_INDEX`, untracked counted).
+- `refs.rs`: `resolve` per §3.5 (exact `refs/…`, heads, tags, remotes, `HEAD`, hex 4–40 via `find_object_by_prefix`,
+  ambiguous → `InvalidRev`), `head_branch`, `list`, `branches`, `ahead_behind` (own capped/cancellable counting
+  walks), `tags`.
+- `tree.rs`: `lookup` walks tree entries by segment (D-39; lossy-name fallback), `subtree`, `list_dir` (sizes via
+  `odb.read_header`, `path_raw` for non-UTF-8 names, `storable_here`), `sort_entries`, `entry_kind`.
+- `blob.rs`: `sniff`, `image_mime`, `lang_hint` (table, then shebang), `decode`, `meta`, `text`, `bytes`; submodule
+  URL from `.gitmodules`. `commits.rs`: `signature_of`, `summary_of`, `latest`, `cached_count`, `count`, `PageQuery`,
+  `page` (D-37), `file_last_commit`. `diff.rs`: `DiffLimits`, `commit_detail`, `file_diff`, `is_generated` (D-40).
+  `lastcommit.rs`: §6.1 walk with memoised subtrees/entries, `for_dir` (cached, D-43), `for_path`.
+  `langs.rs` + `langs_table.rs` (≈ 100 languages/data formats, hljs ids, shebang table): `classify`, `compute`,
+  `for_tree`. `markdown.rs` (D-38), `readme.rs` (`find_readme`, `render_readme` with root fallbacks, `render_file`,
+  `render_plain`), `license.rs`, `releases.rs` (`is_version_tag`, `Ord for Version`, `list`).
+- testkit: builder now keys raw byte paths (`file_raw`), `tag_msg`, `set_head`, `write_worktree` (checkout + index;
+  `core.autocrlf=false` pinned per fixture), `packed` (mempack → one pack, D-41), `shelf`, `open`, `git_cli`
+  (isolated from user/system git config). Fixtures: basic, wide_dir, long_history, merges (`MergesFx` named oids),
+  binaries, security_readme, releases, big_tree, huge_commit, corrupt, missing; `fixtures(root)`.
+  `tests/fixtures/security/{README.md,svg-with-script.svg}` written.
+- `tests/immutability.rs` (D-42): basic fixture with work tree + index + uncommitted change; > 100 read calls over
+  every rev and directory with the dirty note off and on; every file under the folder (incl. `.git/index`) has the
+  same bytes and mtime, no file added or removed.
+- rs-cli: `rs fixtures <dir>` (marker `.rs-fixtures`, rebuilds known fixture folders, refuses foreign non-empty
+  dirs), `rs bench <dir>`, `rs inspect <repo-path> <cmd>`.
+
+Gate M2: `cargo test -p rs-core` 100 unit + 1 integration passed (git CLI comparisons ran: `rev-list --left-right`,
+`log --format=%H`, `log -1 -- <path>`, `show --numstat`, `diff --numstat`, `rev-list --count`, `cat-file`) ·
+`cargo clippy --workspace --all-targets -- -D warnings` clean · `cargo test --workspace` ok · fixtures built in
+12.0 s (release) and rebuilt over the same dir · bench (release) all under target:
+
+| measurement | ms | target |
+|---|---|---|
+| tree.list_dir 1,000 entries | 2.9 | 300 |
+| lastcommit.for_dir 2nd visit (1st: 6.6) | 0.9 | 50 |
+| commits.page skip 0 | 43.4 | 200 |
+| commits.page skip 9,965 | 43.4 | 200 |
+| langs.for_tree 50k files | 53.7 | 3,000 |
+| diff.commit_detail 400 files | 2.0 | 1,000 |
+
+`npm run typecheck` ok · `npm test` 1 passed · `npm run build` ok. `target\scratch\m2-bench` removed afterwards.
+
+Open items: none for M2. `render_smoke` stays in `lib.rs` (lib.rs untouched per M1.1); `markdown::render` is the real
+pipeline — drop the smoke fn whenever lib.rs is next edited.
+
+Handoff for M3+:
+- Reuse `repo::summary` (row loader), `repo::open_path`, `repo::origin_url`, `repo::is_fetchable`,
+  `refs::head_branch`, `langs::compute`/`for_tree` (primary language), `commits::summary_of`.
+- Signatures that differ from ARCH §3.4: `commits::latest(s, repo_id, repo, rev)` (D-36); `PageQuery.skip` /
+  `CommitsPage.skip` semantics (D-37) — the M4 `commits_page` command should pass `skip` through and the UI uses the
+  returned `skip` for "Older"/"Search older commits"; `lastcommit::for_path` backs `commits::file_last_commit`.
+- `tree::lookup` accepts the lossy display path of a non-UTF-8 entry (first match), so M4 can pass `path` for
+  browsing; `pathRaw` is informational.
+- `testkit::git_cli(repo, args)` returns `None` when git is missing (tests then skip comparisons, message on stderr).
+- PowerShell 5.1 gotcha hit in this milestone: `Get-Content -Raw` + `WriteAllText` re-encodes UTF-8 sources as
+  cp1252 mojibake (`→` → `â†’`). Edit sources only with the Edit/Write tools (TASKS rule); repaired before commit.
+- `testkit::fixtures(root)` asserts every target folder is absent; `rs fixtures` handles cleanup.

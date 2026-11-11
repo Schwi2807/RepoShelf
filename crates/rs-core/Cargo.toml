@@ -25,3 +25,5 @@ ureq = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+# Integration tests (tests/*.rs) need the testkit fixtures; plain `cargo test -p rs-core` must run them.
+rs-core = { path = ".", features = ["testkit"] }

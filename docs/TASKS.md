@@ -214,11 +214,11 @@ Goal: every read function behind the Code/File/Commits/Commit/Branches/Tags/Rele
 ARCH §3.4, §3.5, §6.1–6.8, §9. All functions take an opened `&Repository`; caches use a `repos` row created with
 `testkit::register_raw` in tests (D-21).
 
-- [ ] M2.1 `repo.rs`: `open(&Shelf, id)` (DB lookup → `Repository::open_ext(NO_SEARCH)`; missing path →
+- [x] M2.1 `repo.rs`: `open(&Shelf, id)` (DB lookup → `Repository::open_ext(NO_SEARCH)`; missing path →
   `RepoMissing`, open failure → `RepoCorrupt`), `detail` (head state, counts, license, `fetchable` = https origin,
   `can_fast_forward` for managed clones, `dirty` only if `show_dirty_note`), `dirty` (`statuses()` without
   `UPDATE_INDEX`, D-16). Tests: missing, corrupt, bare, unborn HEAD, detached. (FR-4, FR-12, FR-18, NFR-O3)
-- [ ] M2.2 `testkit::fixtures(root) -> Fixtures`: basic (README with table/code/relative image/link, `.rs` + `.ts`
+- [x] M2.2 `testkit::fixtures(root) -> Fixtures`: basic (README with table/code/relative image/link, `.rs` + `.ts`
   files, LICENSE MIT), wide-dir (1,000 entries), long-history (10k linear commits), merges (ordinary merge, merge
   dropping a side change, side revert), binaries (png, svg-with-script, LFS pointer, symlink, submodule gitlink,
   > 1 MB and > 5 MB files, non-UTF-8 text, BOM, non-UTF-8 file name), security-readme (from
@@ -227,51 +227,51 @@ ARCH §3.4, §3.5, §6.1–6.8, §9. All functions take an opened `&Repository`;
   **missing** (D-23). Write `tests/fixtures/security/{README.md,svg-with-script.svg}` (script, `onerror`,
   `javascript:` link, remote image, iframe, `style=`, `data:text/html` link, raw `<form>`). Builders must be fast
   (write objects with git2 directly, no checkout).
-- [ ] M2.3 `refs.rs` ∥: `resolve` (§3.5 precedence 1–6; ambiguous prefix → `InvalidRev`; not found →
+- [x] M2.3 `refs.rs` ∥: `resolve` (§3.5 precedence 1–6; ambiguous prefix → `InvalidRev`; not found →
   `NotFound{what:"ref"}`), `list`, `branches` (local + `refs/remotes/origin/*`, last commit), `ahead_behind` (capped,
   cancellable), `tags` (newest first by tagger/commit date, annotated flag). Tests: branch beats same-name tag,
   `refs/tags/x` reaches the tag, `origin/main`, hex-looking branch name `dead` resolves as branch, counts vs `git
   rev-list --left-right` when git on PATH. (FR-13, FR-29, FR-30)
-- [ ] M2.4 `tree.rs` ∥: `list_dir` (dirs first, then case-insensitive name; kinds Dir/File/Exec/Symlink/Submodule;
+- [x] M2.4 `tree.rs` ∥: `list_dir` (dirs first, then case-insensitive name; kinds Dir/File/Exec/Symlink/Submodule;
   sizes via `odb.read_header`; `storable_here` = `winpath::path_ok_here`; `path_raw` when lossy; `readme` name via
   `readme::find_readme`), `entry_kind`. Tests: 1,000-entry order, kinds, non-UTF-8 name sets `path_raw`, NUL-free.
   (FR-15, NFR-P2, NFR-W3, R-7)
-- [ ] M2.5 `blob.rs` ∥: `sniff`, `meta` (lines, sloc, `highlight` ≤ 1 MB, `displayable` ≤ 5 MB, `lang_hint` from
+- [x] M2.5 `blob.rs` ∥: `sniff`, `meta` (lines, sloc, `highlight` ≤ 1 MB, `displayable` ≤ 5 MB, `lang_hint` from
   extension/shebang), `text` (BOM stripped, lossy flag, `None` > 5 MB), `bytes(max)`. Tests: one per placeholder kind
   of FR-25, byte-for-byte equality with the blob (FR-23). (FR-22..25, NFR-P4, R-7)
-- [ ] M2.6 `commits.rs` ∥: `latest`, `count` (cached in `cache_commit_count`, cancellable every 256), `page`
+- [x] M2.6 `commits.rs` ∥: `latest`, `count` (cached in `cache_commit_count`, cancellable every 256), `page`
   (pinned tip + skip, take 36, path filter with first-parent rule, `scan_cap` 20k, `hide` for since),
   `file_last_commit`. Tests: concatenated pages == one full walk == `git log --format=%H` on the merges fixture;
   path filter; since-tag; count cache hit; cancel returns `Cancelled`. (FR-14, FR-26, FR-31 compare, NFR-P5, D-9)
-- [ ] M2.7 `diff.rs` ∥: `commit_detail(oid, DiffLimits)`, `file_diff(index, force)`, generated heuristic, root vs
+- [x] M2.7 `diff.rs` ∥: `commit_detail(oid, DiffLimits)`, `file_diff(index, force)`, generated heuristic, root vs
   empty tree, merge vs first parent + note, renames (threshold 50), CRLF stripped, `NoNewline`. Tests: stats vs
   expected numbers (and `git show --stat` when available), rename `old → new`, binary, > 2,000-line file collapsed,
   huge-commit → `diffs_deferred`. (FR-27, FR-28, R-8)
-- [ ] M2.8 `lastcommit.rs` ∥: `for_dir` per ARCH §6.1 (memoised subtree lookups, extra `oid_C == pending[e]` rule,
+- [x] M2.8 `lastcommit.rs` ∥: `for_dir` per ARCH §6.1 (memoised subtree lookups, extra `oid_C == pending[e]` rule,
   cap 10k, cancel every 256, cache in `cache_last_commit`; walk runs without holding the DB mutex). Tests vs `git log
   -1 -- <path>` on linear, ordinary merge, dropped-side merge; documented divergence (side revert) asserted as such;
   cap → `capped=true`; cancel; second call served from cache. (FR-16, NFR-P3, R-1)
-- [ ] M2.9 `langs.rs` + `langs_table.rs` ∥: `classify` (filename then extension, ≈ 80 languages, data formats
+- [x] M2.9 `langs.rs` + `langs_table.rs` ∥: `classify` (filename then extension, ≈ 80 languages, data formats
   excluded except HTML/CSS), exclusion list §6.2, `for_tree` (sizes via `read_header`, top 6 + Other, cached by tree,
   cancellable every 1,024 entries). Tests: `.rs`/`.ts` percentages, `vendor/` excluded, cache hit. (FR-19, NFR-P6)
-- [ ] M2.10 `markdown.rs` + `readme.rs` + `license.rs` ∥: `render(md, base_dir)` per §6.6 steps 1–4 (comrak GFM →
+- [x] M2.10 `markdown.rs` + `readme.rs` + `license.rs` ∥: `render(md, base_dir)` per §6.6 steps 1–4 (comrak GFM →
   ammonia allow-list with `url_relative` custom → `rsrepo:/<path>`, `id_prefix("user-content-")`,
   `rel="noopener noreferrer"`, `code[class=language-*]` only from a fixed list, `data:image/*` only in img), headings
   outline; `find_readme`, `render_readme` (plain files → escaped `<pre class="readme-plain">`), `render_file`;
   `detect_license`. Tests: security fixture — script, `onerror`, `javascript:`, iframe, `style=`, form, `data:text/html`
   all stripped; remote img kept as `https` URL (blocked in UI); relative link/img rewritten, escape above root dropped;
   tables, task lists, fenced code class kept; README priority order; MIT/Apache detection. (FR-17, FR-18, NFR-S1, R-2)
-- [ ] M2.11 `releases.rs` ∥: `is_version_tag`, `Version` ordering, `list` (title/notes split, prerelease, latest,
+- [x] M2.11 `releases.rs` ∥: `is_version_tag`, `Version` ordering, `list` (title/notes split, prerelease, latest,
   `previous_tag`). Tests: releases fixture gives 4 version cards in order, `-rc1` prerelease, latest = newest stable,
   lightweight tag gets no notes. (FR-31)
-- [ ] M2.12 Immutability test (`tests/immutability.rs` in rs-core): hash every file under `.git` and the work tree of
+- [x] M2.12 Immutability test (`tests/immutability.rs` in rs-core): hash every file under `.git` and the work tree of
   an imported non-bare fixture, call every read function of M2.1–M2.11 (with `show_dirty_note` off and on), re-hash →
   equal. (NFR-O2, FR-13)
-- [ ] M2.13 `rs-cli`: `src/fixtures.rs` (`rs fixtures <dir>` builds every fixture), `src/bench.rs` (`rs bench <dir>`:
+- [x] M2.13 `rs-cli`: `src/fixtures.rs` (`rs fixtures <dir>` builds every fixture), `src/bench.rs` (`rs bench <dir>`:
   `tree.list_dir` 1,000 entries < 300 ms, `lastcommit` second visit < 50 ms, `commits.page` skip 0 and 9,965 < 200 ms,
   `langs.for_tree` 50k files < 3 s, `diff.commit_detail` 400 files < 1 s; prints a table + JSON; exit 1 on any miss),
   `rs inspect <repo-path> <cmd>` (prints JSON of one read function, for debugging). (NFR-P2, P3, P5, P6, FR-28)
-- [ ] M2.14 Clippy clean.
+- [x] M2.14 Clippy clean.
 
 Order: M2.1 → M2.2 → M2.3 ∥ M2.4 ∥ M2.5 ∥ M2.6 ∥ M2.7 ∥ M2.9 ∥ M2.10 ∥ M2.11 (all need fixtures + refs::resolve —
 write `refs::resolve` first inside M2.3 and land it before the others start) → M2.8 (uses tree + commits helpers)
