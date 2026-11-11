@@ -241,7 +241,8 @@ export function createMockBackend(search: string, opts: { tickMs?: number } = {}
       r.def.summary.lastOpenedAt = now();
       const refs = r.refs();
       return {
-        summary: r.def.summary,
+        // A copy, like the real IPC (serialised): the UI must not rely on the list's objects changing in place (D-87).
+        summary: { ...r.def.summary },
         isBare: r.def.isBare,
         head: r.def.head,
         branchCount: refs.branches.length,

@@ -2,9 +2,10 @@
 // (`rev_resolve`) and provides all of it via RepoContext; renders RepoHeader + TabBar + RepoBanner around the tab.
 
 import { SearchX } from 'lucide-react';
-import { useMemo, type ReactNode } from 'react';
+import { useEffect, useMemo, type ReactNode } from 'react';
 import { commitCount, repoBySlug, repoDetail, revResolve } from '../../ipc/api';
 import { qk, useQuery } from '../../ipc/query';
+import { noteSummary } from '../../state/library';
 import type { Route } from '../../router/routes';
 import { href } from '../../router/router';
 import { Link } from '../../router/Link';
@@ -21,6 +22,12 @@ export function RepoLayout({ route, children }: { route: Route; children: ReactN
   const summary = slug.data;
   const repoId = summary?.id ?? null;
   const detail = useQuery(repoId === null ? null : qk('repo_detail', repoId), () => repoDetail(repoId!));
+  // `repo_detail` stamps `lastOpenedAt` in the DB; hand the fresher summary to the library store so the dashboard's
+  // Recent list follows (D-87). The mock mutated its shared summary object, which hid this in M6.
+  const detailSummary = detail.data?.summary;
+  useEffect(() => {
+    if (detailSummary) noteSummary(detailSummary);
+  }, [detailSummary]);
 
   const routeRef = route.params.ref ?? null;
   const refName = routeRef ?? (summary ? defaultRef(summary, detail.data ?? null) : null);

@@ -630,3 +630,89 @@ Handoff for M8:
   `branches_ahead_behind` base (HEAD's branch), `releases_fetch_github` with the feature on/off, `app_open_dir` in the
   built exe, generated-file inlining (D-82), and `?file=N` with real large commits.
 - `WindowList` now takes `scrollTo`; `util/jobText.ts` holds all job wording.
+
+## M8 — Integration / real-app run (2026-11-12)
+
+Steps M8.1–M8.7, M8.9–M8.11 done (one subagent); M8.8 (`-Network` run) implemented, run pending for the user.
+
+- M8.1 e2e build: `npm run build` + `npx tauri build --no-bundle --features e2e` with an **absolute**
+  `CARGO_TARGET_DIR` (relative `target\e2e` landed in `src-tauri\target\e2e`, D-85; TASKS M8.1 + Gate M8 updated) →
+  `target\e2e\release\reposhelf.exe`. Renders the dashboard from the embedded `dist` (origin `http://tauri.localhost`,
+  nothing listening on 1450 — recorded per run in `run.json`, checked by check-e2e).
+- e2e seams (D-84), `src-tauri/src/e2e.rs`, compiled only with `--features e2e`: `RS_E2E_PICK` folder queue for the
+  Rust-side dialogs, `RS_E2E_OPEN_LOG` recording opener (Explorer/browser never opened), `RS_E2E_OFFSCREEN=1` window
+  at −32000,−32000. Tests: 5 e2e-gated (queue parsing, picks then cancel without a dialog, pass-through without env,
+  log lines, `app_open_dir` through the seam) + 1 source test keeping the `RS_E2E_` names out of every other file.
+  Binary check: `RS_E2E_` occurs 0× in `target\debug\reposhelf.exe` (no e2e feature), present in the e2e exe.
+- M8.2–M8.4 `tools/e2e/run-e2e.ps1` (scratch `target\scratch\e2e-<time>`: data, archive, all fixtures, 50 registered
+  copies, a git-CLI upstream with isolated config; hashes the 8 UI-imported fixtures; tauri-driver on free
+  `--port`/`--native-port`; records every descendant PID while running; `taskkill /T /F`; leftovers by seen PIDs,
+  exe path and scratch path; re-hash; `run.json`; scratch removed unless `-Keep`), `wd-e2e.mjs` (75 steps, sessions
+  A/B/(C), D-89) and `check-e2e.ps1` (failed/missing steps, 12 screens × 2 themes, leftovers, hashes, port 1450,
+  opened URLs).
+- M8.5 `rs fixtures --register <n> <dir>` (needs `RS_DATA_DIR` + `RS_ARCHIVE_DIR`; copies of `basic` without origin →
+  `local/basic-NN`; test in rs-cli). `performance.mark('rs:dashboard-rows')` once per page load (`util/perfMark.ts`).
+- M8.6 security pass, M8.9 network-free proxy, M8.10 `docs/TESTING.md` (gate commands, mock preview, e2e build/run,
+  hand-test checklist incl. the adapter-off run).
+
+Real-app results (gate run): NFR-P1 process start → dashboard rows with 50 repos **410 ms** warm (A: 439 ms first
+launch; 80 ms of it after navigation start) < 1.5 s · NFR-P2 dashboard click → 1,000-entry table rows **42 ms** (7 ms
+second visit) < 300 ms · 8 imports through the real Import dialog · 24 screenshots (dashboard, code tab, file view
+with worker highlighting, SVG image, commits, commit, merge, treesame merge, branches, tags, releases, security README,
+settings, Import + Clone dialogs; light and dark), reviewed: fonts loaded, no shimmers · path-filtered commits page 2
+(`src/f01.rs`, 35 + 35 rows, no overlap, chained skip) · `?file=250` on the 400-file commit → card at 76 px ·
+ahead/behind "0 | 1" for `feature` "compared with main" · GitHub-notes button only on the github.com origin (not
+clicked) · `app_open_dir` + `repo_open_folder` reach the opener (logged) · security README: 0 script/iframe/form/on*/
+style, no `javascript:`/`data:` hrefs, remote image as a chip, 0 alerts; external link → confirm dialog, cancelled,
+no URL opened; SVG with script only as `<img>` · 25 hostile IPC probes refused with the expected code (invalidPath /
+invalidRev / notFound / invalidUrl / invalidInput; 6 `plugin:*` commands "not allowed by ACL") · no resource request
+outside the app origin / IPC · file-seam clone → upstream commit + tag → Fetch "1 new commit, 1 new tag" →
+Fast-forward to the new upstream tip → Remove → folder in the Recycle Bin, entry gone · CSP collector via CDP,
+positive control seen (inline script blocked) → **0 CSP violations, 0 errors, 0 alerts** (one Tauri "callback id"
+warning from the harness's own reload) · imported fixtures' `.git` + work tree unchanged · 19 processes seen,
+leftovers 0.
+
+Bugs found and fixed (each with a test):
+1. CSP `font-src` violation in the real app: Vite inlined a < 4 KB woff2 subset as `data:font/woff2` (D-86) →
+   `build.assetsInlineLimit: 0`; `src/csp.test.ts` (config + any built CSS has no `url(data:`).
+2. Dashboard "Recent" never filled in the real app (`repo_detail` stamps `lastOpenedAt`, but only the mock mutated
+   the shared summary in place) → `noteSummary` from `RepoLayout`, mock returns a copy (D-87);
+   `RepoLayout.test.tsx` (red before the fix, green after); e2e asserts 5 Recent items.
+3. Option-looking revs (`--upload-pack=x`) passed `validate::rev` (answered `notFound`) → refused (D-88); validate
+   test + the command-layer hostile table (+1 value; legal as a path).
+4. e2e build: Fetch was hidden on a `file://` clone (`fetchable` = https only), so the real UI could not drive the
+   seam's fetch → `repo_detail` reports `fetchable` for cloned `file://` origins only with the seam on (D-90; test in
+   `file_clone_seam_in_e2e_build` both ways).
+5. Harness-only: relative `CARGO_TARGET_DIR` (D-85).
+
+Tests: Rust 179 → 181 in `cargo test --workspace` (rs-core 135 + 1 ignored, reposhelf 43 (+1), rs-cli 1 (new), the
+2 integration tests) and reposhelf `--features e2e` 48 (+6); TS 573 → 579 in 27 files (+perfMark 2, csp 3,
+RepoLayout 1).
+
+Gate M8 (`target\m8-gate-*.log`): `cargo test --workspace --all-features` ok · clippy `-D warnings` ok · typecheck ok
+· `npm test` 579 · `npm run build` ok, initial JS 436,870 bytes < 1.5 MB · e2e build ok (1 m 13 s) · `run-e2e.ps1`
+75/75, check-e2e "all 75 steps passed; 24 shots; NFR-P1 410 ms; NFR-P2 42 ms; leftovers 0; imported fixtures
+unchanged" · `rs fixtures` + `rs bench` (release) exit 0: list_dir 3.0 ms, lastcommit 2nd visit 0.8 ms, page skip 0 /
+9,965 41.7 / 40.4 ms, langs 50k 51.2 ms, 400-file diff 1.9 ms (scratch removed). Earlier gates: `cargo build
+--workspace`, `cargo test --workspace` 181, `-p rs-core --features ghreleases`, `-p reposhelf` 43 / `--features e2e`
+48 / `--no-default-features` 43, clippy `-p reposhelf --features e2e` and `--no-default-features` — all exit 0.
+
+Open items / deviations:
+- M8.8 `-Network`: not run by the agent (network-free run; no verified small public repo with Windows-invalid ref
+  names). Hand step in `docs/TESTING.md`; skipped refs are covered by the M3 `file://` tests.
+- The network-adapter-off browse run (NFR-O1) needs admin → hand step in `docs/TESTING.md`. Automated proxies: M3.9
+  `net_calls()` + the e2e "no foreign requests" step.
+- Each e2e run sends one scratch `demo-upstream.git` folder to the real Recycle Bin (D-30); three runs today.
+- Not covered by fixtures in the real app: generated-file inlining (no generated files in the fixtures; D-82 is
+  covered by rs-core + mock tests), the 20,000-commit scan cap ("Search older commits", stub test only), GitHub notes
+  with the feature off (`--no-default-features` tests).
+- S3 has no size column (REQUIREMENTS S3); NFR-P2's "sizes" is the backend `tree_list` (bench 3.0 ms).
+- One test block in `src-tauri/src/tests.rs` was first appended with a bash heredoc, which dropped backslashes in
+  Windows-path literals; caught by reading it back and fixed with the Edit tool before any build.
+
+Notes for M9:
+- Ship builds only via the tauri CLI without `--features e2e` (D-26); check the shipped exe contains neither
+  `RS_TEST_FILE_CLONE` nor `RS_E2E_` (D-84) nor the testkit marker.
+- `vite.config.ts` `assetsInlineLimit: 0` must stay (CSP, D-86).
+- The e2e harness can run against any exe built with `--features e2e` via `run-e2e.ps1 -App <exe>`.
+- Hand-test list for the user: `docs/TESTING.md` §4.

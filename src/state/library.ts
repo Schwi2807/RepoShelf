@@ -59,6 +59,20 @@ export function upsertRepo(r: RepoSummary): void {
   });
 }
 
+/**
+ * A fresher summary of a listed repo (e.g. `repo_detail`'s, which carries the `lastOpenedAt` the backend just
+ * wrote): replaces the row only when it is already in the list, so "Recent" follows what was opened (D-87).
+ */
+export function noteSummary(r: RepoSummary): void {
+  libraryStore.set((p) => {
+    const list = p.repos;
+    if (!list) return p;
+    const i = list.findIndex((x) => x.id === r.id);
+    if (i < 0 || list[i] === r) return p;
+    return { ...p, repos: list.map((x) => (x.id === r.id ? r : x)) };
+  });
+}
+
 export function removeRepoLocal(id: number): void {
   libraryStore.set((p) => ({ ...p, repos: (p.repos ?? []).filter((x) => x.id !== id) }));
 }

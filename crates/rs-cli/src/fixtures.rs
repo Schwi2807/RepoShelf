@@ -63,3 +63,78 @@ pub fn run(dir: &Path) -> Result<(), String> {
     println!("  huge-commit oid  {}", fx.huge_commit_oid);
     Ok(())
 }
+
+/// Folder of the `--register` copies inside `<dir>`.
+pub const REGISTER_DIR: &str = "registered";
+
+/// `rs fixtures --register <n> <dir>` (M8.5, NFR-P1): builds `n` small copies of the `basic` fixture under
+/// `<dir>\registered\basic-NN` and imports them into the shelf named by `RS_DATA_DIR` / `RS_ARCHIVE_DIR`. Both env
+/// vars must be set, so the user's real shelf is never touched. Copies that already exist are reused; ones already
+/// on the shelf are skipped.
+pub fn register(dir: &Path, n: u32) -> Result<(), String> {
+    use rs_core::paths::{ENV_ARCHIVE_DIR, ENV_DATA_DIR};
+    for var in [ENV_DATA_DIR, ENV_ARCHIVE_DIR] {
+        if std::env::var_os(var).is_none_or(|v| v.is_empty()) {
+            return Err(format!("--register needs {ENV_DATA_DIR} and {ENV_ARCHIVE_DIR} set to scratch folders ({var} is not set)"));
+        }
+    }
+    let shelf = rs_core::Shelf::open(rs_core::paths::resolve_dirs()).map_err(|e| e.to_string())?;
+    let root = dir.join(REGISTER_DIR);
+    std::fs::create_dir_all(&root).map_err(|e| format!("cannot create {}: {e}", root.display()))?;
+    let t = Instant::now();
+    let (mut added, mut skipped) = (0, 0);
+    for i in 1..=n {
+        let p = root.join(format!("basic-{i:02}"));
+        if !p.exists() {
+            rs_core::testkit::basic(&p);
+            // No github.com origin on the copies: they show up as `local/basic-NN` and nothing offers a fetch.
+            rs_core::testkit::open(&p).remote_delete("origin").map_err(|e| format!("{}: {e}", p.display()))?;
+        }
+        match rs_core::library::import(&shelf, &p) {
+            Ok(_) => added += 1,
+            Err(rs_core::error::Error::Duplicate(_)) => skipped += 1,
+            Err(e) => return Err(format!("import {}: {e}", p.display())),
+        }
+    }
+    println!(
+        "registered {added} copies ({skipped} already on the shelf) in {:.1} s under {} into {}",
+        t.elapsed().as_secs_f64(),
+        root.display(),
+        shelf.dirs.data.display()
+    );
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// One test owns both env vars (no parallel env races in this crate).
+    #[test]
+    fn register_needs_scratch_env_then_imports_once() {
+        let t = tempfile::tempdir().unwrap();
+        // SAFETY: the only test in this binary that touches these env vars.
+        unsafe {
+            std::env::remove_var(rs_core::paths::ENV_DATA_DIR);
+            std::env::remove_var(rs_core::paths::ENV_ARCHIVE_DIR);
+        }
+        let err = register(t.path(), 2).unwrap_err();
+        assert!(err.contains("RS_DATA_DIR"), "{err}");
+        assert!(!t.path().join(REGISTER_DIR).exists(), "nothing built without the env vars");
+        unsafe {
+            std::env::set_var(rs_core::paths::ENV_DATA_DIR, t.path().join("data"));
+            std::env::set_var(rs_core::paths::ENV_ARCHIVE_DIR, t.path().join("archive"));
+        }
+        register(t.path(), 3).unwrap();
+        register(t.path(), 3).unwrap(); // second run: all duplicates, no error
+        let shelf = rs_core::Shelf::open(rs_core::paths::resolve_dirs()).unwrap();
+        let n: i64 = shelf.db.with(|c| Ok(c.query_row("SELECT COUNT(*) FROM repos", [], |r| r.get(0))?)).unwrap();
+        assert_eq!(n, 3);
+        let owners: i64 = shelf.db.with(|c| Ok(c.query_row("SELECT COUNT(*) FROM repos WHERE slug_owner = 'local' AND origin_url IS NULL", [], |r| r.get(0))?)).unwrap();
+        assert_eq!(owners, 3, "copies have no origin");
+        unsafe {
+            std::env::remove_var(rs_core::paths::ENV_DATA_DIR);
+            std::env::remove_var(rs_core::paths::ENV_ARCHIVE_DIR);
+        }
+    }
+}

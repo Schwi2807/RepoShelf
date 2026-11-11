@@ -647,37 +647,40 @@ still < 1.5 MB; no console errors; tag `m7-done`.
 
 Goal: the real app against scratch dirs, e2e smoke, security / perf / offline passes, TESTING.md. ARCH §9, §10 M8.
 
-- [ ] M8.1 e2e build (D-25): `npm run build`, then
-  `$env:CARGO_TARGET_DIR = 'target\e2e'; npx tauri build --no-bundle --features e2e; Remove-Item Env:CARGO_TARGET_DIR`
-  → `target\e2e\release\reposhelf.exe`. Check it renders the dashboard with nothing listening on port 1450 (it embeds
+- [x] M8.1 e2e build (D-25): `npm run build`, then
+  `$env:CARGO_TARGET_DIR = (Join-Path (Get-Location) 'target\e2e'); npx tauri build --no-bundle --features e2e; Remove-Item Env:CARGO_TARGET_DIR`
+  (absolute: the tauri CLI runs cargo in `src-tauri\`, D-85) → `target\e2e\release\reposhelf.exe`. Check it renders the dashboard with nothing listening on port 1450 (it embeds
   `dist`, not the dev URL).
-- [ ] M8.2 `tools/e2e/run-e2e.ps1` (modelled on PM's `tools/e2e`, read-only reference): scratch `RS_DATA_DIR` /
+- [x] M8.2 `tools/e2e/run-e2e.ps1` (modelled on PM's `tools/e2e`, read-only reference): scratch `RS_DATA_DIR` /
   `RS_ARCHIVE_DIR`; `rs fixtures` (3 imported fixtures + an upstream for the file clone); hash the imported fixtures'
   `.git` + work tree; start tauri-driver + msedgedriver (port 4444 may be busy from other sessions → pick a free
   port); launch the e2e exe with `RS_TEST_FILE_CLONE=1`, window moved offscreen in-process; run `wd-e2e.mjs`;
   `taskkill /T /F` the tree; count leftovers (must be 0); re-hash (equal for the browse-only phase); print JSON
   results; `-Network` switch for the public-clone run. (R-12, L-8, NFR-O2)
-- [ ] M8.3 `tools/e2e/wd-e2e.mjs`: smoke dashboard → import (the `Picker` returns a scratch fixture path from an env
+- [x] M8.3 `tools/e2e/wd-e2e.mjs`: smoke dashboard → import (the `Picker` returns a scratch fixture path from an env
   var, honoured only under `e2e`) → repo → file → commits → commit → branches → tags → releases → clone (file seam) →
   fetch (file seam, D-20) → remove cloned (real trash of the scratch clone only). Collects console messages and fails
   on any CSP violation or error; screenshots every screen S0–S10 in **light and dark** into `target\e2e\shots\`
   (success criterion 2, D-29); invokes the hostile IPC table from the webview → all refused (criterion 4).
-- [ ] M8.4 `tools/e2e/check-e2e.ps1`: asserts the result JSON, shot count (S0–S10 × 2 themes), leftovers 0.
-- [ ] M8.5 Timings (D-29): new rs-cli flag `rs fixtures --register 50 <dir>` registers 50 fixture copies in a scratch DB;
+- [x] M8.4 `tools/e2e/check-e2e.ps1`: asserts the result JSON, shot count (S0–S10 × 2 themes), leftovers 0.
+- [x] M8.5 Timings (D-29): new rs-cli flag `rs fixtures --register 50 <dir>` registers 50 fixture copies in a scratch DB;
   wd-e2e measures exe start → dashboard rows visible (< 1.5 s warm, NFR-P1) and click into the 1,000-entry dir →
   table rendered (< 300 ms, NFR-P2) via `performance.now()`.
-- [ ] M8.6 Security pass in the real app: security README (no script ran, remote image shown as a chip, no
+- [x] M8.6 Security pass in the real app: security README (no script ran, remote image shown as a chip, no
   navigation), svg-with-script image, external link → confirm dialog appears (cancel it; do not open the browser),
   zero CSP violations across all screens incl. worker highlighting and virtual lists. (NFR-S1..S7)
-- [ ] M8.7 Perf pass: `rs fixtures` + `rs bench` (release) green again. (NFR-P2, P3, P5, P6)
+- [x] M8.7 Perf pass: `rs fixtures` + `rs bench` (release) green again. (NFR-P2, P3, P5, P6)
 - [ ] M8.8 `-Network` run (opt-in): clone 2 small public repos (one with Windows-invalid names), then fetch; the
   skipped-refs report is shown. (Success criterion 1, FR-6..10)
-- [ ] M8.9 Offline: the network-adapter-off browse run needs admin → write it as a hand step in TESTING.md (never
+  **M8 status: switch implemented (`run-e2e.ps1 -Network [-NetworkRepos …]`, session C in wd-e2e), run pending for
+  the user** — the agent run stayed network-free, and no small public repo with Windows-invalid ref names was
+  verified to pass in; the skipped-refs path is covered by the M3 `file://` tests (refclash, long refs).
+- [x] M8.9 Offline: the network-adapter-off browse run needs admin → write it as a hand step in TESTING.md (never
   change adapter settings). Automated proxies: `net_calls()` test (M3.9) and wd-e2e asserting no requests other than
   IPC/app origins during the browse-only phase. (NFR-O1)
-- [ ] M8.10 `docs/TESTING.md`: every gate command, e2e usage, mock preview usage, hand-test checklist (theme toggle +
+- [x] M8.10 `docs/TESTING.md`: every gate command, e2e usage, mock preview usage, hand-test checklist (theme toggle +
   restart, mouse back/forward, network-off run, clone of a big repo, Recycle Bin check).
-- [ ] M8.11 Fix everything found (anywhere, including backend), re-run affected gates.
+- [x] M8.11 Fix everything found (anywhere, including backend), re-run affected gates.
 
 Order: M8.1 → M8.2 ∥ M8.3 ∥ M8.4 → M8.5 → M8.6 → M8.7 → M8.8 → M8.9 → M8.10 → M8.11 (loop until green).
 
@@ -689,7 +692,7 @@ cargo clippy --workspace --all-targets -- -D warnings; if ($LASTEXITCODE -ne 0) 
 npm run typecheck; if ($LASTEXITCODE -ne 0) { throw 'typecheck' }
 npm test; if ($LASTEXITCODE -ne 0) { throw 'npm test' }
 npm run build; if ($LASTEXITCODE -ne 0) { throw 'ui build' }
-$env:CARGO_TARGET_DIR = 'target\e2e'; npx tauri build --no-bundle --features e2e; $rc = $LASTEXITCODE; Remove-Item Env:CARGO_TARGET_DIR; if ($rc -ne 0) { throw 'e2e build' }
+$env:CARGO_TARGET_DIR = (Join-Path (Get-Location) 'target\e2e'); npx tauri build --no-bundle --features e2e; $rc = $LASTEXITCODE; Remove-Item Env:CARGO_TARGET_DIR; if ($rc -ne 0) { throw 'e2e build' }   # absolute (D-85)
 powershell -ExecutionPolicy Bypass -File tools\e2e\run-e2e.ps1; if ($LASTEXITCODE -ne 0) { throw 'e2e' }
 powershell -ExecutionPolicy Bypass -File tools\e2e\check-e2e.ps1; if ($LASTEXITCODE -ne 0) { throw 'e2e check' }
 $s = 'target\scratch\m8-bench'; New-Item -ItemType Directory -Force $s | Out-Null

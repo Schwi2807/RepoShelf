@@ -131,9 +131,9 @@ fn add(e: &Env, path: &Path, source: Source) -> i64 {
 // ---------------------------------------------------------------------------------------------------------------
 // Hostile inputs (§5.2, PoC criterion 4)
 
-const HOSTILE: &[&str] = &["..", "a/../b", "/etc", "C:\\x", "c:/x", "a\\b", "a\0b", "refs/../x", "HEAD~1", "a..b", "@{-1}"];
+const HOSTILE: &[&str] = &["..", "a/../b", "/etc", "C:\\x", "c:/x", "a\\b", "a\0b", "refs/../x", "HEAD~1", "a..b", "@{-1}", "--upload-pack=x"];
 /// Legal git file names (refused as revs only).
-const PATH_OK: &[&str] = &["HEAD~1", "a..b", "@{-1}"];
+const PATH_OK: &[&str] = &["HEAD~1", "a..b", "@{-1}", "--upload-pack=x"];
 
 type Probe = Box<dyn Fn(&AppState, i64, &str) -> Result<()>>;
 
@@ -801,6 +801,8 @@ fn file_clone_seam_in_e2e_build() {
     let info = st.jobs.get(id).unwrap();
     assert_eq!(info.state, JobState::Done, "{:?}", info.error);
     let Some(JobResult::Cloned { repo_id, .. }) = info.result else { panic!("{info:?}") };
+    // the UI offers Fetch on the file:// clone only through the seam (D-90)
+    assert!(library::repo_detail_impl(&st, repo_id).unwrap().fetchable);
     up.file("more", b"1").commit("more", testkit::T0 + 999);
     let f = jobs::fetch_start_impl(&st, repo_id).unwrap();
     st.jobs.join();
@@ -809,6 +811,7 @@ fn file_clone_seam_in_e2e_build() {
     // without the flag the same build refuses file://
     let off = AppState::with_worker(shelf.clone(), false, crate::state::make_worker(shelf, false), Arc::new(FakePicker::default()), Arc::new(FakeTrash::default()), Arc::new(FakeOpener::default()));
     assert_eq!(code(jobs::clone_start_impl(&off, &url)), "invalidUrl");
+    assert!(!library::repo_detail_impl(&off, repo_id).unwrap().fetchable, "file:// is not fetchable without the seam");
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -882,5 +885,81 @@ fn file_clone_env_literal_only_in_e2e_code() {
     }
     for src in [include_str!("state.rs"), include_str!("cmd/jobs.rs"), include_str!("cmd/mod.rs")] {
         assert!(!src.lines().any(|l| l.contains(needle) && !l.trim_start().starts_with("//")), "literal outside lib.rs");
+    }
+}
+
+/// The e2e seam env names (D-84) live only in `e2e.rs`, which `lib.rs` declares under cfg(e2e).
+#[test]
+fn e2e_seam_env_names_only_in_the_e2e_module() {
+    let lib = include_str!("lib.rs");
+    let decl = lib.lines().position(|l| l.trim() == "pub mod e2e;").expect("e2e module declared");
+    assert!(lib.lines().nth(decl - 1).unwrap().contains("#[cfg(feature = \"e2e\")]"));
+    let needle = concat!("RS_", "E2E_");
+    for src in [lib, include_str!("state.rs"), include_str!("cmd/jobs.rs"), include_str!("cmd/mod.rs"), include_str!("cmd/dialogs.rs"), include_str!("cmd/app.rs")] {
+        assert!(!src.contains(needle), "e2e env name outside e2e.rs");
+    }
+}
+
+#[cfg(feature = "e2e")]
+mod e2e_seams {
+    use super::*;
+    use crate::e2e::{E2eSeams, parse_pick_queue};
+
+    fn seams(pick: Option<&str>, log: Option<PathBuf>) -> (E2eSeams, Arc<FakePicker>, Arc<FakeOpener>) {
+        let p = Arc::new(FakePicker::default());
+        let o = Arc::new(FakeOpener::default());
+        (E2eSeams::new(pick, log, p.clone(), o.clone()), p, o)
+    }
+
+    #[test]
+    fn pick_queue_parses() {
+        let q = parse_pick_queue(" C:\\a ;; C:\\b c;");
+        assert_eq!(q, VecDeque::from([PathBuf::from("C:\\a"), PathBuf::from("C:\\b c")]));
+        assert!(parse_pick_queue("").is_empty());
+    }
+
+    #[test]
+    fn queued_picks_then_cancel_and_no_dialog() {
+        let (s, p, _) = seams(Some("C:\\one;C:\\two"), None);
+        assert_eq!(s.pick_folder("t"), Some(PathBuf::from("C:\\one")));
+        assert_eq!(s.pick_folder("t"), Some(PathBuf::from("C:\\two")));
+        assert_eq!(s.pick_folder("t"), None);
+        assert_eq!(s.save_file("t", "x.txt"), None);
+        assert!(p.calls.lock().unwrap().is_empty(), "the real dialog must not open");
+    }
+
+    #[test]
+    fn without_env_the_real_seams_are_used() {
+        let (s, p, o) = seams(None, None);
+        p.folders.lock().unwrap().push_back(Some(PathBuf::from("C:\\real")));
+        assert_eq!(s.pick_folder("t"), Some(PathBuf::from("C:\\real")));
+        s.open_url("https://example.com/").unwrap();
+        assert_eq!(o.urls.lock().unwrap().as_slice(), ["https://example.com/"]);
+    }
+
+    #[test]
+    fn opens_are_logged_not_opened() {
+        let t = tempfile::tempdir().unwrap();
+        let log = t.path().join("opens.log");
+        let (s, _, o) = seams(None, Some(log.clone()));
+        s.open_url("https://example.com/x").unwrap();
+        s.open_folder(Path::new("C:\\data")).unwrap();
+        s.reveal(Path::new("C:\\arc\\r.git")).unwrap();
+        assert!(o.urls.lock().unwrap().is_empty() && o.folders.lock().unwrap().is_empty());
+        let text = std::fs::read_to_string(&log).unwrap();
+        assert_eq!(text, "url\thttps://example.com/x\nfolder\tC:\\data\nreveal\tC:\\arc\\r.git\n");
+    }
+
+    /// `app_open_dir` through the seam: the data folder lands in the log.
+    #[test]
+    fn app_open_dir_through_the_recording_opener() {
+        let e = env();
+        let log = e.t.path().join("opens.log");
+        let seams = Arc::new(E2eSeams::new(Some(""), Some(log.clone()), e.picker.clone(), e.opener.clone()));
+        let shelf = e.st.shelf.clone();
+        let st = AppState::with_worker(shelf.clone(), false, fake_worker(Arc::default()), seams.clone(), Arc::new(FakeTrash::default()), seams);
+        app::app_open_dir_impl(&st, "data").unwrap();
+        let text = std::fs::read_to_string(&log).unwrap();
+        assert!(text.starts_with("folder\t") && text.contains("data"), "{text}");
     }
 }

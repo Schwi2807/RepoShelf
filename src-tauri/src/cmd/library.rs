@@ -44,7 +44,15 @@ pub fn repo_set_metadata_impl(
 /// S2 header + About; marks the repo as opened (Recent, D-28).
 pub fn repo_detail_impl(st: &AppState, repo_id: i64) -> Result<RepoDetail> {
     library::touch_opened(&st.shelf, repo_id)?;
-    rs_core::repo::detail(&st.shelf, repo_id)
+    #[allow(unused_mut)]
+    let mut d = rs_core::repo::detail(&st.shelf, repo_id)?;
+    // e2e build with the file:// seam (D-14, D-20): a clone of a file:// upstream offers Fetch like an https one,
+    // so the real UI can drive clone → fetch → fast-forward (found by the M8 e2e, D-90).
+    #[cfg(feature = "e2e")]
+    if st.test_file_clone && d.summary.source == Source::Cloned && d.summary.origin_url.as_deref().is_some_and(|u| u.starts_with("file:")) {
+        d.fetchable = true;
+    }
+    Ok(d)
 }
 
 /// Bare repos: select `<name>.git` in Explorer; work trees: open the folder.

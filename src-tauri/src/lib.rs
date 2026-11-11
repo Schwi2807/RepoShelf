@@ -2,6 +2,8 @@
 //! own WebView2 profile), the navigation guard and the IPC command table (ARCH §5.1).
 
 pub mod cmd;
+#[cfg(feature = "e2e")]
+pub mod e2e;
 pub mod ipc_error;
 pub mod state;
 
@@ -55,7 +57,14 @@ fn startup<R: tauri::Runtime>(app: &mut tauri::App<R>, test_file_clone: bool) ->
     }
     let shelf = Arc::new(Shelf::open(dirs.clone())?);
     let shell = Arc::new(TauriShell { app: app.handle().clone() });
-    let st = Arc::new(AppState::new(shelf.clone(), test_file_clone, shell.clone(), Arc::new(RealTrash), shell));
+    let (picker, opener): (Arc<dyn state::Picker>, Arc<dyn state::Opener>) = (shell.clone(), shell);
+    // e2e build only (D-84): env-driven folder picks and a recording opener.
+    #[cfg(feature = "e2e")]
+    let (picker, opener): (Arc<dyn state::Picker>, Arc<dyn state::Opener>) = {
+        let seams = Arc::new(e2e::E2eSeams::from_env(picker, opener));
+        (seams.clone(), seams)
+    };
+    let st = Arc::new(AppState::new(shelf.clone(), test_file_clone, picker, Arc::new(RealTrash), opener));
     st.jobs.load_persisted()?;
     app.manage(st.clone());
 
@@ -63,9 +72,16 @@ fn startup<R: tauri::Runtime>(app: &mut tauri::App<R>, test_file_clone: bool) ->
         .title("RepoShelf")
         .inner_size(1320.0, 840.0)
         .min_inner_size(900.0, 560.0)
-        .center()
         .on_navigation(|u| is_app_url(u, tauri::is_dev()))
         .on_new_window(|_, _| NewWindowResponse::Deny);
+    #[cfg(feature = "e2e")]
+    {
+        win = if e2e::offscreen() { win.position(e2e::OFFSCREEN_POS.0, e2e::OFFSCREEN_POS.1).focused(false) } else { win.center() };
+    }
+    #[cfg(not(feature = "e2e"))]
+    {
+        win = win.center();
+    }
     if let Some(d) = std::env::var_os(rs_core::paths::ENV_DATA_DIR).filter(|d| !d.is_empty()) {
         win = win.data_directory(PathBuf::from(d).join("webview"));
     }

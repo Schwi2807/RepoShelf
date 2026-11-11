@@ -2,14 +2,21 @@
 // (D-31); missing repos get the warning row.
 
 import { SearchX } from 'lucide-react';
+import { useEffect } from 'react';
 import type { RepoSummary } from '../../ipc/types';
+import { MARK_DASHBOARD_ROWS, markOnce } from '../../util/perfMark';
 import { Empty } from '../ui/bits';
 import { WindowList } from '../ui/WindowList';
 import { ClearFilter } from './RepoToolbar';
 import { MissingRow, RepoRow } from './RepoRow';
 
 export function RepoList({ repos, query }: { repos: RepoSummary[]; query: string }) {
-  if (repos.length === 0) {
+  const hasRows = repos.length > 0;
+  // NFR-P1 timing for the real-app e2e: first time rows are on screen in this page load.
+  useEffect(() => {
+    if (hasRows) markOnce(MARK_DASHBOARD_ROWS);
+  }, [hasRows]);
+  if (!hasRows) {
     return (
       <div className="repo-list repo-list--empty">
         <Empty icon={SearchX} title="No repositories match" actions={<ClearFilter />}>

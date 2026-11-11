@@ -17,5 +17,8 @@ export default defineConfig({
     target: 'es2022',
     outDir: 'dist',
     emptyOutDir: true,
+    // Never inline assets as data: URLs: the CSP has `font-src 'self'`, so a small inlined woff2 subset was blocked
+    // in the real app (found by the M8 e2e, D-86). Every asset ships as its own file under dist/assets.
+    assetsInlineLimit: 0,
   },
 });

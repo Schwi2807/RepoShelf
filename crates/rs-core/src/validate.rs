@@ -130,6 +130,11 @@ pub fn rev(s: &str) -> Result<RevSpec> {
     if s.chars().any(|c| c.is_control() || c == ' ') {
         return bad("spaces or control characters in ref");
     }
+    // Option-looking names (`--upload-pack=…`): git itself refuses branch/tag names starting with '-'; refused here
+    // as defence in depth even though no git CLI is ever run (D-88, found by the M8 hostile IPC table).
+    if s.starts_with('-') {
+        return bad("ref starts with '-'");
+    }
     for needle in ["..", "@{", "^", "~", ":", "\\"] {
         if s.contains(needle) {
             return bad("revision expressions are not allowed");
@@ -396,7 +401,7 @@ mod tests {
         for h in HOSTILE {
             assert!(matches!(rev(h), Err(Error::InvalidRev(_))), "rev {h:?} accepted");
         }
-        for bad in ["", "a b", "a^", "a:b", "x.lock", "a/.b", "a/", "main\n"] {
+        for bad in ["", "a b", "a^", "a:b", "x.lock", "a/.b", "a/", "main\n", "-x", "--upload-pack=x", "--"] {
             assert!(matches!(rev(bad), Err(Error::InvalidRev(_))), "rev {bad:?} accepted");
         }
     }
