@@ -165,7 +165,9 @@ export function ReleaseAssets({ rel, repoId, github, ghLoaded }: { rel: Release;
       {rel.assets.length === 0 && (
         <p className="rassets__note muted small">
           {ghLoaded
-            ? 'GitHub lists no files for this release.'
+            ? rel.htmlUrl
+              ? 'GitHub lists no files for this release.'
+              : 'GitHub has no release for this tag (only the source code archives).'
             : 'Release files show up after the GitHub release info is loaded (button above, or on Clone / Fetch / Import).'}
         </p>
       )}

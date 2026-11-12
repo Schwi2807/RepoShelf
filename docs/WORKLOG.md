@@ -901,3 +901,68 @@ Handoff for M12 (frontend):
   "Show in folder" on the job row. `image_fetch` has no concurrency limit in Rust: lazy-load and cap parallel fetches
   in the UI (e.g. 4). `src/ipc/api.ts` has no wrappers yet for the 4 new commands (only `commands.ts` types + mock).
   The UI was not browser-checked in M11 (only the jobs popover text changed, covered by its unit test).
+
+## M12 — v0.2.0 frontend: Back/Forward, remote images, centring, release assets, network options (2026-11-12)
+
+One subagent (stopped once by a laptop shutdown; resumed from branch `wip-m12`, then fast-forwarded onto main).
+Decisions D-108..D-112. Commits 2814b96 (wip), 9e8ff35 (lead's save of the test file), 739e045 (tests), final M12
+commit (tag `m12-done`).
+
+Built:
+- **F1** (D-108): `{key, idx}` in `history.state` + `maxIdx` (sessionStorage); `HistoryButtons` (Back/Forward)
+  left of the header search, disabled correctly; Alt+←/→ and mouse 4/5 unchanged.
+- **F2** (D-109): `api.ts` wrappers `imageFetch`/`imageBytes`/`releaseDownload`/`releaseReveal` (+ optional
+  `autoDownload` on `cloneStart`/`fetchStart`/`importConfirm`); `rewriteHtml` returns the inert remote `<img>`s;
+  `markdown/remoteImages.ts` page-wide loader (≤ 4 in flight, shared in-flight, 64-Blob LRU, skip when unmounted);
+  MarkdownBody swaps chip → `<img src=blob:>` lazily (IntersectionObserver), keeps the chip on failure / setting off.
+- **F3** (D-110): `markdown.css` no longer overrides `align`/`width`/`height` (top/bottom margins only, no
+  `img height:auto`), GitHub's float padding, clearfix. Geometry-checked in headless Edge (below).
+- **F4** (D-111, D-112): ReleaseCard tag chip + commit link + date line + "Open on GitHub"; `ReleaseAssets`
+  (name, size, download count, For this PC, Download with job progress/Cancel/Retry, Show in folder, Open on GitHub,
+  Source code zip/tar.gz); `AutoDownloadCheck` in Clone/Import (github.com only); Fetch split menu (with / without
+  the release download). GhNotesButton confirm text mentions the file list.
+- **F5**: `.user-mention` styled like GitHub's.
+- **F6**: Settings "Network" (5 toggles + size cap, commit on Enter/blur, clamped 1…16384); Edit About prefill/save
+  `aboutUser` with GitHub values as placeholders; About shows effective values + "Some details from GitHub" line.
+- Jobs popover: kind icons/labels and targets for `githubSync`/`releaseDownload`, notes as sentences, download
+  report with size + SHA-256, "Show in folder" on finished downloads; empty text mentions downloads.
+- Mock: lumen README = typical centred GitHub head (logo, h1, tagline, badge row, centred feature-card table,
+  right-floated screenshot, one `fail.example.com` image); placeholder images vary by URL (badge 120×20 / tile
+  160×160); harbor-cli About from GitHub only (`aboutUser` empty); switch `?gh` (GitHub lists cached).
+
+Tests: TS 588 → 606 (`src/m12.test.tsx` 18: F1 buttons + Alt+Left, rewrite of remote images, lazy load via a
+visible-IO stub incl. chip fallback, no request without visibility or with the setting off, parallel cap 4 / sharing
+/ skip, release card + assets + source rows, download → Show in folder, row following jobs store progress/failure,
+jobs popover texts + Show in folder, Clone/Import checkboxes → `autoDownload`, Fetch menu, Network settings + cap,
+Edit About on `aboutUser`; mock test updated for the placeholder shapes and `?gh`). Rust unchanged: 215 (+1 ignored).
+
+Browser check (mock, hidden `npm run dev` on 1450 + headless Edge with a scratch profile driven over CDP, script in
+the session scratchpad; light and dark): lumen README — h1 text, logo, badge row, table centre offsets 0 px; floated
+image flush right (gap 0, float right, text wraps beside it); 8 images from blob:, 1 chip (`fail.example.com`);
+Back/Forward next to the search (8 px); Releases `?gh` — 6 asset rows, mention link, Download → Downloaded + Show
+in folder; Settings Network; Fetch ▾ menu. Console: 0 errors/warnings/exceptions. Saved
+`docs/screenshots/m12-readme.png`, `docs/screenshots/m12-releases.png` (light). Trees killed (dev server + Edge),
+ports 1450/9333 free, no leftovers; the scratch profile's mock theme was reset to Light.
+
+Gate M12 (`target\m12-gate.log`, every rc=0): `npm run typecheck` · `npm test` 606 · `npm run build` (index chunk
+451.7 kB < 1.5 MB) · `cargo test --workspace` 215 passed, 1 ignored. Clippy not re-run (no Rust changes).
+
+Deviations / notes:
+- One test-file fix-up (counts, `312 Bytes`, an unhandled-rejection guard, closing a leftover confirm dialog) was
+  applied with a Python string replace on `src/m12.test.tsx` (no Windows paths); everything else via Edit/Write.
+- `run-e2e.ps1` was not run (M11 note: it now reaches api.github.com through the import hook; M13 adds the seam).
+- DECISIONS D-108..D-112 sit before D-106 in the file (inserted above it); IDs are unique.
+- Screenshots via CDP (not `--screenshot`) because the shots need the GitHub list, lazy images and theme switching.
+
+Handoff for M13 (real-app run + release v0.2.0):
+- Add the e2e network seam before any e2e run (canned `Transport` under `cfg(feature = "e2e")` + `RS_E2E_` env), then
+  extend `wd-e2e.mjs`: header Back/Forward (disabled at start, enabled after a navigation), README with remote images
+  (canned image bytes → `img[src^="blob:"]`, a failing URL stays a chip, zero webview requests to foreign origins),
+  Releases assets after a canned GitHub list (Download → `releaseDownload` job → Show in folder via a reveal seam),
+  Clone/Import checkbox and Fetch ▾ menu sending `autoDownload`, Settings Network toggles persisting across restart.
+- Real-app checks the mock cannot do: the CSP still holds with blob: images (`img-src blob:` already allowed);
+  WebView2 IntersectionObserver lazy loading; sanitiser output of a real centred README (fixture
+  `tests/fixtures/align`) looks like the mock (geometry script idea: scratchpad `cdp.mjs`, reusable over WebView2's
+  remote-debugging port as in D-94).
+- Docs: README/TESTING (network wording, new toggles, `?gh` switch), version 0.2.0, NSIS + portable into
+  `_REVIVE\releases\v0.2.0\`, shipped-exe string check.

@@ -838,7 +838,9 @@ matching tag names; the body goes through the same `render`.
 
 `router.ts`: `parse(hash) → {name, params, query}`, `href(name, params, query)`, `navigate(to, {replace})`,
 listens to `hashchange`; history entries get a key (in `history.state`) → `Map<key, scrollY>` restores scroll on
-back/forward (FR-34). Mouse buttons 3/4 and Alt+←/→ call `history.back/forward`. "Copy location" produces
+back/forward (FR-34). Mouse buttons 3/4 and Alt+←/→ call `history.back/forward`. v0.2.0 (F1, D-108): each entry also
+stores its own index (`{key, idx}`); `maxIdx` (sessionStorage) is how far forward reaches, so the header's Back /
+Forward buttons (`HistoryButtons`, left of the search) are disabled when there is no in-app entry. "Copy location" produces
 `<owner>/<repo>/tree/<ref>/<path>` (decoded, GitHub-style).
 
 ### 7.2 Component tree per screen
@@ -864,11 +866,22 @@ App
    │   ├─ CommitPage (S6): CommitHeader · DiffSummary · FileDiffCard(header, MiniBar, DiffTable | Collapsed) [virtual]
    │   ├─ BranchesTab (S7): Filter · BranchSection(Default/Yours/Remote) → BranchRow(AheadBehindBar lazy)
    │   ├─ TagsTab (S8): ReleasesTagsToggle · TagRow
-   │   └─ ReleasesTab (S9): ReleaseCard(left meta, title, LatestBadge, MarkdownBody, compare link) · GhNotesButton
-   ├─ Settings (S10): theme radio, DataDir/ArchiveDir (+Open), cache size + Clear, dirty-note toggle
+   │   └─ ReleasesTab (S9): ReleaseCard(left meta, title, LatestBadge, tag chip + commit link, Open on GitHub,
+   │         MarkdownBody, ReleaseAssets(Download / Show in folder / Open on GitHub, Source code zip/tar.gz),
+   │         compare link) · GhNotesButton
+   ├─ Settings (S10): theme radio, DataDir/ArchiveDir (+Open), cache size + Clear, dirty-note toggle,
+   │         Network (5 toggles + download size cap)
    └─ Dialogs (S10): ImportDialog · CloneDialog(live validation via clone_preview, debounced) · EditAboutDialog
-                     · RemoveDialog · ConfirmExternalLink
+                     · RemoveDialog · ConfirmExternalLink · AutoDownloadCheck (Clone/Import, github.com only)
 ```
+
+v0.2.0 additions: GlobalHeader gets `HistoryButtons` (F1); RepoHeader's Fetch is a split button for github.com
+origins (with / without the release download, else the setting); MarkdownBody shows remote images from backend bytes
+(`markdown/remoteImages.ts`: IntersectionObserver-lazy, ≤ 4 requests in flight page-wide, shared in-flight requests,
+64-Blob LRU; any failure or the setting off keeps the "Remote image: host" chip, D-109); `markdown.css` never
+overrides the presentational `align`/`width`/`height` mapping (D-110); the jobs popover names `githubSync` /
+`releaseDownload` jobs and offers "Show in folder" for finished downloads; AboutSidebar shows effective values with
+a "from GitHub" line, EditAboutDialog edits `aboutUser` only (D-102).
 
 ### 7.3 State
 
@@ -889,7 +902,8 @@ App
 - `mock/`: fixtures in TS for 4 repos (one per kind: imported Rust repo with README/table/code/relative image, cloned
   TS repo with releases, empty repo, missing repo) + a security README; switches read from `location.search` at
   start: `?empty` (no repos), `?slow` (600 ms delay on every call, shimmer visible), `?clonefail`, `?fetchfail`,
-  `?huge` (1,000-entry dir, 10k-commit paging, 400-file commit). Mock jobs simulate progress with timers. FR-37.
+  `?huge` (1,000-entry dir, 10k-commit paging, 400-file commit), `?gh` (v0.2.0: GitHub release lists already
+  cached, assets visible). Mock jobs simulate progress with timers. FR-37.
 - `.claude/launch.json` → `npm run dev` on 1450; Vite `strictPort`.
 
 ### 7.5 CSS token system

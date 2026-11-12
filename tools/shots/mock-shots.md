@@ -41,3 +41,7 @@ default branch `trunk`), `local/beacon` (imported Go, detached HEAD, plain-text 
 | 23 | M7 | `#/settings` (theme radio, folders + Open, Clear cache, uncommitted-changes toggle → note on `northwind/parsekit`) | – | S10 settings page |
 | 24 | M7 | jobs popover: Fetch on `lumen-ui/lumen` (report with new tag / kept tag / skipped ref), Clone URL… | `?fetchfail` / `?clonefail` | failure text + Retry; clone done → Open repository |
 | 25 | M7 | saved PNGs (light, headless Edge 1280×1000): `docs/screenshots/m7-commits.png`, `docs/screenshots/m7-commit.png` | – | reference look |
+| 26 | M12 | `#/lumen-ui/lumen` | – | centred README head (logo, h1, tagline, badge row), centred table of feature cards, right-floated screenshot, remote images from mock bytes, `fail.example.com` stays a chip; header Back / Forward |
+| 27 | M12 | `#/lumen-ui/lumen/releases` | `?gh` | tag chip, commit link, Open on GitHub, `@mira-dev` mention, Assets (For this PC, sizes, counts, Download → Show in folder), Source code rows; without `?gh` a hint |
+| 28 | M12 | `#/settings` (Network), lumen Fetch ▾ menu, Clone URL… `owner/repo` / Import (checkbox), `#/tidewater/harbor-cli` (About from GitHub, Edit About placeholders) | – | v0.2.0 options |
+| 29 | M12 | saved PNGs (light, headless Edge 1280 wide, scratch profile, over CDP): `docs/screenshots/m12-readme.png`, `docs/screenshots/m12-releases.png` | `?gh` | reference look |
