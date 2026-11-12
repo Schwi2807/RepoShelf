@@ -59,7 +59,14 @@ fn startup<R: tauri::Runtime>(app: &mut tauri::App<R>, test_file_clone: bool) ->
     if let Err(e) = rs_core::assets::cleanup_partials(&dirs.archive) {
         eprintln!("RepoShelf: partial download cleanup failed: {e}");
     }
-    let shelf = Arc::new(Shelf::open(dirs.clone())?);
+    let shelf = Shelf::open(dirs.clone())?;
+    // e2e build only (M13, D-113): canned HTTP answers instead of the internet.
+    #[cfg(feature = "e2e")]
+    let shelf = match e2e::net_from_env() {
+        Some(net) => shelf.with_net(net?),
+        None => shelf,
+    };
+    let shelf = Arc::new(shelf);
     let shell = Arc::new(TauriShell { app: app.handle().clone() });
     let (picker, opener): (Arc<dyn state::Picker>, Arc<dyn state::Opener>) = (shell.clone(), shell);
     // e2e build only (D-84): env-driven folder picks and a recording opener.

@@ -9,17 +9,31 @@
 //!   reach a WebView2 window).
 //! - `RS_E2E_TRASH_LOG` = a file. "Move to Recycle Bin" deletes the folder outright (only inside the archive dir) and
 //!   appends `trash\t<path>` instead of filling the user's real Recycle Bin (D-91).
+//! - `RS_E2E_NET` = a JSON routes file (M13, D-113). The shelf's HTTP client gets a canned transport: every request
+//!   (GitHub info, release lists, asset downloads, README images) is answered from the file or fails as
+//!   "no canned answer" — the e2e exe then has no path to the internet at all. `RS_E2E_NET_LOG` = a file that gets
+//!   one line per request (`get\t<url>\t<status>` or `get\t<url>\tunrouted`).
+//! - `RS_E2E_GIT_MAP` = `<https clone URL>=<file:// URL>` pairs separated by `;` (M13): a Clone / Fetch of a mapped
+//!   github.com repo downloads from the local upstream and keeps the https origin; every other non-`file:` git
+//!   remote is refused unless the list contains the item `!live` (the opt-in `-Network` run). Needs
+//!   `RS_TEST_FILE_CLONE=1` (the e2e worker).
 
 use crate::state::{Opener, Picker, Trasher, lock};
-use std::collections::VecDeque;
+use rs_core::net::{Net, RawResponse, Transport};
+use std::collections::{HashMap, VecDeque};
 use std::io::Write;
+use std::net::{IpAddr, Ipv4Addr};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 pub const ENV_PICK: &str = "RS_E2E_PICK";
 pub const ENV_OPEN_LOG: &str = "RS_E2E_OPEN_LOG";
 pub const ENV_OFFSCREEN: &str = "RS_E2E_OFFSCREEN";
 pub const ENV_TRASH_LOG: &str = "RS_E2E_TRASH_LOG";
+pub const ENV_NET: &str = "RS_E2E_NET";
+pub const ENV_NET_LOG: &str = "RS_E2E_NET_LOG";
+pub const ENV_GIT_MAP: &str = "RS_E2E_GIT_MAP";
 /// Where the off-screen window goes (same spot PM's e2e watcher uses).
 pub const OFFSCREEN_POS: (f64, f64) = (-32000.0, -32000.0);
 
@@ -125,4 +139,151 @@ impl Trasher for E2eTrash {
         let mut f = std::fs::OpenOptions::new().create(true).append(true).open(log).map_err(|e| e.to_string())?;
         writeln!(f, "trash\t{}", dir.display()).map_err(|e| e.to_string())
     }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Network seam (M13, D-113)
+
+/// One canned answer of the routes file.
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct Route {
+    #[serde(default = "ok_status")]
+    status: u16,
+    #[serde(default)]
+    headers: HashMap<String, String>,
+    /// UTF-8 body.
+    #[serde(default)]
+    body: Option<String>,
+    /// Binary body as hex (zip/png payloads).
+    #[serde(default)]
+    body_hex: Option<String>,
+}
+
+fn ok_status() -> u16 {
+    200
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RoutesFile {
+    routes: HashMap<String, Route>,
+}
+
+fn unhex(s: &str) -> Result<Vec<u8>, String> {
+    let s: String = s.chars().filter(|c| !c.is_whitespace()).collect();
+    if !s.len().is_multiple_of(2) {
+        return Err("odd hex length".into());
+    }
+    (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).map_err(|e| e.to_string())).collect()
+}
+
+/// Status, lower-case headers, body.
+type Canned = (u16, Vec<(String, String)>, Vec<u8>);
+
+/// Canned transport for the e2e build: exact-URL routes, everything else fails; every request is logged.
+pub struct E2eNet {
+    routes: HashMap<String, Canned>,
+    log: Option<PathBuf>,
+    seen: Mutex<Vec<String>>,
+}
+
+impl E2eNet {
+    pub fn parse(json: &str, log: Option<PathBuf>) -> Result<E2eNet, String> {
+        let f: RoutesFile = serde_json::from_str(json.trim_start_matches('\u{feff}')).map_err(|e| format!("e2e routes: {e}"))?;
+        let mut routes = HashMap::new();
+        for (url, r) in f.routes {
+            let body = match (r.body, r.body_hex) {
+                (Some(_), Some(_)) => return Err(format!("e2e routes: {url} has both body and bodyHex")),
+                (Some(b), None) => b.into_bytes(),
+                (None, Some(h)) => unhex(&h).map_err(|e| format!("e2e routes: {url}: {e}"))?,
+                (None, None) => Vec::new(),
+            };
+            let mut headers: Vec<(String, String)> = r.headers.into_iter().map(|(k, v)| (k.to_ascii_lowercase(), v)).collect();
+            if !headers.iter().any(|(k, _)| k == "content-length") {
+                headers.push(("content-length".into(), body.len().to_string()));
+            }
+            routes.insert(url, (r.status, headers, body));
+        }
+        Ok(E2eNet { routes, log, seen: Mutex::new(Vec::new()) })
+    }
+
+    pub fn from_env() -> Option<Result<E2eNet, String>> {
+        let file = env(ENV_NET)?;
+        Some(
+            std::fs::read_to_string(&file)
+                .map_err(|e| format!("e2e routes file {file}: {e}"))
+                .and_then(|j| E2eNet::parse(&j, env(ENV_NET_LOG).map(PathBuf::from))),
+        )
+    }
+
+    pub fn seen(&self) -> Vec<String> {
+        lock(&self.seen).clone()
+    }
+
+    fn note(&self, line: String) {
+        lock(&self.seen).push(line.clone());
+        if let Some(f) = &self.log
+            && let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(f)
+        {
+            let _ = writeln!(f, "{line}");
+        }
+    }
+}
+
+impl Transport for E2eNet {
+    /// Every name "resolves" to one public address, so the production host rules still run; nothing is looked up.
+    fn resolve(&self, _host: &str) -> std::io::Result<Vec<IpAddr>> {
+        Ok(vec![IpAddr::V4(Ipv4Addr::new(140, 82, 112, 3))])
+    }
+
+    fn get(&self, url: &tauri::Url, _h: &[(&str, String)], _t: Duration) -> rs_core::Result<RawResponse> {
+        match self.routes.get(url.as_str()) {
+            Some((status, headers, body)) => {
+                self.note(format!("get\t{url}\t{status}"));
+                Ok(RawResponse { status: *status, headers: headers.clone(), body: Box::new(std::io::Cursor::new(body.clone())) })
+            }
+            None => {
+                self.note(format!("get\t{url}\tunrouted"));
+                Err(rs_core::Error::Network(format!("e2e: no canned answer for {url}")))
+            }
+        }
+    }
+}
+
+/// The shelf's client for this run: canned when `RS_E2E_NET` is set (an unreadable file stops the start-up).
+pub fn net_from_env() -> Option<Result<Net, String>> {
+    E2eNet::from_env().map(|r| r.map(|n| Net::new(Arc::new(n))))
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Git map (M13)
+
+/// `https://github.com/o/r=file:///C:/up/r;…;!live` → (normalised https URL → file URL, live).
+pub fn parse_git_map(v: &str) -> Result<(HashMap<String, String>, bool), String> {
+    let mut map = HashMap::new();
+    let mut live = false;
+    for item in v.split(';').map(str::trim).filter(|s| !s.is_empty()) {
+        if item == "!live" {
+            live = true;
+            continue;
+        }
+        let (from, to) = item.split_once('=').ok_or_else(|| format!("e2e git map item without '=': {item}"))?;
+        let from = rs_core::validate::clone_url(from).map_err(|e| format!("e2e git map {from}: {e}"))?.url;
+        if !to.starts_with("file:") {
+            return Err(format!("e2e git map target must be a file:// URL: {to}"));
+        }
+        map.insert(from, to.to_string());
+    }
+    Ok((map, live))
+}
+
+/// `Some((map, live))` when `RS_E2E_GIT_MAP` is set; a malformed value maps nothing and stays strict.
+pub fn git_map_from_env() -> Option<(rs_core::jobs::GitMap, bool)> {
+    let v = env(ENV_GIT_MAP)?;
+    let (map, live) = parse_git_map(&v).unwrap_or_else(|e| {
+        eprintln!("RepoShelf e2e: {e}");
+        (HashMap::new(), false)
+    });
+    Some((Arc::new(move |u: &str| map.get(u).cloned()), live))
 }

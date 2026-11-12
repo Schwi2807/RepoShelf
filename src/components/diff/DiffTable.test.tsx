@@ -114,7 +114,8 @@ describe('Commit page', () => {
     const table = host.querySelector(`#diff-${i} .dtable`);
     expect(table).not.toBeNull();
     expect(table!.textContent).toContain(`generated case ${String(i).padStart(4, '0')}`);
-  });
+    // 400 mock files render in happy-dom; ~4–7 s when the machine is busy (timed out at the 5 s default in M13 gates)
+  }, 30000);
 
   it('a commit with a rename, a deletion and a no-newline change; header with parent link and full oid', async () => {
     const { host } = await boot();

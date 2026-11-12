@@ -4,7 +4,9 @@
 #   powershell -ExecutionPolicy Bypass -File tools\e2e\run-e2e.ps1 [-Network] [-Keep] [-App <exe>]
 #
 #   -Network  also clones two small public repos over https and fetches them (opt-in; the default run makes no network
-#             requests at all: the clone/fetch smoke uses the file:// seam of the e2e build, D-14/D-20)
+#             requests at all: the clone/fetch smoke uses the file:// seam of the e2e build, D-14/D-20, the
+#             github.com clone goes to a local upstream through the git map, and every HTTP request of the app
+#             (GitHub info/releases, downloads, README images) is answered by the canned transport, D-113)
 #   -Keep     keep the scratch folder (target\scratch\e2e-<time>) for inspection
 #
 # Needs: target\e2e\release\reposhelf.exe (M8.1 build), Node, git, cargo, tauri-driver (C:\Dev\tools\cargo\bin) and
@@ -26,6 +28,13 @@ $App = (Resolve-Path -LiteralPath $App).Path
 if (-not (Select-String -LiteralPath $App -SimpleMatch -Pattern 'RS_E2E_TRASH_LOG' -Quiet)) {
     throw "e2e build has no trash seam (RS_E2E_TRASH_LOG): rebuild it (docs\TESTING.md, M8.1): $App"
 }
+# M13 (D-113): an exe without the network seam would send GitHub/image/download requests to the real internet (the
+# basic fixture has a github.com origin), and one without the git map would fetch real git hosts.
+foreach ($seam in 'RS_E2E_NET', 'RS_E2E_GIT_MAP') {
+    if (-not (Select-String -LiteralPath $App -SimpleMatch -Pattern $seam -Quiet)) {
+        throw "e2e build has no network seam ($seam): rebuild it (docs\TESTING.md, M8.1): $App"
+    }
+}
 $cargoHome = if ($env:CARGO_HOME) { $env:CARGO_HOME } elseif (Test-Path 'C:\Dev\tools\cargo') { 'C:\Dev\tools\cargo' } else { Join-Path $HOME '.cargo' }
 $driver = Join-Path $cargoHome 'bin\tauri-driver.exe'
 $edge = if ($env:MSEDGEDRIVER) { $env:MSEDGEDRIVER } else { [Environment]::GetEnvironmentVariable('MSEDGEDRIVER', 'User') }
@@ -43,6 +52,7 @@ $S = Join-Path $root ('target\scratch\e2e-' + (Get-Date -Format 'yyyyMMdd-HHmmss
 $data = Join-Path $S 'data'; $archive = Join-Path $S 'archive'; $fx = Join-Path $S 'fx'
 $up = Join-Path $S 'up\demo-upstream'; $openLog = Join-Path $S 'opens.log'; $emptyCfg = Join-Path $S 'empty.gitconfig'
 $trashLog = Join-Path $S 'trash.log'
+$netRoutes = Join-Path $S 'net-routes.json'; $netLog = Join-Path $S 'net.log'
 New-Item -ItemType Directory -Force $data, $archive, $fx, $up | Out-Null
 $u8 = New-Object Text.UTF8Encoding $false
 [IO.File]::WriteAllText($emptyCfg, '', $u8)
@@ -73,8 +83,21 @@ git @g tag v1.0.0
 if ($LASTEXITCODE -ne 0) { throw 'upstream setup failed' }
 $upUrl = ([Uri]((Resolve-Path -LiteralPath $up).Path)).AbsoluteUri
 
+# M13 F3: GitHub-style centred README (tests\fixtures\align) as a real repo with its images, plus one remote image
+# that fails (chip fallback). The badge in the README is answered by the canned transport.
+$alignDir = Join-Path $fx 'align'
+New-Item -ItemType Directory -Force $alignDir | Out-Null
+$readme = [IO.File]::ReadAllText((Join-Path $root 'tests\fixtures\align\README.md'))
+[IO.File]::WriteAllText((Join-Path $alignDir 'README.md'), $readme.TrimEnd() + "`n`n![missing](https://fail.example.com/missing.png)`n", $u8)
+$png = [Convert]::FromBase64String('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==')
+foreach ($n in 'logo.png', 'side.png', 'a.png') { [IO.File]::WriteAllBytes((Join-Path $alignDir $n), $png) }
+$ga = @('-C', $alignDir, '-c', 'user.name=e2e', '-c', 'user.email=e2e@example.com', '-c', 'commit.gpgsign=false', '-c', 'core.autocrlf=false')
+git init -q -b main $alignDir
+git @ga add -A; git @ga commit -q -m 'Centred README'
+if ($LASTEXITCODE -ne 0) { throw 'align fixture setup failed' }
+
 # Imported through the UI (e2e picker queue) — the browse-only set whose .git + work tree must not change.
-$imports = @('basic', 'wide-dir', 'long-history', 'merges', 'binaries', 'security-readme', 'releases', 'huge-commit')
+$imports = @('basic', 'wide-dir', 'long-history', 'merges', 'binaries', 'security-readme', 'releases', 'huge-commit', 'align')
 function Get-TreeHash([string]$dir) {
     $base = (Resolve-Path -LiteralPath $dir).Path
     $lines = Get-ChildItem -LiteralPath $base -Recurse -Force -File | Sort-Object FullName | ForEach-Object {
@@ -96,7 +119,7 @@ $cfgFile = Join-Path $S 'config.json'
 $cfg = [ordered]@{
     app = $App; port = $port; result = $resultFile; shots = $shots; archive = $archive; openLog = $openLog; trashLog = $trashLog
     upstream = $up; upstreamUrl = $upUrl; gitEnv = @{ GIT_CONFIG_GLOBAL = $emptyCfg; GIT_CONFIG_NOSYSTEM = '1'; GIT_TERMINAL_PROMPT = '0' }
-    imports = $imports; network = [bool]$Network; networkRepos = $NetworkRepos
+    imports = $imports; network = [bool]$Network; networkRepos = $NetworkRepos; netRoutes = $netRoutes; netLog = $netLog
 }
 [IO.File]::WriteAllText($cfgFile, ($cfg | ConvertTo-Json -Depth 5), $u8)
 
@@ -106,6 +129,11 @@ $env:RS_E2E_PICK = (($imports | ForEach-Object { Join-Path $fx $_ }) -join ';')
 $env:RS_E2E_OPEN_LOG = $openLog
 $env:RS_E2E_OFFSCREEN = '1'
 $env:RS_E2E_TRASH_LOG = $trashLog
+# M13: canned HTTP (wd-e2e.mjs writes the routes file before the first app start) + git map for the github.com
+# clone; without -Network every other git host is refused.
+$env:RS_E2E_NET = $netRoutes
+$env:RS_E2E_NET_LOG = $netLog
+$env:RS_E2E_GIT_MAP = "https://github.com/e2e/demo-upstream=$upUrl" + $(if ($Network) { ';!live' } else { '' })
 
 function Get-Tree([int]$rootPid) {
     $all = @(Get-CimInstance Win32_Process)
@@ -177,13 +205,14 @@ $run = [ordered]@{
     trashLog = if (Test-Path -LiteralPath $trashLog) { @([IO.File]::ReadAllLines($trashLog)) } else { @() }
     archive = $archive
     network = [bool]$Network
+    netLog = if (Test-Path -LiteralPath $netLog) { @([IO.File]::ReadAllLines($netLog)) } else { @() }
 }
 [IO.File]::WriteAllText($runFile, ($run | ConvertTo-Json -Depth 4), $u8)
 "processes seen: $($seen.Count); leftover processes: $($left.Count)"
 "imported fixtures unchanged: $($changed.Count -eq 0)"
 "results: $resultFile"
 
-foreach ($v in 'RS_TEST_FILE_CLONE', 'RS_E2E_PICK', 'RS_E2E_OPEN_LOG', 'RS_E2E_OFFSCREEN', 'RS_E2E_TRASH_LOG', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM') { Remove-Item "Env:$v" -ErrorAction SilentlyContinue }
+foreach ($v in 'RS_TEST_FILE_CLONE', 'RS_E2E_PICK', 'RS_E2E_OPEN_LOG', 'RS_E2E_OFFSCREEN', 'RS_E2E_TRASH_LOG', 'RS_E2E_NET', 'RS_E2E_NET_LOG', 'RS_E2E_GIT_MAP', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM') { Remove-Item "Env:$v" -ErrorAction SilentlyContinue }
 if (-not $Keep -and $left.Count -eq 0) {
     Remove-Item -LiteralPath $S -Recurse -Force
     "scratch removed: $S"

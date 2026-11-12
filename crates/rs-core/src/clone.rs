@@ -403,6 +403,21 @@ pub fn job_unchecked(s: &Shelf, url: &str, ctx: &JobCtx) -> Result<JobResult> {
     register(s, &path, &u, skipped)
 }
 
+/// e2e git map (tests and the e2e build only, M13): clone the validated https `input` (where it lands, slug,
+/// origin) but download from the local `source` (`file://` upstream), then point `origin` back at the https URL, so
+/// the GitHub hook and a later (mapped) Fetch see a github.com repo while git never leaves the machine.
+#[cfg(any(test, feature = "testkit"))]
+pub fn job_mapped(s: &Shelf, input: &str, source: &str, ctx: &JobCtx) -> Result<JobResult> {
+    let u = validate::clone_url(input)?;
+    let (path, skipped) = clone_inner(s, source, &u.rel_dir, ctx)?;
+    let set = Repository::open_bare(paths::long(&path)).and_then(|r| r.remote_set_url("origin", &u.url));
+    if let Err(e) = set {
+        let _ = remove_tree(&path);
+        return Err(e.into());
+    }
+    register(s, &path, &u, skipped)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

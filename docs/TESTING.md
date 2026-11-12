@@ -13,7 +13,7 @@ $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Env
 
 | What | Command | Notes |
 |---|---|---|
-| Rust, everything | `cargo test --workspace --all-features` | rs-core (incl. testkit + ghreleases), src-tauri commands (incl. the e2e seams), rs-cli. No network: clones/fetches use `file://` through the unchecked seam; GitHub notes use canned JSON. One live GitHub smoke is `#[ignore]`. |
+| Rust, everything | `cargo test --workspace --all-features` | rs-core (incl. testkit + ghreleases), src-tauri commands (incl. the e2e seams), rs-cli. No network: clones/fetches use `file://` through the unchecked seam; every HTTP request (GitHub info / notes / assets, README images) goes to `Net::offline()` or canned answers (`net::Canned`). One live GitHub smoke is `#[ignore]` (opt-in, never run by the agents). |
 | Rust, shipped feature sets | `cargo test -p reposhelf` · `cargo test -p reposhelf --features e2e` · `cargo test -p reposhelf --no-default-features` | default = `ghreleases`; off → `releases_fetch_github` answers `unsupported`. |
 | Lints | `cargo clippy --workspace --all-targets -- -D warnings` · `cargo clippy -p reposhelf --all-targets --features e2e -- -D warnings` | |
 | TypeScript | `npm run typecheck` · `npm test` | vitest + happy-dom; `types.test.ts` checks the committed IPC golden `src/ipc/__samples__/ipc-samples.json` (`UPDATE_SAMPLES=1 cargo test -p reposhelf ipc_samples` rewrites it). |
@@ -26,7 +26,8 @@ The full gate per milestone is in `docs/TASKS.md` (Gate M0 … Gate M9); each la
 
 `npm run dev` → `http://localhost:1450/` (launch config `reposhelf-mock` in `.claude/launch.json`). Without
 `__TAURI_INTERNALS__` the app loads the mock backend (`src/ipc/mock/`, invented data). Switches go in the page query
-before the `#`: `?empty`, `?slow`, `?huge`, `?clonefail`, `?fetchfail` — e.g. `http://localhost:1450/?huge#/northwind/parsekit`.
+before the `#`: `?empty`, `?slow`, `?huge`, `?clonefail`, `?fetchfail`, `?gh` (GitHub release lists already cached,
+so the Releases page shows assets at once) — e.g. `http://localhost:1450/?huge#/northwind/parsekit`.
 The route × theme × switch list to check is `tools/shots/mock-shots.md`. Stop the dev server by process tree
 (`taskkill /T /F /PID <pid>`).
 
@@ -45,8 +46,13 @@ exe renders with nothing listening on port 1450. The e2e feature adds test seams
 (D-14, D-20, D-84): `RS_TEST_FILE_CLONE=1` (clone/fetch `file://` sources), `RS_E2E_PICK` (folder dialogs take the
 next path of a `;` list), `RS_E2E_OPEN_LOG` (browser/Explorer opens are written to a file instead), `RS_E2E_OFFSCREEN=1`
 (window created off-screen), `RS_E2E_TRASH_LOG` (Remove deletes the clone folder inside the scratch archive and logs
-it instead of using the real Recycle Bin, D-91). `run-e2e.ps1` refuses an e2e exe without the trash seam — rebuild it
-after pulling changes.
+it instead of using the real Recycle Bin, D-91), and since M13 (D-113) `RS_E2E_NET` (a routes file: the app's HTTP
+client answers every request — GitHub info, release lists, asset downloads, README images — from it; anything else
+fails as "no canned answer", so an e2e run has no path to the internet), `RS_E2E_NET_LOG` (one line per request,
+`get\t<url>\t<status|unrouted>`) and `RS_E2E_GIT_MAP` (`<https URL>=<file:// URL>;…`: a Clone / Fetch of a mapped
+github.com repo downloads from a local upstream and keeps its https origin; every other non-`file:` git remote is
+refused unless the list contains `!live`). `run-e2e.ps1` refuses an e2e exe without the trash, network or git-map
+seam — rebuild it after pulling changes.
 
 ### Run (M8.2–M8.5)
 
@@ -57,9 +63,12 @@ powershell -ExecutionPolicy Bypass -File tools\e2e\check-e2e.ps1
 
 `run-e2e.ps1`:
 1. makes `target\scratch\e2e-<time>\` with `data`, `archive`, `fx` (all fixtures via `rs fixtures`, plus 50 copies of
-   the basic fixture registered with `rs fixtures --register 50`), and `up\demo-upstream` (a small git repo, isolated
-   git config) as the `file://` clone source;
-2. hashes the `.git` + work tree of the 8 fixtures the UI will import;
+   the basic fixture registered with `rs fixtures --register 50`, plus `align`: `tests\fixtures\align\README.md` with
+   its images and one failing remote image, committed with the git CLI), and `up\demo-upstream` (a small git repo,
+   isolated git config) as the `file://` clone source and as the local upstream of the mapped
+   `https://github.com/e2e/demo-upstream`; sets `RS_E2E_NET` / `RS_E2E_NET_LOG` / `RS_E2E_GIT_MAP` (wd-e2e writes the
+   routes file before the first app start);
+2. hashes the `.git` + work tree of the 9 fixtures the UI will import;
 3. starts tauri-driver on a free port (msedgedriver from user env `MSEDGEDRIVER`, tauri-driver from
    `C:\Dev\tools\cargo\bin`) and runs `tools\e2e\wd-e2e.mjs`;
 4. kills the whole driver tree (`taskkill /T /F`), then anything else it saw start, and counts leftovers (must be 0);
@@ -88,6 +97,23 @@ powershell -ExecutionPolicy Bypass -File tools\e2e\check-e2e.ps1
   clone is deleted inside the scratch archive and logged; `check-e2e.ps1` requires exactly one logged deletion inside
   the archive — nothing goes to the real Recycle Bin since M9, D-91. Runs before M9 each left one `demo-upstream.git`
   folder in the Recycle Bin).
+- **v0.2.0 (M13), all against canned answers**: Back/Forward disabled in a fresh window, then back and forward between
+  two pages; the Import dialog shows "Download the latest release" (checked) only for the github.com fixture, and its
+  import fetches GitHub info + the release list and downloads the Windows asset (through GitHub's redirect to its CDN)
+  into `<scratch archive>\_releases\…`; the `align` README in WebView2 — h1 text, logo, badge and table centred
+  (≤ 3 px), `h2 align=right` flush right, `img align=right` floated flush right at its width, the remote badge from a
+  `blob:` URL, the failing image as a chip, no `style` attributes; About shows GitHub's description, an Edit About
+  value wins, clearing it brings GitHub's back (`aboutUser` / `aboutGithub`); the release card (tag chip, commit link,
+  Open on GitHub, `@user` mention instead of the avatar — never fetched) and its assets: Show in folder for the
+  auto-download, Download of another asset → Show in folder (both through the recording opener, files in the scratch
+  store); Settings → Network defaults, two toggles saved and kept after a reload, README images off = chips and no
+  request, then back to the defaults; a github.com clone through the git map with the dialog's release option
+  unchecked (GitHub info fetched, nothing downloaded), then Fetch ▾ "Fetch and download the latest release" (file in
+  the store) and Show in folder on its Releases page. Two extra screenshots per theme (`m13-release-assets`,
+  `m13-align-readme`).
+- **Rust-side requests**: `run.json` carries the net log; `check-e2e.ps1` requires at least one canned api.github.com
+  answer, zero unrouted requests and only the hosts the routes know. Together with "no foreign requests" from the
+  webview, the default run makes no request outside the machine.
 
 ### Network run (M8.8, opt-in)
 
@@ -96,17 +122,20 @@ powershell -ExecutionPolicy Bypass -File tools\e2e\run-e2e.ps1 -Network [-Networ
 ```
 
 Adds session C: clones the given public GitHub repos (default `octocat/Hello-World`, `octocat/Spoon-Knife`) through
-the https URL rules (only `file:` inputs use the seam), then fetches each. Use a repo with Windows-invalid ref names
-to see the skipped-refs report. Implemented in M8 but **never executed yet** — the first run is a hand step.
+the https URL rules (only `file:` inputs use the seam; `-Network` adds `!live` to the git map so real git hosts are
+allowed), then fetches each. The app's HTTP requests (GitHub info, notes, downloads) still go to the canned routes, so
+they end as "no canned answer" notes on the jobs — the real GitHub requests are a hand test (§5). Use a repo with
+Windows-invalid ref names to see the skipped-refs report. Implemented in M8 but **never executed yet** — the first run
+is a hand step.
 
 ## 4. Release build (M9)
 
 ```powershell
-npm run build:installer     # target\release\bundle\nsis\RepoShelf_0.1.0_x64-setup.exe  (built only, never run by an agent)
-npm run build:portable      # target\release\portable\RepoShelf_0.1.0_x64-portable.exe
+npm run build:installer     # target\release\bundle\nsis\RepoShelf_0.2.0_x64-setup.exe  (built only, never run by an agent)
+npm run build:portable      # target\release\portable\RepoShelf_0.2.0_x64-portable.exe
 ```
 
-- Marker check (D-14, D-26, D-84): `Select-String -SimpleMatch -Quiet` for `RS_TEST_FILE_CLONE` and `RS_E2E_` must be
+- Marker check (D-14, D-26, D-84, D-113): `Select-String -SimpleMatch -Quiet` for `RS_TEST_FILE_CLONE` and `RS_E2E_` (covers `RS_E2E_NET` and `RS_E2E_GIT_MAP`) must be
   false on `target\release\reposhelf.exe` (the installer's payload is compressed, so checking the setup exe proves
   little) and on the portable exe; the e2e exe is the positive control (both true). `build:portable` fails on a hit.
 - Portable smoke (agent, M9.4): start the portable exe with scratch `RS_DATA_DIR` / `RS_ARCHIVE_DIR` and
@@ -115,7 +144,8 @@ npm run build:portable      # target\release\portable\RepoShelf_0.1.0_x64-portab
   the page over CDP (`http://tauri.localhost/`, "Repositories" / "Your shelf is empty"), check `reposhelf.db` was
   created in the scratch data dir, `taskkill /T /F`, count leftovers by exe path and scratch path (0), delete scratch.
   Never point `run-e2e.ps1 -App` at a shipped exe: it has no seams, so real dialogs, browser and Recycle Bin would be
-  used.
+  used (`run-e2e.ps1` refuses it anyway: no trash / network seam strings). The shipped exe has the real HTTP client, so
+  the smoke stays on the empty shelf — no import, no clone.
 - Copies + `SHA256SUMS.txt` go to `_REVIVE\releases\v<ver>\` (the `_REVIVE\` kit is excluded from git via
   `.git\info\exclude`).
 
@@ -126,16 +156,46 @@ set to empty scratch folders:
 
 ```powershell
 $env:RS_DATA_DIR = 'C:\Dev\projects\repo-shelf\target\scratch\hand\data'; $env:RS_ARCHIVE_DIR = 'C:\Dev\projects\repo-shelf\target\scratch\hand\archive'
-& .\target\release\portable\RepoShelf_0.1.0_x64-portable.exe
+& .\target\release\portable\RepoShelf_0.2.0_x64-portable.exe
 ```
 
-- [ ] **Installer (yours to run)**: `RepoShelf_0.1.0_x64-setup.exe` → Start menu entry starts the app → it uses
+- [ ] **Installer (yours to run)**: `RepoShelf_0.2.0_x64-setup.exe` → Start menu entry starts the app → it uses
       `%LOCALAPPDATA%\dev.schwi.reposhelf` → Settings → Apps → RepoShelf → Uninstall removes the program, keeps the
       data. SmartScreen asks once (unsigned).
+- [ ] **Upgrade over 0.1.0 (yours to run)**: with 0.1.0 installed and your shelf in use, run the 0.2.0 setup. After
+      it, Settings shows "RepoShelf 0.2.0", every repository, your edited About values, Recent and the theme are still
+      there, and Settings → Network shows the defaults (all on except "Also download on Fetch all", limit 1024 MB).
 - [ ] **Network adapter off (NFR-O1, needs admin)**: import two local repos, then turn the network adapter off
       (Settings → Network & internet → Wi-Fi/Ethernet off, or airplane mode). Restart the app and browse every tab of
       both repos, open files, commits and a commit page. Everything works; no error mentions the network. Only
-      Fetch / Clone / GitHub notes may fail, with a readable "Could not reach …" message. Turn the adapter back on.
+      Fetch / Clone / GitHub info, notes and downloads may fail, with a readable "Could not reach …" note; README
+      images seen before still show (cache), new ones show as chips. Turn the adapter back on.
+
+v0.2.0 hand tests (real GitHub; the agents' runs used canned answers only):
+
+- [ ] **Back / Forward (F1)**: the two arrows left of the search are greyed out in a fresh window; after opening a repo
+      and a file, Back goes back, Forward goes forward again, and they grey out at the ends.
+- [ ] **README images (F2)**: open a cloned github.com repo whose README has badges / screenshots from other sites —
+      they appear (not "Remote image: host" chips). Turn Settings → Network → Load remote images off: chips again; on:
+      images back. Disconnect and reopen the README: the images seen before still show.
+- [ ] **Centred README (F3)**: a README with `<div align="center">` / `<p align="center">` (logo, title, badge row)
+      looks centred like on github.com; a right-aligned image floats right with text beside it.
+- [ ] **Releases (F4/F5)**: Clone a small github.com project that publishes Windows releases (e.g. a tool with a
+      `…-x86_64-pc-windows-msvc.zip` or `…-portable.exe` asset). In the Clone dialog "Download the latest release for
+      this PC" is ticked; after the clone the jobs popover shows a download job with progress and then "Show in folder"
+      (Explorer opens `Documents\RepoShelf\_releases\github.com\<owner>\<name>\<tag>\`). Releases shows cards with
+      title, tag chip, commit link, date, Latest badge, notes with `@user` mentions (no avatar pictures) and Assets
+      (size, downloads, Download, Show in folder, Open on GitHub, Source code zip / tar.gz).
+- [ ] **Antivirus on downloads**: a downloaded `.exe` (or a zip containing one) may be scanned, quarantined or held
+      back by Windows Defender / Bitdefender before you can open it — that is expected; RepoShelf never runs or unpacks
+      downloads. If the antivirus removes a file, the asset shows Download again.
+- [ ] **Per-action option**: Clone with the box unticked → no download job; Fetch ▾ "Fetch and download the latest
+      release" → a download job (or "already downloaded"); plain Fetch follows the setting; Fetch all downloads only
+      with "Also download on Fetch all".
+- [ ] **GitHub About (F6)**: a cloned github.com repo shows GitHub's description and topics in About ("Some details
+      from GitHub"); Edit About → your own description wins; clear it → GitHub's comes back.
+- [ ] **Rate limit**: many Fetch all runs in an hour can hit GitHub's limit (about 60 requests per hour without sign
+      in) — the job finishes with a note "request limit reached", the fetch itself still succeeds.
 - [ ] **Theme + restart**: switch System → Light → Dark in the header, close the app, start it again: the theme is kept;
       with System, changing the Windows colour mode switches the app live.
 - [ ] **Mouse back/forward**: browse dashboard → repo → file → commits; mouse buttons 4/5 and Alt+Left/Right go back

@@ -243,6 +243,10 @@ pub fn friendly_worker(shelf: Arc<Shelf>, base: Worker) -> Worker {
 pub fn make_worker(shelf: Arc<Shelf>, test_file_clone: bool) -> Worker {
     #[cfg(feature = "e2e")]
     if test_file_clone {
+        // M13: with the e2e git map, mapped github.com repos clone/fetch from local upstreams; the rest is refused.
+        if let Some((map, live)) = crate::e2e::git_map_from_env() {
+            return friendly_worker(shelf.clone(), rs_core::jobs::shelf_worker_mapped(shelf, map, live));
+        }
         return friendly_worker(shelf.clone(), rs_core::jobs::shelf_worker_unchecked(shelf));
     }
     let _ = test_file_clone;

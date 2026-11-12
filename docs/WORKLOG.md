@@ -966,3 +966,93 @@ Handoff for M13 (real-app run + release v0.2.0):
   remote-debugging port as in D-94).
 - Docs: README/TESTING (network wording, new toggles, `?gh` switch), version 0.2.0, NSIS + portable into
   `_REVIVE\releases\v0.2.0\`, shipped-exe string check.
+
+## M13 — v0.2.0 real-app run + release (2026-11-12)
+
+One subagent; TASKS M13.1–M13.5. Decisions D-113..D-116. Final commit tagged `m13-done` and `v0.2.0`.
+
+- **e2e network seam first (D-113)**, `src-tauri/src/e2e.rs` (e2e build only): `RS_E2E_NET` = routes JSON → `E2eNet`
+  transport under the production `Net` rules (exact-URL answers, everything else "no canned answer"),
+  `RS_E2E_NET_LOG` = one line per request; `RS_E2E_GIT_MAP` = https clone URL → local `file://` upstream
+  (`jobs::shelf_worker_mapped`, `clone::job_mapped` keeps the https origin, `fetch::fetch_mapped`,
+  `fetch::fetch_all_routed`; unmapped non-`file:` git remotes refused unless `!live`, which only `-Network` adds).
+  Wired in `lib.rs` / `state.rs::make_worker` under `cfg(feature = "e2e")`; the env names live only in `e2e.rs`
+  (existing source test). `run-e2e.ps1` sets all three and refuses an exe without `RS_E2E_NET` / `RS_E2E_GIT_MAP`.
+- **wd-e2e (78 → 105 steps)**: routes written per run (basic + `e2e/demo-upstream` repo info and release lists, assets
+  named for this PC with a 22-byte empty zip + `sha256:` digest, the Windows zip via a 302 to
+  objects.githubusercontent.com, a badge SVG, explicit 404s for the expected failures). New checks: Back/Forward
+  disabled in a fresh window (session A) then back/forward; Import dialog option only for basic (checked) → GitHub
+  info + list + auto-download into the scratch `_releases`, no avatar request; `align` README (new e2e fixture built by
+  run-e2e from `tests/fixtures/align`, D-114) geometry in WebView2: h1 text / logo / badge / table centred 0 px, h2 and
+  the floated image flush right (content width 200 + GitHub's 20 px padding), badge from `blob:`, failing image as chip,
+  no `style`; badge fetched once (cache); About GitHub value vs Edit About value and back; release card (tag chip,
+  commit link, Open on GitHub, `@octo-dev` text in the contributor link instead of the avatar) + assets; Show in folder
+  on the auto-download, Download of the tarball → Show in folder (two reveal lines inside `_releases`); Settings →
+  Network defaults, two toggles saved, kept after a reload, images off = chips and zero requests, defaults restored;
+  github.com clone through the git map with the dialog option unchecked (info fetched, no download), Fetch ▾ "Fetch
+  and download the latest release" → file in the store → Show in folder on its Releases page; final "Rust-side
+  requests all canned" (≥ 1 canned api.github.com 200, zero unrouted). A drain is taken before the settings reload
+  (`browse`) and after (`browse 2`), so console/CSP/no-foreign-requests still cover the whole session. check-e2e:
+  14 screens × 2 themes (+ `m13-release-assets`, `m13-align-readme`), the new must-steps, net-log hosts/unrouted.
+- **Bugs found by the real-app run and fixed (each with a test)**:
+  1. Job ids repeated after the newest finished jobs were dismissed (SQLite rowid reuse); the UI remembers finished
+     ids, so it never saw the tarball download finish and kept "Download" (D-115; `jobs::job_ids_never_repeat_after_dismiss`).
+  2. An invalidation during an in-flight query was dropped, so a fast follow-up download finishing while the fetch
+     job's `releases_list` refetch was running left the page on the old list (D-116; `query.test.tsx` "an invalidate
+     during an in-flight request…", red without the fix).
+  3. Harness-only: clippy `type_complexity` in `e2e.rs`, the floated image's padding, mention markup (an avatar inside
+     a link becomes `@user` text in that link, D-97), settings key order, the jobs popover toggled shut by a second
+     click.
+- **Docs**: README (0.2.0, Network use table, data locations for `_releases` / `img-cache`, screenshots
+  `real-release-assets-light.png` + `real-align-readme-light.png` from this run plus the M12 mock shots, known limits),
+  REQUIREMENTS N4 / NFR-O1 reworded (browsing offline; network only for Clone / Fetch / Import + GitHub info, README
+  images, release downloads, each toggleable; webview never requests a foreign origin), TESTING (unit-test network
+  note, `?gh`, the three new seams, run steps, v0.2.0 e2e list, `-Network` note, 0.2.0 build names, smoke note,
+  v0.2.0 hand tests incl. upgrade over 0.1.0 and antivirus on downloaded `.exe` files), TASKS M13 checklist + Gate
+  M13, DECISIONS D-113..D-116.
+- **Version 0.2.0** in `package.json` (+ lock), `Cargo.toml` (+ `Cargo.lock`), `tauri.conf.json`, mock `app_info`,
+  Settings test. Fixture tag `v0.1.0`, the IPC golden `0.0.1` and `_REVIVE\releases\v0.1.0\` untouched.
+- **Release**: `npm run build:installer` → `RepoShelf_0.2.0_x64-setup.exe` 5,598,405 bytes (sha256 2d0dd968…5648;
+  NSIS from tauri's existing cache, no download, no Bitdefender interference; never run); `npm run build:portable` →
+  `RepoShelf_0.2.0_x64-portable.exe` 19,170,816 bytes (sha256 7f4a2da5…8bc3); both VersionInfo 0.2.0. Markers
+  `RS_TEST_FILE_CLONE`, `RS_E2E_`, `RS_E2E_NET`, `RS_E2E_GIT_MAP` absent from the setup exe, the portable and
+  `target\release\reposhelf.exe`; all present in the e2e exe (positive control). Copied with `SHA256SUMS.txt` to
+  `_REVIVE\releases\v0.2.0\`; `v0.1.0\` untouched. Portable smoke (M9 script from the scratchpad, scratch data /
+  archive, empty shelf only — the shipped exe has the real HTTP client): `http://tauri.localhost/`, "Repositories" /
+  "Your shelf is empty", window off-screen after 309 ms, `reposhelf.db` in the scratch data dir, leftovers 0, scratch
+  removed.
+
+Tests: Rust `cargo test --workspace` 215 → 217 (+1 ignored live smoke, not run): rs-core lib 166 → 168 (mapped
+worker, job ids), reposhelf 46; `--features e2e` 53 → 55 (canned net, git map); TS 606 → 607 (query race).
+
+Gate M13 (`target\m13-gate-summary.log`, `target\m13g-*.log`, every rc=0): typecheck · `npm test` 607 ·
+`cargo test --workspace --all-features` · `cargo test --workspace` · `-p reposhelf --features e2e` ·
+`-p reposhelf --no-default-features` · `-p rs-core --no-default-features` · clippy `-D warnings` workspace / `-p
+reposhelf --features e2e` / `-p reposhelf -p rs-core --no-default-features` · `npm run build` (index chunk 451.9 kB
+< 1.5 MB) · e2e build · `run-e2e.ps1` + check: "all 105 steps passed; 28 shots; NFR-P1 805 ms; NFR-P2 120 ms;
+leftovers 0; imported fixtures unchanged; trash seam 1 deletion (no Recycle Bin); 19 app HTTP requests, all canned" ·
+`rs fixtures` + `rs bench` (release) rc 0: 7.0 / 1.6 / 101.7 / 116.2 / 131.2 / 4.9 ms (all within targets). Then
+build:installer, build:portable, marker check, portable smoke.
+
+Deviations / notes:
+- vitest `testTimeout: 20000` (and 30 s on the `?huge` DiffTable test): in this session's gate runs different
+  screen tests took 5–7 s and hit the 5 s default (reproduced with the M13 query change stashed, so not caused by it;
+  every run with the longer timeout passed). The gate ran `npm test` first; it is still timing-sensitive on a busy
+  machine.
+- The NFR-P1/P2 e2e timings were higher than in M8/M9 (805 / 120 ms vs ~420 / 44 ms) on a busy machine; both still
+  within budget (1,500 / 300 ms).
+- Scripted edits (not Edit/Write, no Windows paths in the changed text, all re-read): the `E2eNet`/git-map block
+  appended to `e2e.rs` with a quoted bash heredoc (`\t` checked afterwards), a `sed` for `tauri::Url` and a Python
+  replace for the `type Canned` alias; Python replaces in `jobs.rs` (test cleanup, job-id fix) and `query.ts` (call
+  sites); `sed` for version strings (package*.json, Cargo.toml/lock, tauri.conf.json, mock, Settings test), the
+  `browse 2` drain label, the ASCII Fetch-menu step name and two README setting labels. A first README rewrite by
+  Python failed on backslashes before writing anything; the README was then written with Write.
+- Repo ids are also reused by SQLite after Remove (the re-cloned `e2e/demo-upstream` got the removed clone's id 60).
+  Nothing broke (every job end invalidates the query cache and Remove evicts its keys), but it is the same class of
+  issue as D-115: consider monotonic repo ids in a later migration.
+- `-Network` (session C) still never executed; with the seam its GitHub requests would end as "no canned answer"
+  notes (real GitHub requests are hand tests now).
+
+Handoff (v0.2.0 done): the user's hand tests in `docs/TESTING.md` §5 — install 0.2.0 over the installed 0.1.0 (data
+kept, DB migrated in place), real GitHub images / info / release downloads (antivirus may scan downloaded `.exe`
+files), network adapter off, `-Network`. M10 Explore stays plan only.

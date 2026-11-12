@@ -11,10 +11,82 @@
 // clone → fetch → fast-forward → remove). C (only with network: true) = public clones + fetch.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const cfg = JSON.parse(readFileSync(process.argv[2], 'utf8').replace(/^\uFEFF/, ''));
+
+// ---------------------------------------------------------------------------------------------------------------
+// M13 network seam (D-113): every HTTP request of the e2e exe is answered from this routes file (RS_E2E_NET) and
+// logged (RS_E2E_NET_LOG); git for the mapped github.com repo goes to the local upstream (RS_E2E_GIT_MAP). Expected
+// failures have explicit failing routes, so the run must end with zero "unrouted" requests.
+const ARCH = process.arch === 'arm64' ? 'aarch64' : 'x86_64';
+const WIN = (name, ver) => `${name}-${ver}-${ARCH}-pc-windows-msvc.zip`;
+const LINUX = (name, ver) => `${name}-${ver}-x86_64-unknown-linux-gnu.tar.gz`;
+// An empty zip (end-of-central-directory record only): a real archive, nothing to run or unpack.
+const ZIP = Buffer.concat([Buffer.from([0x50, 0x4b, 0x05, 0x06]), Buffer.alloc(18)]);
+const TAR = Buffer.from('not really a tarball (e2e)\n');
+const sha = (b) => createHash('sha256').update(b).digest('hex');
+const BADGE = '<svg xmlns="http://www.w3.org/2000/svg" width="90" height="20"><rect width="90" height="20" fill="#4c1"/></svg>';
+const NET = {
+  basicDesc: 'Basic fixture as described on GitHub (canned)',
+  demoDesc: 'Demo upstream as described on GitHub (canned)',
+  basicWin: WIN('basic', '0.1.0'),
+  basicLinux: LINUX('basic', '0.1.0'),
+  demoWin: WIN('demo-upstream', '1.1.0'),
+  demoLinux: LINUX('demo-upstream', '1.1.0'),
+  badge: 'https://img.shields.io/badge/a-b-green',
+  avatar: 'https://avatars.githubusercontent.com/u/583231?v=4',
+};
+function routes() {
+  const r = {};
+  const json = (url, v, etag) => (r[url] = { body: JSON.stringify(v), headers: { 'Content-Type': 'application/json; charset=utf-8', ...(etag ? { ETag: etag } : {}) } });
+  const bin = (url, buf, type) => (r[url] = { bodyHex: buf.toString('hex'), headers: { 'Content-Type': type } });
+  const dl = (o, n, tag, file) => `https://github.com/${o}/${n}/releases/download/${tag}/${file}`;
+  const asset = (o, n, tag, file, buf, type, digest = true) => ({
+    name: file, size: buf.length, download_count: 7, content_type: type, browser_download_url: dl(o, n, tag, file),
+    ...(digest ? { digest: 'sha256:' + sha(buf) } : {}),
+  });
+  json('https://api.github.com/repos/example/basic', { description: NET.basicDesc, homepage: 'https://example.com/basic', topics: ['fixture', 'e2e'], html_url: 'https://github.com/example/basic' }, '"basic-info-1"');
+  json('https://api.github.com/repos/example/basic/releases?per_page=100', [{
+    tag_name: 'v0.1.0', name: 'Basic 0.1.0 (GitHub)', draft: false, prerelease: false, html_url: 'https://github.com/example/basic/releases/tag/v0.1.0',
+    body: `Notes from GitHub.\n\nThanks to <a href="https://github.com/octo-dev"><img src="${NET.avatar}" alt="@octo-dev" width="20"></a> for the fix.\n`,
+    assets: [
+      asset('example', 'basic', 'v0.1.0', NET.basicWin, ZIP, 'application/zip'),
+      asset('example', 'basic', 'v0.1.0', NET.basicLinux, TAR, 'application/gzip'),
+      asset('example', 'basic', 'v0.1.0', 'SHA256SUMS', Buffer.from('x\n'), 'text/plain', false),
+    ],
+  }], '"basic-rel-1"');
+  // Windows zip via GitHub's redirect to its CDN (every hop re-checked by the production Net); the tarball direct.
+  r[dl('example', 'basic', 'v0.1.0', NET.basicWin)] = { status: 302, headers: { Location: 'https://objects.githubusercontent.com/e2e/basic-win.zip?sig=1' } };
+  bin('https://objects.githubusercontent.com/e2e/basic-win.zip?sig=1', ZIP, 'application/octet-stream');
+  bin(dl('example', 'basic', 'v0.1.0', NET.basicLinux), TAR, 'application/octet-stream');
+  json('https://api.github.com/repos/e2e/demo-upstream', { description: NET.demoDesc, homepage: null, topics: ['demo'], html_url: 'https://github.com/e2e/demo-upstream' });
+  json('https://api.github.com/repos/e2e/demo-upstream/releases?per_page=100', [
+    { tag_name: 'v1.1.0', name: 'Demo 1.1.0', draft: false, prerelease: false, html_url: 'https://github.com/e2e/demo-upstream/releases/tag/v1.1.0', body: 'Second release.',
+      assets: [asset('e2e', 'demo-upstream', 'v1.1.0', NET.demoWin, ZIP, 'application/zip'), asset('e2e', 'demo-upstream', 'v1.1.0', NET.demoLinux, TAR, 'application/gzip')] },
+    { tag_name: 'v1.0.0', name: 'Demo 1.0.0', draft: false, prerelease: false, body: 'First release.', assets: [] },
+  ]);
+  bin(dl('e2e', 'demo-upstream', 'v1.1.0', NET.demoWin), ZIP, 'application/octet-stream');
+  bin(dl('e2e', 'demo-upstream', 'v1.1.0', NET.demoLinux), TAR, 'application/octet-stream');
+  // README images: a badge that loads, and the expected failures (fall back to the chip).
+  r[NET.badge] = { body: BADGE, headers: { 'Content-Type': 'image/svg+xml;charset=utf-8' } };
+  r['https://fail.example.com/missing.png'] = { status: 404, headers: { 'Content-Type': 'text/html' }, body: 'not found' };
+  r['https://images.example.com/tracker.png'] = { status: 404, headers: { 'Content-Type': 'text/html' }, body: 'not found' };
+  return r;
+}
+if (cfg.netRoutes) writeFileSync(cfg.netRoutes, JSON.stringify({ routes: routes() }, null, 2));
+const netLog = () => (cfg.netLog && existsSync(cfg.netLog) ? readFileSync(cfg.netLog, 'utf8').split(/\r?\n/).filter(Boolean) : []);
+const releaseFile = (o, n, tag, file) => join(cfg.archive, '_releases', 'github.com', o, n, tag, file);
+const waitFile = async (p, ms = 30000) => {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) {
+    if (existsSync(p)) return statSync(p).size;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  return null;
+};
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const results = [];
 const save = () => writeFileSync(cfg.result, JSON.stringify(results, null, 2));
@@ -193,6 +265,9 @@ const START_STEP = `
     title: document.title,
     theme: document.documentElement.dataset.theme,
     origin: location.origin,
+    // F1: nothing to go back or forward to in a fresh window
+    backDisabled: $('button[aria-label^="Back"]')?.disabled ?? null,
+    forwardDisabled: $('button[aria-label^="Forward"]')?.disabled ?? null,
   };
 `;
 
@@ -209,7 +284,9 @@ async function startTiming(session, name) {
 async function main() {
   // ---- Session A: start timing only (first launch after the build: cold-ish file cache) ----
   let s = await newSession();
-  await startTiming(s, 'A.start');
+  const a = await startTiming(s, 'A.start');
+  record('F1 Back/Forward disabled in a fresh window', { back: a.backDisabled, forward: a.forwardDisabled },
+    a.backDisabled === true && a.forwardDisabled === true ? undefined : 'Back/Forward should both be present and disabled');
   await wd('DELETE', `/session/${s}`);
   await sleep(1500);
 
@@ -244,15 +321,36 @@ async function main() {
       need(byText('button', 'Choose', d), 'Choose folder button').click();
       const sum = need(await until(() => $('[data-testid="import-summary"]'), 10000), 'import summary');
       const summary = txt(sum);
+      await sleep(150);
+      // F4/D-112: "Download the latest release" only for github.com origins; left untouched (= the setting, on).
+      const box = $('[data-testid="autodl"] input', d);
+      const autodl = box ? box.checked : null;
       need(byText('.dialog__footer button', 'Import'), 'Import button').click();
       await until(() => !dialog(), 10000);
       await until(() => location.hash.split('/').length >= 3, 10000);
       await settle();
-      return { summary: summary.slice(0, 160), route: location.hash };
+      return { summary: summary.slice(0, 160), route: location.hash, autodl };
     `);
     imported.push(r.route);
+    const wantBox = want === 'basic' ? true : null;
+    if (!r.error && r.autodl !== wantBox) record(`import ${want} auto-download option`, { autodl: r.autodl }, `expected ${wantBox}, got ${r.autodl}`);
   }
   record('imports', { routes: imported }, imported.length === cfg.imports.length && imported.every(Boolean) ? undefined : 'some imports failed');
+
+  // F4 + F6: importing basic (github.com origin) queued the GitHub sync (info + releases) and, with the option left
+  // on, the download of the Windows asset into the scratch release store — all answered by the canned transport.
+  {
+    const f = releaseFile('example', 'basic', 'v0.1.0', NET.basicWin);
+    const size = await waitFile(f);
+    const log = netLog();
+    const has = (u) => log.some((l) => l.startsWith(`get\t${u}\t`));
+    const want = ['https://api.github.com/repos/example/basic', 'https://api.github.com/repos/example/basic/releases?per_page=100',
+      `https://github.com/example/basic/releases/download/v0.1.0/${NET.basicWin}`, 'https://objects.githubusercontent.com/e2e/basic-win.zip?sig=1'];
+    const missing = want.filter((u) => !has(u));
+    record('import basic: GitHub sync + auto-download (canned)', { file: f, size, requests: log.length, missing },
+      size !== ZIP.length ? `downloaded file missing or wrong size (${size})` : missing.length ? 'requests missing: ' + missing.join(', ')
+        : has(NET.avatar) ? 'a contributor avatar was fetched' : undefined);
+  }
 
   // ---- Every screen, light + dark, with screenshots (S0–S10) ----
   const first = await step(s, 'oids', `
@@ -282,6 +380,9 @@ async function main() {
     ['s09-releases', '#/local/releases/releases', '.rcard'],
     ['s10-settings', '#/settings', 'main'],
     ['security-readme', '#/local/security-readme', '.markdown'],
+    // v0.2.0: GitHub-like release card with assets (canned GitHub list), centred README with a remote badge
+    ['m13-release-assets', '#/example/basic/releases', '.rcard[data-tag="v0.1.0"] .rasset'],
+    ['m13-align-readme', '#/local/align', '.markdown img[src^="blob:"]'],
   ];
   for (const theme of ['Light', 'Dark']) {
     const t = await step(s, `theme ${theme}`, `return { resolved: await setTheme('${theme}') };`);
@@ -431,12 +532,220 @@ async function main() {
     await sleep(300);
     return { tag: img.tagName, inlineSvg: $$('main svg script').length, alerts: window.__e2e?.alerts.length ?? null };
   `);
+
+  // ---- v0.2.0 (M11/M12) in the real app ----
+  await step(s, 'F1 Back/Forward buttons', `
+    await go('#/example/basic');
+    await until(() => $('.rh__title'));
+    await go('#/example/basic/commits/main');
+    await until(() => $('.crow[data-oid]'));
+    const back = need($('button[aria-label^="Back"]'), 'Back button');
+    const fwd = need($('button[aria-label^="Forward"]'), 'Forward button');
+    const before = { back: back.disabled, fwd: fwd.disabled };
+    back.click();
+    const r1 = await until(() => location.hash === '#/example/basic' && $('.rh__title'), 5000);
+    await sleep(200);
+    const mid = { hash: location.hash, back: $('button[aria-label^="Back"]').disabled, fwd: $('button[aria-label^="Forward"]').disabled };
+    $('button[aria-label^="Forward"]').click();
+    const r2 = await until(() => location.hash === '#/example/basic/commits/main' && $('.crow[data-oid]'), 5000);
+    await sleep(200);
+    const end = { hash: location.hash, fwd: $('button[aria-label^="Forward"]').disabled };
+    const ok = !before.back && before.fwd && r1 && !mid.back && !mid.fwd && r2 && end.fwd;
+    return { before, mid, end, ...(ok ? {} : { error: 'Back/Forward did not move or enable correctly' }) };
+  `);
+  const imgReqs0 = netLog().length;
+  await step(s, 'F2/F3 centred README with remote image (align)', `
+    await go('#/local/align');
+    const md = need(await until(() => $('.markdown'), 15000), 'readme body');
+    await settle();
+    for (const c of $$('a.md-remote-image', md)) { c.scrollIntoView({ block: 'center' }); await sleep(150); }
+    const badge = await until(() => $('img[alt="badge"][src^="blob:"]', md), 10000);
+    await until(() => $$('img', md).every((i) => i.complete), 5000);
+    window.scrollTo(0, 0);
+    md.scrollIntoView({ block: 'start' });
+    await sleep(300);
+    const m = md.getBoundingClientRect();
+    const mc = m.left + m.width / 2;
+    const centre = (r) => Math.round(r.left + r.width / 2 - mc);
+    const textRect = (el) => { const rg = document.createRange(); rg.selectNodeContents(el); return rg.getBoundingClientRect(); };
+    const h1 = need($('h1[align="center"]', md), 'h1 align=center');
+    const logo = need($('img[alt="Logo"]', md), 'logo');
+    const table = need($('table[align="center"]', md), 'table align=center');
+    const side = need($('img[alt="Side"]', md), 'side image');
+    const h2 = need($('h2[align="right"]', md), 'h2 align=right');
+    const sr = side.getBoundingClientRect();
+    const r = {
+      h1TextOffset: centre(textRect(h1)),
+      logoOffset: centre(logo.getBoundingClientRect()),
+      logoWidth: Math.round(logo.getBoundingClientRect().width),
+      tableOffset: centre(table.getBoundingClientRect()),
+      badgeOffset: badge ? centre(badge.getBoundingClientRect()) : null,
+      h2RightGap: Math.round(m.right - textRect(h2).right),
+      sideFloat: getComputedStyle(side).float,
+      sideRightGap: Math.round(m.right - sr.right),
+      // content box (GitHub adds 20 px padding beside a floated image, D-110)
+      sideWidth: Math.round(sr.width - parseFloat(getComputedStyle(side).paddingLeft) - parseFloat(getComputedStyle(side).paddingRight)),
+      badgeFromBlob: !!badge,
+      blobImgs: $$('img[src^="blob:"]', md).length,
+      remoteImgs: $$('img', md).filter((i) => /^https?:/i.test(i.getAttribute('src') || '')).length,
+      chips: $$('a.md-remote-image', md).map((c) => txt(c)),
+      justifyAlign: $$('[align="justify"]', md).length,
+      styleAttrs: $$('[style]', md).length,
+    };
+    const near = (v, d = 3) => v != null && Math.abs(v) <= d;
+    const ok = near(r.h1TextOffset) && near(r.logoOffset) && r.logoWidth === 120 && near(r.tableOffset) && near(r.badgeOffset)
+      && near(r.h2RightGap, 4) && r.sideFloat === 'right' && near(r.sideRightGap, 1) && r.sideWidth === 200 && r.badgeFromBlob
+      && r.remoteImgs === 0 && r.chips.length === 1 && r.chips[0].includes('fail.example.com') && !r.justifyAlign && !r.styleAttrs;
+    return { ...r, ...(ok ? {} : { error: 'README layout/images not GitHub-like: ' + JSON.stringify(r) }) };
+  `);
+  {
+    const log = netLog().slice(imgReqs0);
+    const badge = log.filter((l) => l.startsWith(`get\t${NET.badge}\t`)).length;
+    const fail = log.filter((l) => l.startsWith('get\thttps://fail.example.com/missing.png\t')).length;
+    record('README images fetched in Rust (canned)', { badge, fail, lines: log.slice(0, 10) },
+      badge > 1 ? 'badge fetched more than once (cache?)' : badge + fail === 0 && !netLog().some((l) => l.includes(NET.badge)) ? 'no image request seen' : undefined);
+  }
+  await step(s, 'F6 About: GitHub values vs user edits', `
+    await go('#/example/basic');
+    const desc = () => txt($('.about__desc'));
+    const gh = await until(() => desc() === ${JSON.stringify(NET.basicDesc)} && $('[data-testid="about-from-github"]'), 10000);
+    if (!gh) return { error: 'GitHub description not shown: ' + desc() };
+    const topics = $$('.about a.topic, .about .topic, .about .chip').map(txt).slice(0, 6);
+    const edit = async (value) => {
+      need($('button[aria-label="Edit repository details"]'), 'Edit About').click();
+      const d = need(await until(dialog, 3000), 'About dialog');
+      const ta = need($('textarea', d), 'description field');
+      const placeholder = ta.placeholder;
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(ta, value);
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+      need(byText('button', 'Save changes', d), 'Save changes').click();
+      await until(() => !dialog(), 5000);
+      await sleep(300);
+      return placeholder;
+    };
+    const placeholder = await edit('My own words (e2e)');
+    const mine = await until(() => desc() === 'My own words (e2e)', 5000);
+    const id = (await invoke('repo_by_slug', { owner: 'example', name: 'basic' })).id;
+    const sum = (await invoke('library_list', {})).find((r) => r.id === id);
+    await edit('');
+    const back = await until(() => desc() === ${JSON.stringify(NET.basicDesc)}, 5000);
+    const r = { placeholder, topics, userSaved: sum?.aboutUser?.description ?? null, githubKept: sum?.aboutGithub?.description ?? null, mineShown: !!mine, githubBack: !!back };
+    const ok = r.placeholder.includes(${JSON.stringify(NET.basicDesc)}) && r.mineShown && r.githubBack && r.userSaved === 'My own words (e2e)' && r.githubKept === ${JSON.stringify(NET.basicDesc)};
+    return { ...r, ...(ok ? {} : { error: 'About merge wrong: ' + JSON.stringify(r) }) };
+  `);
+  await step(s, 'F4 release card + assets (basic, canned GitHub list)', `
+    await go('#/example/basic/releases');
+    const card = need(await until(() => $('.rcard[data-tag="v0.1.0"]'), 15000), 'v0.1.0 card');
+    await until(() => $$('.rasset', card).length >= 3, 10000);
+    await settle();
+    const rows = $$('.rasset', card).map((r) => ({ name: r.dataset.asset ?? txt($('.rasset__name', r)), pc: r.classList.contains('rasset--pc'), size: txt($('.rasset__size', r)), count: txt($('.rasset__count', r)), buttons: $$('button', r).map((b) => b.getAttribute('aria-label') || txt(b)) }));
+    // F5: the avatar inside the contributor's link became "@user" text in that link (D-97)
+    const mention = $$('.markdown a', card).find((a) => txt(a) === '@octo-dev' && a.getAttribute('href') === 'https://github.com/octo-dev');
+    const r = {
+      title: txt($('h2, h3', card))?.slice(0, 80) ?? null,
+      tagChip: $('.rcard__tagchip', card)?.getAttribute('href') ?? null,
+      oidLink: $('.rcard__oid', card)?.getAttribute('href') ?? null,
+      ghLink: $('.rcard__gh', card)?.getAttribute('href') ?? null,
+      mention: mention ? txt(mention) : null,
+      avatarImgs: $$('img', card).filter((i) => /avatars/.test(i.getAttribute('src') || '')).length,
+      rows,
+    };
+    const win = rows.find((x) => x.name === ${JSON.stringify(NET.basicWin)});
+    const ok = r.tagChip && /\\/commit\\/[0-9a-f]{40}$/.test(r.oidLink ?? '') && r.ghLink === 'https://github.com/example/basic/releases/tag/v0.1.0'
+      && r.mention === '@octo-dev' && !r.avatarImgs && win && win.pc && win.buttons.some((b) => /Show in folder/.test(b));
+    return { ...r, ...(ok ? {} : { error: 'release card wrong: ' + JSON.stringify(r).slice(0, 500) }) };
+  `);
+  const opens0 = readFileSync(cfg.openLog, 'utf8');
+  await step(s, 'F4 Download (button) + Show in folder', `
+    const card = need($('.rcard[data-tag="v0.1.0"]'), 'card');
+    const row = (n) => $('.rasset[data-asset="' + n + '"]', card);
+    need(byText('button', 'Show in folder', row(${JSON.stringify(NET.basicWin)})), 'Show in folder (auto-downloaded)').click();
+    await sleep(300);
+    need($('button[aria-label="Download ' + ${JSON.stringify(NET.basicLinux)} + '"]', card), 'Download button').click();
+    const shown = await until(() => byText('button', 'Show in folder', row(${JSON.stringify(NET.basicLinux)})), 20000);
+    if (!shown) {
+      const rr = row(${JSON.stringify(NET.basicLinux)});
+      const diag = { rowText: txt(rr), buttons: rr ? $$('button', rr).map((b) => b.getAttribute('aria-label') || txt(b)) : null, cardConnected: card.isConnected };
+      await go('#/example/basic');
+      await sleep(500);
+      await go('#/example/basic/releases');
+      await until(() => $('.rcard[data-tag="v0.1.0"] .rasset'), 10000);
+      await settle();
+      const r2 = $('.rcard[data-tag="v0.1.0"] .rasset[data-asset="' + ${JSON.stringify(NET.basicLinux)} + '"]');
+      diag.afterRevisit = r2 ? $$('button', r2).map((b) => b.getAttribute('aria-label') || txt(b)) : null;
+      return { error: 'Show in folder did not appear after the download: ' + JSON.stringify(diag) };
+    }
+    shown.click();
+    await sleep(300);
+    return { downloaded: txt(row(${JSON.stringify(NET.basicLinux)}))?.slice(0, 120) };
+  `);
+  {
+    const f = releaseFile('example', 'basic', 'v0.1.0', NET.basicLinux);
+    const size = await waitFile(f, 5000);
+    const reveals = readFileSync(cfg.openLog, 'utf8').slice(opens0.length).split(/\r?\n/).filter((l) => l.startsWith('reveal\t'));
+    const inStore = reveals.filter((l) => l.toLowerCase().includes(join(cfg.archive, '_releases').toLowerCase()));
+    record('downloads land in the scratch release store; Show in folder reaches the opener', { file: f, size, reveals },
+      size !== TAR.length ? `tarball missing or wrong size (${size})` : inStore.length !== 2 ? `expected 2 reveal lines inside _releases, got ${inStore.length}` : undefined);
+  }
+  await step(s, 'F6 Network settings toggles (persist, images off = chips, no request)', `
+    const boxes = async () => { await go('#/settings'); const n = need(await until(() => $('[data-testid="network-settings"]'), 10000), 'Network section'); await sleep(200); return n; };
+    let net = await boxes();
+    const state = () => Object.fromEntries($$('input[type="checkbox"]', $('[data-testid="network-settings"]')).map((b) => [b.name, b.checked]));
+    const defaults = state();
+    const cap = $('#setting-cap')?.value ?? null;
+    $('input[name="loadRemoteImages"]', net).click();
+    $('input[name="autoDownloadOnFetchAll"]', net).click();
+    await sleep(400);
+    const saved = await invoke('settings_get', {});
+    return { defaults, cap, saved: { loadRemoteImages: saved.loadRemoteImages, autoDownloadOnFetchAll: saved.autoDownloadOnFetchAll } };
+  `).then((r) => {
+    const want = { loadRemoteImages: true, fetchReleaseNotes: true, fetchRepoInfo: true, autoDownloadLatestRelease: true, autoDownloadOnFetchAll: false };
+    const same = (x, y) => Object.keys(y).length === Object.keys(x ?? {}).length && Object.keys(y).every((k) => x[k] === y[k]);
+    const bad = r.error ? null : !same(r.defaults, want) ? 'defaults ' + JSON.stringify(r.defaults)
+      : r.cap !== '1024' ? 'size cap ' + r.cap
+        : r.saved.loadRemoteImages !== false || r.saved.autoDownloadOnFetchAll !== true ? 'not saved: ' + JSON.stringify(r.saved) : undefined;
+    if (bad) record('network settings check', { defaults: r.defaults, cap: r.cap, saved: r.saved }, bad);
+  });
+  // A reload starts a fresh collector and resource list: drain first (imports, screens, the v0.2.0 steps so far).
+  await drain(s, 'browse');
+  await exec(s, `location.hash = '#/settings'; location.reload(); return {};`).catch(() => {});
+  await sleep(1500);
+  if (col.mode !== 'cdp') await exec(s, `${COLLECTOR}; return {};`);
+  await step(s, 'network settings kept after reload', `
+    await until(() => $('.gh'), 20000);
+    await go('#/settings');
+    const net = need(await until(() => $('[data-testid="network-settings"]'), 10000), 'Network section');
+    await sleep(300);
+    const st = Object.fromEntries($$('input[type="checkbox"]', net).map((b) => [b.name, b.checked]));
+    return { st, ...(st.loadRemoteImages === false && st.autoDownloadOnFetchAll === true ? {} : { error: 'not kept: ' + JSON.stringify(st) }) };
+  `);
+  const offReqs = netLog().length;
+  await step(s, 'images off: chips only', `
+    await go('#/local/align');
+    const md = need(await until(() => $('.markdown'), 15000), 'readme body');
+    await settle();
+    for (const c of $$('a.md-remote-image', md)) { c.scrollIntoView({ block: 'center' }); await sleep(150); }
+    await sleep(800);
+    const r = { chips: $$('a.md-remote-image', md).length, remoteBlob: !!$('img[alt="badge"][src^="blob:"]', md), localBlob: $$('img[src^="blob:"]', md).length };
+    return { ...r, ...(r.chips === 2 && !r.remoteBlob && r.localBlob >= 3 ? {} : { error: 'with images off: ' + JSON.stringify(r) }) };
+  `);
+  record('images off: no image request', { newRequests: netLog().slice(offReqs) }, netLog().length !== offReqs ? 'requests made with images off' : undefined);
+  await step(s, 'settings back to defaults', `
+    await go('#/settings');
+    const net = need(await until(() => $('[data-testid="network-settings"]'), 10000), 'Network section');
+    $('input[name="loadRemoteImages"]', net).click();
+    $('input[name="autoDownloadOnFetchAll"]', net).click();
+    await sleep(400);
+    const st = await invoke('settings_get', {});
+    return { st, ...(st.loadRemoteImages && !st.autoDownloadOnFetchAll ? {} : { error: 'not restored' }) };
+  `);
+
   const log3 = readFileSync(cfg.openLog, 'utf8');
   record('no browser opened', { log: log3.trim() }, /^url\t/m.test(log3) ? 'a URL was opened' : undefined);
 
   // Imports, every screen in both themes, worker highlighting, security README: drained before the probes so any
   // console noise from the hostile calls is told apart from the app's own.
-  await drain(s, 'browse');
+  await drain(s, 'browse 2');
 
   // ---- Hostile IPC from the webview (PoC criterion 4) ----
   await step(s, 'hostile IPC refused', `
@@ -586,6 +895,72 @@ async function main() {
         : !logged ? 'trash seam did not log exactly one deletion (real Recycle Bin used?)' : undefined);
   }
 
+  // ---- v0.2.0: github.com clone through the git map (local upstream) → Clone option off → Fetch ▾ with download ----
+  const demoUrl = 'https://github.com/e2e/demo-upstream';
+  const before = netLog().length;
+  const gclone = await step(s, 'clone github.com (git map) with the release option off', `
+    await go('#/');
+    await until(() => $('.repo-row'));
+    await menuItem($('button[aria-label="Add a repository"]'), 'Clone URL');
+    const d = need(await until(dialog, 3000), 'clone dialog');
+    setValue(need($('#clone-url', d), 'clone url'), ${JSON.stringify(demoUrl)});
+    need(await until(() => $('[data-testid="clone-preview"]'), 5000), 'clone preview');
+    const box = need(await until(() => $('[data-testid="autodl"] input', d), 3000), 'release option (github.com)');
+    const checkedByDefault = box.checked;
+    box.click();
+    await sleep(150);
+    const unchecked = !box.checked;
+    need(byText('.dialog__footer button', 'Clone'), 'Clone button').click();
+    await until(() => !dialog(), 5000);
+    // the jobs popover may still be open from the file-seam clone: a second click would close it
+    const jb = $('button[aria-label^="Background jobs"]');
+    if (jb.getAttribute('aria-expanded') !== 'true') jb.click();
+    const done = need(await until(() => $$('li.job[data-kind="clone"]').find((j) => /done|failed/.test(j.dataset.state) && j.innerText.includes('e2e/demo-upstream')), 60000), 'clone job finished');
+    const job = txt(done);
+    if (done.dataset.state !== 'done') return { error: 'clone failed: ' + job };
+    need(await until(() => byText('a', 'Open repository', done), 4500), 'Open repository').click();
+    await until(() => location.hash === '#/e2e/demo-upstream' && $('.rh__title'), 10000);
+    await settle();
+    const desc = await until(() => txt($('.about__desc')) === ${JSON.stringify(NET.demoDesc)}, 10000);
+    return { checkedByDefault, unchecked, job: job.slice(0, 200), route: location.hash, githubDesc: !!desc,
+      ...(checkedByDefault && unchecked && desc ? {} : { error: 'option/About wrong: ' + JSON.stringify({ checkedByDefault, unchecked, desc: txt($('.about__desc')) }) }) };
+  `);
+  {
+    const log = netLog().slice(before);
+    const downloads = log.filter((l) => l.includes('/releases/download/'));
+    record('clone: GitHub sync ran, no release download (option off)', { lines: log },
+      gclone.error ? undefined : !log.some((l) => l.startsWith('get\thttps://api.github.com/repos/e2e/demo-upstream\t')) ? 'no GitHub info request'
+        : downloads.length ? 'downloaded although the option was off: ' + downloads.join(', ') : existsSync(releaseFile('e2e', 'demo-upstream', 'v1.1.0', NET.demoWin)) ? 'file exists' : undefined);
+  }
+  if (!gclone.error) {
+    await step(s, 'Fetch menu: Fetch and download the latest release', `
+      await menuItem(need(await until(() => $('button[aria-label="Fetch options"]'), 5000), 'Fetch options'), 'Fetch and download the latest release');
+      const msg = need(await until(() => { const m = $('.rh__msg'); return m && /new commit|up to date|failed|error/i.test(m.innerText) ? m : null; }, 60000), 'fetch result');
+      return { text: txt(msg), ...(/failed|error/i.test(txt(msg)) ? { error: 'fetch: ' + txt(msg) } : {}) };
+    `);
+    const f = releaseFile('e2e', 'demo-upstream', 'v1.1.0', NET.demoWin);
+    const size = await waitFile(f);
+    record('fetch menu: latest release for this PC downloaded', { file: f, size }, size !== ZIP.length ? `missing or wrong size (${size})` : undefined);
+    const o0 = readFileSync(cfg.openLog, 'utf8').length;
+    await step(s, 'releases of the clone: Downloaded + Show in folder', `
+      await go('#/e2e/demo-upstream/releases');
+      const card = need(await until(() => $('.rcard[data-tag="v1.1.0"]'), 15000), 'v1.1.0 card');
+      const row = need(await until(() => $('.rasset[data-asset="' + ${JSON.stringify(NET.demoWin)} + '"]', card), 10000), 'win asset row');
+      const show = await until(() => byText('button', 'Show in folder', $('.rasset[data-asset="' + ${JSON.stringify(NET.demoWin)} + '"]')), 10000);
+      if (!show) {
+        const id = (await invoke('repo_by_slug', { owner: 'e2e', name: 'demo-upstream' })).id;
+        const list = await invoke('releases_list', { repoId: id });
+        const v = list.find((x) => x.tag === 'v1.1.0');
+        return { error: 'no Show in folder: ' + JSON.stringify({ id, row: txt(row), backend: v ? v.assets.map((a) => [a.name, a.downloaded]) : null, tags: list.map((x) => x.tag) }) };
+      }
+      show.click();
+      await sleep(300);
+      return { latest: !!byText('span, .badge, .label', 'Latest', card), row: txt(row).slice(0, 120) };
+    `);
+    const rev = readFileSync(cfg.openLog, 'utf8').slice(o0).split(/\r?\n/).filter((l) => l.startsWith('reveal\t'));
+    record('clone download revealed', { rev }, rev.length === 1 && rev[0].toLowerCase().endsWith(NET.demoWin.toLowerCase()) ? undefined : 'no reveal line for the download');
+  }
+
   // ---- Console / CSP: positive control, then the collected messages ----
   await step(s, 'CSP collector positive control', `
     const before = window.__e2e.csp.length;
@@ -600,6 +975,15 @@ async function main() {
     return { violationsSeen: seen, inlineRan: ran, ...(seen > 0 && !ran ? {} : { error: 'control failed: seen ' + seen + ', ran ' + ran }) };
   `);
   await drain(s, 'final');
+
+  // M13 (D-113): the Rust side made requests only through the canned transport, and every one had a route.
+  {
+    const log = netLog();
+    const unrouted = log.filter((l) => l.endsWith('\tunrouted'));
+    const api = log.filter((l) => /^get\thttps:\/\/api\.github\.com\/.*\t200$/.test(l)).length;
+    record('Rust-side requests all canned', { requests: log.length, apiOk: api, unrouted },
+      !cfg.netLog ? 'no net log configured' : api === 0 ? 'no canned api.github.com answer seen: was the network seam active?' : unrouted.length ? 'unrouted: ' + unrouted.join(', ') : undefined);
+  }
 
   // ---- Over every document of session B: console / CSP, then requests (NFR-O1 proxy) ----
   {

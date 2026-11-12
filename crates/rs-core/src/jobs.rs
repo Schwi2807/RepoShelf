@@ -295,6 +295,9 @@ struct Inner {
     sink: Sink,
     jobs: Mutex<Vec<Entry>>,
     threads: Mutex<Vec<JoinHandle<()>>>,
+    /// Highest id handed out by this runner: ids never repeat within a run, even after the newest rows were
+    /// dismissed (SQLite would reuse `MAX(rowid) + 1`, and the UI keys finished jobs by id; M13 bug).
+    last_id: Mutex<JobId>,
 }
 
 impl Inner {
@@ -378,13 +381,20 @@ fn run_job(inner: Arc<Inner>, id: JobId, kind: JobKind, cancel: Arc<AtomicBool>)
 fn submit(inner: &Arc<Inner>, kind: JobKind, title: String) -> Result<JobId> {
     let kind_json = serde_json::to_string(&kind).map_err(|e| Error::InvalidInput(e.to_string()))?;
     let now = crate::now_secs();
-    let id = inner.db.with(|c| {
-        c.execute(
-            "INSERT INTO jobs (kind_json, title, state, created_at) VALUES (?1, ?2, 'waiting', ?3)",
-            rusqlite::params![kind_json, title, now],
-        )?;
-        Ok(c.last_insert_rowid() as JobId)
-    })?;
+    let id = {
+        let mut last = lock(&inner.last_id);
+        let floor = (*last as i64).saturating_add(1);
+        let id = inner.db.with(|c| {
+            c.execute(
+                "INSERT INTO jobs (id, kind_json, title, state, created_at)
+                 VALUES (MAX(?4, (SELECT IFNULL(MAX(id), 0) + 1 FROM jobs)), ?1, ?2, 'waiting', ?3)",
+                rusqlite::params![kind_json, title, now, floor],
+            )?;
+            Ok(c.last_insert_rowid() as JobId)
+        })?;
+        *last = id;
+        id
+    };
     let cancel = Arc::new(AtomicBool::new(false));
     let info = JobInfo { id, kind: kind.clone(), state: JobState::Waiting, progress: None, title, result: None, error: None, started_at: now };
     lock(&inner.jobs).push(Entry { info: info.clone(), cancel: cancel.clone() });
@@ -415,6 +425,7 @@ impl JobRunner {
                 sink,
                 jobs: Mutex::new(Vec::new()),
                 threads: Mutex::new(Vec::new()),
+                last_id: Mutex::new(0),
             }),
         }
     }
@@ -573,21 +584,56 @@ fn common_jobs(shelf: &crate::Shelf, kind: &JobKind, ctx: &JobCtx) -> Result<Job
 /// `RS_TEST_FILE_CLONE=1`.
 #[cfg(any(test, feature = "testkit"))]
 pub fn shelf_worker_unchecked(shelf: Arc<crate::Shelf>) -> Worker {
+    shelf_worker_mapped(shelf, Arc::new(|_: &str| None), true)
+}
+
+/// e2e git map (M13): normalised https clone URL (`validate::clone_url(..).url`) → local `file://` upstream.
+#[cfg(any(test, feature = "testkit"))]
+pub type GitMap = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
+
+/// `shelf_worker_unchecked` plus the e2e git map: a mapped https Clone / Fetch downloads from its local upstream
+/// (the repo keeps its https origin, so the GitHub hook runs against the shelf's — canned — `Net`). With
+/// `live = false` every other non-`file:` remote is refused, so an e2e run cannot reach a real git host.
+#[cfg(any(test, feature = "testkit"))]
+pub fn shelf_worker_mapped(shelf: Arc<crate::Shelf>, map: GitMap, live: bool) -> Worker {
+    let refused = |what: &str| Error::Refused(format!("e2e build: no local git route for {what} (real git hosts are off in this run)"));
+    let mapped = {
+        let map = map.clone();
+        move |url: &str| crate::validate::clone_url(url).ok().and_then(|u| map(&u.url))
+    };
+    let fetch_one = {
+        let mapped = mapped.clone();
+        move |s: &crate::Shelf, id: i64, ctx: &JobCtx| -> Result<crate::types::FetchOutcome> {
+            let origin = crate::repo::summary(s, id)?.origin_url.unwrap_or_default();
+            if origin.starts_with("file:") {
+                crate::fetch::fetch_unchecked(s, id, ctx)
+            } else if let Some(src) = mapped(&origin) {
+                crate::fetch::fetch_mapped(s, id, &src, ctx)
+            } else if live {
+                crate::fetch::fetch(s, id, ctx)
+            } else {
+                Err(refused(&origin))
+            }
+        }
+    };
     Arc::new(move |kind: &JobKind, ctx: &JobCtx| match kind {
         JobKind::Clone { url, auto_download } => {
-            let r = if url.starts_with("file:") { crate::clone::job_unchecked(&shelf, url, ctx)? } else { crate::clone::job(&shelf, url, ctx)? };
+            let r = if url.starts_with("file:") {
+                crate::clone::job_unchecked(&shelf, url, ctx)?
+            } else if let Some(src) = mapped(url) {
+                crate::clone::job_mapped(&shelf, url, &src, ctx)?
+            } else if live {
+                crate::clone::job(&shelf, url, ctx)?
+            } else {
+                return Err(refused(url));
+            };
             Ok(after_clone(&shelf, r, *auto_download, ctx))
         }
         JobKind::Fetch { repo_id, auto_download } => {
-            let file = crate::repo::summary(&shelf, *repo_id)?.origin_url.is_some_and(|o| o.starts_with("file:"));
-            let r = if file {
-                crate::fetch::fetch_unchecked(&shelf, *repo_id, ctx).map(JobResult::Fetched)?
-            } else {
-                crate::fetch::job(&shelf, *repo_id, ctx)?
-            };
+            let r = fetch_one(&shelf, *repo_id, ctx).map(JobResult::Fetched)?;
             Ok(crate::github::with_notes(r, crate::github::after_action(&shelf, *repo_id, *auto_download, ctx)))
         }
-        JobKind::FetchAll => crate::fetch::fetch_all_unchecked(&shelf, ctx).map(JobResult::Fetched),
+        JobKind::FetchAll => crate::fetch::fetch_all_routed(&shelf, ctx, &fetch_one).map(JobResult::Fetched),
         other => common_jobs(&shelf, other, ctx),
     })
 }
@@ -633,6 +679,81 @@ mod shelf_worker_tests {
         assert_eq!(r.get(again).unwrap().state, JobState::Done);
         assert_eq!(r.list().iter().filter(|j| matches!(j.kind, JobKind::ReleaseDownload { .. })).count(), 1);
         assert_eq!(c.seen().len(), n + 2, "info + releases only");
+    }
+
+    /// M13 bug: dismissing the newest finished job let SQLite hand its id out again, and the UI (which remembers
+    /// finished ids) then missed the new job's "done" (no list refresh after a Download). Ids never repeat now.
+    #[test]
+    fn job_ids_never_repeat_after_dismiss() {
+        let t = tempfile::tempdir().unwrap();
+        let shelf = testkit::shelf(t.path());
+        let w: Worker = Arc::new(|_: &JobKind, _: &JobCtx| Ok(JobResult::Fetched(Default::default())));
+        let r = JobRunner::new(shelf.db.clone(), 3, w, Arc::new(|_: &JobInfo| {}));
+        let a = r.submit(JobKind::FetchAll, "a".into()).unwrap();
+        let b = r.submit(JobKind::FetchAll, "b".into()).unwrap();
+        r.join();
+        r.dismiss(b);
+        r.dismiss(a);
+        let c = r.submit(JobKind::FetchAll, "c".into()).unwrap();
+        r.join();
+        assert!(c > b, "{a} {b} {c}");
+        // a new runner on the same DB still continues above the persisted rows
+        let r2 = JobRunner::new(shelf.db.clone(), 3, Arc::new(|_: &JobKind, _: &JobCtx| Ok(JobResult::Fetched(Default::default()))), Arc::new(|_: &JobInfo| {}));
+        assert!(r2.submit(JobKind::FetchAll, "d".into()).unwrap() > c);
+    }
+
+    /// M13 e2e git map: a mapped github.com clone downloads from the local upstream, keeps the https origin (so the
+    /// GitHub hook asks the canned Net), a mapped Fetch / Fetch all reach the upstream, unmapped remotes are refused.
+    #[test]
+    fn mapped_worker_clones_and_fetches_locally_and_refuses_the_rest() {
+        use crate::net::{Canned, Net};
+        let t = tempfile::tempdir().unwrap();
+        let c = Canned::new();
+        c.on("https://api.github.com/repos/e2e/demo", 200, &[], br#"{"description":"canned"}"#.to_vec())
+            .on("https://api.github.com/repos/e2e/demo/releases?per_page=100", 200, &[], b"[]".to_vec());
+        let shelf = Arc::new(testkit::shelf(t.path()).with_net(Net::new(c.clone())));
+        let (mut up, url) = testkit::upstream_downstream(&t.path().join("up").join("demo"));
+        let https = crate::validate::clone_url("https://github.com/e2e/demo").unwrap().url;
+        let (key, src) = (https.clone(), url.clone());
+        let map: GitMap = Arc::new(move |u: &str| (u == key).then(|| src.clone()));
+        let r = JobRunner::new(shelf.db.clone(), 3, shelf_worker_mapped(shelf.clone(), map, false), Arc::new(|_: &JobInfo| {}));
+        let id = r.submit(JobKind::Clone { url: "e2e/demo".into(), auto_download: Some(false) }, "Clone".into()).unwrap();
+        r.join();
+        let info = r.get(id).unwrap();
+        assert_eq!(info.state, JobState::Done, "{:?}", info.error);
+        let Some(JobResult::Cloned { repo_id, .. }) = info.result else { panic!("{info:?}") };
+        let sum = crate::repo::summary(&shelf, repo_id).unwrap();
+        assert_eq!(sum.origin_url.as_deref(), Some(https.as_str()));
+        assert_eq!((sum.owner.as_str(), sum.name.as_str()), ("e2e", "demo"));
+        assert_eq!(sum.description.as_deref(), Some("canned"), "GitHub hook ran against the canned Net");
+        assert_eq!(c.seen().len(), 2, "info + releases, no download (switched off)");
+
+        up.file("new", b"1").commit("new", T0 + 3000);
+        let id = r.submit(JobKind::fetch(repo_id), "Fetch".into()).unwrap();
+        r.join();
+        let info = r.get(id).unwrap();
+        let Some(JobResult::Fetched(o)) = info.result else { panic!("{info:?}") };
+        assert_eq!(o.new_commits, 1);
+        up.file("newer", b"2").commit("newer", T0 + 4000);
+        let id = r.submit(JobKind::FetchAll, "Fetch all".into()).unwrap();
+        r.join();
+        let Some(JobResult::Fetched(o)) = r.get(id).unwrap().result else { panic!() };
+        assert_eq!(o.new_commits, 1);
+
+        // unmapped https clone and an unmapped github.com origin: refused before any git connection
+        let id = r.submit(JobKind::Clone { url: "octocat/Hello-World".into(), auto_download: None }, "Clone".into()).unwrap();
+        r.join();
+        let info = r.get(id).unwrap();
+        assert_eq!(info.state, JobState::Failed);
+        assert!(info.error.as_deref().unwrap_or("").contains("no local git route"), "{info:?}");
+        let mut b = testkit::repo(&t.path().join("imp"));
+        b.file("a", b"1").commit("one", T0).set_head().origin("https://github.com/o/other.git");
+        let other = testkit::register_raw(&shelf, &t.path().join("imp"), crate::types::Source::Imported).unwrap();
+        let id = r.submit(JobKind::fetch(other), "Fetch".into()).unwrap();
+        r.join();
+        let info = r.get(id).unwrap();
+        assert_eq!(info.state, JobState::Failed);
+        assert!(info.error.as_deref().unwrap_or("").contains("no local git route"), "{info:?}");
     }
 
     #[test]

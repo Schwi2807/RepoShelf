@@ -20,11 +20,21 @@ foreach ($s in @($steps | Where-Object { $_.error })) { $bad.Add(('step {0}: {1}
 $must = @('B.start', 'NFR-P1 start to dashboard rows', 'collector', 'imports', 'hostile IPC refused', 'security README',
     'drain browse', 'drain hostile IPC', 'drain final',
     'NFR-P2 1,000-entry dir (first visit)', 'no foreign requests', 'clone (file seam)', 'fetch (file seam)', 'fast-forward',
-    'clone folder trashed', 'CSP collector positive control', 'console and CSP clean')
+    'clone folder trashed', 'CSP collector positive control', 'console and CSP clean',
+    # v0.2.0 (M13)
+    'F1 Back/Forward disabled in a fresh window', 'F1 Back/Forward buttons', 'import basic: GitHub sync + auto-download (canned)',
+    'F2/F3 centred README with remote image (align)', 'README images fetched in Rust (canned)', 'F6 About: GitHub values vs user edits',
+    'F4 release card + assets (basic, canned GitHub list)', 'F4 Download (button) + Show in folder',
+    'downloads land in the scratch release store; Show in folder reaches the opener',
+    'F6 Network settings toggles (persist, images off = chips, no request)', 'network settings kept after reload', 'images off: chips only',
+    'images off: no image request', 'settings back to defaults', 'drain browse 2',
+    'clone github.com (git map) with the release option off', 'clone: GitHub sync ran, no release download (option off)',
+    'Fetch menu: Fetch and download the latest release', 'fetch menu: latest release for this PC downloaded',
+    'releases of the clone: Downloaded + Show in folder', 'clone download revealed', 'Rust-side requests all canned')
 foreach ($m in $must) { if (-not ($steps | Where-Object { $_.step -eq $m })) { $bad.Add("step missing: $m") } }
 # S0–S10 in light and dark (S0 header + S2 repo header are on every shot).
 $screens = 's01-dashboard', 's03-code', 's04-file', 's05-commits', 's06-commit', 's07-branches', 's08-tags', 's09-releases',
-'security-readme', 's10-settings', 's10-import', 's10-clone'
+'security-readme', 's10-settings', 's10-import', 's10-clone', 'm13-release-assets', 'm13-align-readme'
 $shotCount = 0
 foreach ($sc in $screens) {
     foreach ($t in 'light', 'dark') {
@@ -45,10 +55,23 @@ foreach ($t in $trash) {
     if (-not $p -or -not $run.archive -or -not $p.StartsWith([string]$run.archive, [StringComparison]::OrdinalIgnoreCase)) { $bad.Add("trash seam deleted outside the scratch archive: $t") }
 }
 
+# M13 (D-113): every HTTP request of the app went to the canned transport and had a route; only the hosts the
+# routes know (no avatar fetch, F5).
+$net = @($run.netLog | Where-Object { $_ })
+$allowedHosts = 'api.github.com', 'github.com', 'objects.githubusercontent.com', 'img.shields.io', 'fail.example.com', 'images.example.com'
+if (@($net | Where-Object { $_ -match '^get\thttps://api\.github\.com/\S*\t200$' }).Count -eq 0) { $bad.Add('net log: no canned api.github.com answer (network seam not active?)') }
+foreach ($l in $net) {
+    $parts = $l -split "`t"
+    if ($parts.Count -ne 3 -or $parts[0] -ne 'get') { $bad.Add("net log: malformed line: $l"); continue }
+    if ($parts[2] -eq 'unrouted') { $bad.Add("net log: unrouted request: $($parts[1])") }
+    $h = ([Uri]$parts[1]).Host
+    if ($allowedHosts -notcontains $h) { $bad.Add("net log: unexpected host $h") }
+}
+
 $p1 = ($steps | Where-Object { $_.step -eq 'NFR-P1 start to dashboard rows' }).ms
 $p2 = ($steps | Where-Object { $_.step -eq 'NFR-P2 1,000-entry dir (first visit)' }).ms
 if ($bad.Count -eq 0) {
-    "e2e check: all $($steps.Count) steps passed; $shotCount shots; NFR-P1 $p1 ms; NFR-P2 $p2 ms; leftovers 0; imported fixtures unchanged; trash seam 1 deletion (no Recycle Bin)"
+    "e2e check: all $($steps.Count) steps passed; $shotCount shots; NFR-P1 $p1 ms; NFR-P2 $p2 ms; leftovers 0; imported fixtures unchanged; trash seam 1 deletion (no Recycle Bin); $($net.Count) app HTTP requests, all canned"
     exit 0
 }
 Write-Host "e2e check: $($bad.Count) problem(s)" -ForegroundColor Red

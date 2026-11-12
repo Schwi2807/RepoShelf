@@ -1119,4 +1119,53 @@ mod e2e_seams {
         s.delete(Path::new("C:\\nowhere\\x.git")).unwrap();
         assert_eq!(real.got.lock().unwrap().as_slice(), [PathBuf::from("C:\\nowhere\\x.git")]);
     }
+
+    /// M13 network seam: routes answer through the production Net rules (redirect hops re-checked), unrouted URLs
+    /// fail as `network`, every request is logged.
+    #[test]
+    fn canned_net_answers_routes_logs_and_fails_the_rest() {
+        use crate::e2e::E2eNet;
+        use rs_core::net::{Net, Profile};
+        let t = tempfile::tempdir().unwrap();
+        let log = t.path().join("net.log");
+        let json = r#"{ "routes": {
+            "https://api.github.com/repos/e2e/demo": { "body": "{\"description\":\"d\"}", "headers": { "Content-Type": "application/json" } },
+            "https://github.com/e2e/demo/releases/download/v1/a.zip": { "status": 302, "headers": { "location": "https://objects.githubusercontent.com/a" } },
+            "https://objects.githubusercontent.com/a": { "bodyHex": "504b0506" },
+            "https://images.example.com/tracker.png": { "status": 404 }
+        } }"#;
+        let n = Arc::new(E2eNet::parse(json, Some(log.clone())).unwrap());
+        let net = Net::new(n.clone());
+        let r = net.get("https://api.github.com/repos/e2e/demo", &[], Profile::API).unwrap();
+        assert_eq!((r.status, r.mime()), (200, "application/json".to_string()));
+        assert_eq!(r.bytes().unwrap(), br#"{"description":"d"}"#);
+        let zip = net.get("https://github.com/e2e/demo/releases/download/v1/a.zip", &[], Profile::asset(100)).unwrap();
+        assert_eq!(zip.bytes().unwrap(), [0x50, 0x4b, 0x05, 0x06]);
+        assert_eq!(net.get("https://images.example.com/tracker.png", &[], Profile::IMAGE).unwrap().status, 404);
+        assert_eq!(net.get("https://example.org/x.png", &[], Profile::IMAGE).err().unwrap().code(), "network");
+        // refused by the production rules before the transport is asked (not logged)
+        assert_eq!(net.get("http://example.org/x.png", &[], Profile::IMAGE).err().unwrap().code(), "refused");
+        let text = std::fs::read_to_string(&log).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 5, "{text}");
+        assert_eq!(lines[0], "get\thttps://api.github.com/repos/e2e/demo\t200");
+        assert_eq!(lines[2], "get\thttps://objects.githubusercontent.com/a\t200");
+        assert_eq!(lines[4], "get\thttps://example.org/x.png\tunrouted");
+        assert_eq!(n.seen().len(), 5);
+        assert!(E2eNet::parse(r#"{ "routes": { "https://a.example.com/": { "body": "x", "bodyHex": "00" } } }"#, None).is_err());
+        assert!(E2eNet::parse(r#"{ "routes": {}, "extra": 1 }"#, None).is_err());
+    }
+
+    #[test]
+    fn git_map_parses_and_normalises() {
+        use crate::e2e::parse_git_map;
+        let (m, live) = parse_git_map("e2e/demo=file:///C:/up/demo; https://github.com/o/r.git=file:///C:/up/r ;").unwrap();
+        assert!(!live);
+        let key = rs_core::validate::clone_url("https://github.com/e2e/demo").unwrap().url;
+        assert_eq!(m.get(&key).map(String::as_str), Some("file:///C:/up/demo"));
+        assert_eq!(m.len(), 2);
+        assert!(parse_git_map("!live").unwrap().1);
+        assert!(parse_git_map("e2e/demo=https://elsewhere.example.com/x").is_err());
+        assert!(parse_git_map("no-equals-sign").is_err());
+    }
 }

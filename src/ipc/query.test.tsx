@@ -145,6 +145,26 @@ describe('useQuery', () => {
     expect(host.textContent).toBe('72');
   });
 
+  it('an invalidate during an in-flight request runs one more request after it (M13 race)', async () => {
+    const f = fakeBackend();
+    setBackendForTests(f.b);
+    await act(async () => root.render(<Probe k="raced" />));
+    await flush();
+    expect(f.pending).toHaveLength(1);
+    // e.g. a release download finishes while the list refetch of the previous job is still running
+    await act(async () => invalidate());
+    await act(async () => invalidate());
+    await flush();
+    expect(f.pending).toHaveLength(1);
+    await act(async () => f.pending[0].resolve({ repoCount: 1 }));
+    await flush();
+    expect(f.pending).toHaveLength(2);
+    await act(async () => f.pending[1].resolve({ repoCount: 2 }));
+    await flush();
+    expect(host.textContent).toBe('2');
+    expect(f.pending).toHaveLength(2);
+  });
+
   it('keeps errors (non-cancelled) visible', async () => {
     const f = fakeBackend();
     setBackendForTests(f.b);

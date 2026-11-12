@@ -832,6 +832,21 @@ Extend run-e2e (offline via seams) for new flows; README/TESTING/DECISIONS/WORKL
 portable into `_REVIVE\releases\v0.2.0\` (never run the installer); string check. Tags `m13-done`, `v0.2.0`
 on the final commit only.
 
+- [x] M13.1 e2e network seam first (D-113): `RS_E2E_NET` canned transport + `RS_E2E_NET_LOG`, `RS_E2E_GIT_MAP` for a
+  github.com clone from a local upstream (unmapped git remotes refused); `run-e2e.ps1` refuses an exe without them.
+- [x] M13.2 wd-e2e: Back/Forward, README blob: images + chip fallback, `align` README geometry in WebView2, release
+  card + assets, Download + Show in folder, auto-download from Import / Clone option / Fetch menu, GitHub About vs
+  user edits, Network toggles; whole-session console/CSP/no-foreign-requests checks kept; Rust-side request log
+  checked (zero unrouted).
+- [x] M13.3 README / TESTING / REQUIREMENTS network wording, v0.2.0 hand tests, screenshots list.
+- [x] M13.4 Version 0.2.0; installer + portable + SHA256SUMS in `_REVIVE\releases\v0.2.0\`; marker check; portable
+  smoke (scratch dirs, empty shelf).
+- [x] M13.5 `_REVIVE\REVIVE.md` + `_REVIVE_INDEX.md` row; full gate; WORKLOG; commit; tags.
+
+**Gate M13** = Gate M8 + `cargo test -p reposhelf --features e2e` / `--no-default-features`, `cargo test -p rs-core
+--no-default-features`, clippy `-p reposhelf --features e2e` and `-p reposhelf -p rs-core --no-default-features`
+(`-D warnings`), then the M9 release commands with `0.2.0` names and the marker check.
+
 ---
 
 ## Traceability (FR/NFR → steps)

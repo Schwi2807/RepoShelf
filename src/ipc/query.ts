@@ -29,6 +29,8 @@ interface Entry {
   stale: boolean;
   stable: boolean;
   inflight?: { requestId: string; cancelable: boolean };
+  /** Invalidated while `inflight` ran: fetch once more when it ends. */
+  again?: boolean;
 }
 
 interface Active {
@@ -71,9 +73,17 @@ function notify(key: string): void {
   if (ls) for (const l of [...ls]) l();
 }
 
-function start(key: string, a: Active): void {
+/**
+ * `again`: an invalidation (job finished, focus, mutation). If a request is already running it may have read the
+ * old state (M13: a fast release download finished while the list refetch from the fetch job was in flight, and
+ * the page kept "Download"), so one more request runs after it.
+ */
+function start(key: string, a: Active, again = false): void {
   const e = entryFor(key, a.opts.stable === true);
-  if (e.inflight) return;
+  if (e.inflight) {
+    if (again) e.again = true;
+    return;
+  }
   const requestId = newRequestId();
   const cancelable = a.opts.cancelable === true;
   e.inflight = { requestId, cancelable };
@@ -93,6 +103,7 @@ function start(key: string, a: Active): void {
       e.stale = false;
       if (cache.get(key) === e) touch(key, e);
       notify(key);
+      rerun(key, e);
     },
     (err: unknown) => {
       if (e.inflight?.requestId !== requestId) return;
@@ -101,9 +112,20 @@ function start(key: string, a: Active): void {
       e.stale = true;
       if (ie.code !== 'cancelled') e.error = ie;
       notify(key);
+      rerun(key, e);
     },
   );
   notify(key);
+}
+
+/** The pending "again" of `start`: refetch now if still mounted, else just leave the entry stale. */
+function rerun(key: string, e: Entry): void {
+  if (!e.again) return;
+  e.again = false;
+  if (e.stable) return;
+  e.stale = true;
+  const a = active.get(key);
+  if (a && cache.get(key) === e) start(key, a);
 }
 
 function acquire(key: string, fn: Fetcher<unknown>, opts: QueryOptions): void {
@@ -145,7 +167,7 @@ export function invalidate(prefix?: string): void {
     if (prefix !== undefined && !key.startsWith(prefix)) continue;
     e.stale = true;
     const a = active.get(key);
-    if (a) start(key, a);
+    if (a) start(key, a, true);
   }
 }
 
@@ -155,7 +177,7 @@ export function evict(key: string): void {
   if (!e) return;
   e.stale = true;
   const a = active.get(key);
-  if (a) start(key, a);
+  if (a) start(key, a, true);
   else cache.delete(key);
 }
 
@@ -232,7 +254,7 @@ export function useQuery<T>(key: string | null, fn: Fetcher<T>, opts: QueryOptio
     const a = active.get(key);
     const e = cache.get(key);
     if (e && !e.stable) e.stale = true;
-    if (a) start(key, a);
+    if (a) start(key, a, true);
   }, [key]);
 
   const e = key === null ? undefined : cache.get(key);

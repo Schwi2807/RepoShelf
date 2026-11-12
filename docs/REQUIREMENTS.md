@@ -61,7 +61,8 @@ User needs:
   into a managed archive folder.
 - N2 GitHub-like browsing: the same arrangement of header, tabs, file table, README, About, commits and diffs.
 - N3 Read-only by default: browsing any branch/tag/commit never changes the repository or its working tree.
-- N4 Works offline; network only when the user clicks Clone or Fetch (or the optional release-notes fetch).
+- N4 Works offline: browsing never needs the network. Network only for Clone / Fetch / Import of a github.com repo
+  (+ its GitHub info and release notes), README images and release downloads — each toggleable (v0.2.0).
 - N5 Survives real-world repos: Linux-made names Windows cannot store, deep paths, huge histories, big files.
 - N6 Personal metadata (description, topics, homepage) kept in the app, not written into repos.
 
@@ -223,8 +224,11 @@ releases 29–31 · import/clone/fetch 5–11 · metadata 20 · light/dark 33 ·
   "not checked out on this PC".
 
 **Offline / reliability / portability**
-- NFR-O1 Zero network unless the user starts Clone, Fetch or the optional release-notes fetch. Verified by a test run
-  with the network adapter blocked (all screens work).
+- NFR-O1 Browsing makes no network request that it depends on: every screen works with the network adapter off
+  (hand test). Network is used only on Clone / Fetch / Fetch all / Import (git, plus GitHub repository info and
+  release notes for github.com origins), for README images from other sites (cached afterwards) and for release
+  downloads — each switchable in Settings → Network (v0.2.0, revised from "zero network unless Clone / Fetch / the
+  release-notes button"). All of it happens in Rust; the webview itself never requests a foreign origin (e2e check).
 - NFR-O2 Never writes into imported repos (no index refresh, no lock files, no config changes); verified by hashing
   `.git` before/after the e2e run.
 - NFR-O3 Corrupt or partially missing repo → per-repo error card, rest of the app unaffected.

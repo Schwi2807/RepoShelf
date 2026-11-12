@@ -48,6 +48,12 @@ pub fn fetch_unchecked(s: &Shelf, repo_id: i64, ctx: &JobCtx) -> Result<FetchOut
     fetch_from(s, repo_id, FetchSource { url }, ctx)
 }
 
+/// e2e git map (M13): fetch the repo from a local `source` instead of its (https) origin; the origin is untouched.
+#[cfg(any(test, feature = "testkit"))]
+pub fn fetch_mapped(s: &Shelf, repo_id: i64, source: &str, ctx: &JobCtx) -> Result<FetchOutcome> {
+    fetch_from(s, repo_id, FetchSource { url: source.to_string() }, ctx)
+}
+
 /// Raw (unpeeled) targets of the direct refs under `prefix`, keyed by short name.
 fn direct_refs(repo: &Repository, prefix: &str) -> Result<BTreeMap<String, Oid>> {
     let mut out = BTreeMap::new();
@@ -221,6 +227,12 @@ pub fn fetch_all_unchecked(s: &Shelf, ctx: &JobCtx) -> Result<FetchOutcome> {
             if file { fetch_unchecked(s, id, ctx) } else { fetch(s, id, ctx) }
         },
     )
+}
+
+/// e2e git map (M13): Fetch all where `route` decides per repo (file seam, mapped upstream, real or refused).
+#[cfg(any(test, feature = "testkit"))]
+pub fn fetch_all_routed(s: &Shelf, ctx: &JobCtx, route: &dyn Fn(&Shelf, i64, &JobCtx) -> Result<FetchOutcome>) -> Result<FetchOutcome> {
+    fetch_all_with(s, ctx, |o| o.starts_with("file:") || repo::is_fetchable(Some(o)), route)
 }
 
 fn fetch_all_with(
