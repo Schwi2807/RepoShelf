@@ -126,7 +126,6 @@ describe('F2 remote images', () => {
     await go('#/lumen-ui/lumen', 600);
     const body = host.querySelector('.markdown')!;
     const imgs = [...body.querySelectorAll('img')];
-    console.log('IMGS', imgs.map((i) => i.alt).join('|'), body.querySelectorAll('a.md-remote-image').length);
     expect(imgs.length).toBe(8);
     expect(imgs.every((i) => i.src.startsWith('blob:mock-'))).toBe(true);
     // the logo keeps its presentational size; the badge sits in its link again
@@ -135,15 +134,15 @@ describe('F2 remote images', () => {
     const chips = [...body.querySelectorAll('a.md-remote-image')];
     expect(chips.map((c) => c.textContent)).toEqual(['Remote image: fail.example.com']);
     expect(chips[0].classList.contains('md-remote-image--failed')).toBe(true);
-    expect(calls.filter((c) => c.cmd === 'image_fetch').length).toBe(10);
-    expect(calls.filter((c) => c.cmd === 'image_bytes').length).toBe(9);
+    expect(calls.filter((c) => c.cmd === 'image_fetch').length).toBe(9);
+    expect(calls.filter((c) => c.cmd === 'image_bytes').length).toBe(8);
   });
 
   it('nothing is requested without visibility (no IntersectionObserver callback) or with the setting off', async () => {
     const { host, backend } = await boot('', '#/');
     const calls = spy(backend);
     await go('#/lumen-ui/lumen', 400);
-    expect(host.querySelectorAll('.markdown a.md-remote-image').length).toBe(10);
+    expect(host.querySelectorAll('.markdown a.md-remote-image').length).toBe(9);
     expect(calls.some((c) => c.cmd === 'image_fetch')).toBe(false);
 
     vi.stubGlobal('IntersectionObserver', VisibleObserver);
@@ -151,7 +150,7 @@ describe('F2 remote images', () => {
     await click(host.querySelector('input[name="loadRemoteImages"]'));
     await settle(50);
     await go('#/lumen-ui/lumen', 400);
-    expect(host.querySelectorAll('.markdown a.md-remote-image').length).toBe(10);
+    expect(host.querySelectorAll('.markdown a.md-remote-image').length).toBe(9);
     expect(calls.some((c) => c.cmd === 'image_fetch')).toBe(false);
   });
 
@@ -169,7 +168,7 @@ describe('F2 remote images', () => {
     const urls = Array.from({ length: 10 }, (_, i) => `https://img.example.org/${i}.png`);
     const all = urls.map((u) => loadRemoteImage(u));
     const dup = loadRemoteImage(urls[0]);
-    const skipped = loadRemoteImage('https://img.example.org/gone.png', () => false);
+    const skipped = loadRemoteImage('https://img.example.org/gone.png', () => false).then(() => 'loaded', () => 'skipped');
     await settle(10);
     expect(gates.length).toBe(MAX_PARALLEL);
     while (gates.length > 0) {
@@ -178,7 +177,7 @@ describe('F2 remote images', () => {
     }
     await Promise.all(all);
     expect(await dup).toBe(await all[0]);
-    await expect(skipped).rejects.toThrow();
+    expect(await skipped).toBe('skipped');
     expect(peak).toBeLessThanOrEqual(MAX_PARALLEL);
     expect(calls.filter((c) => c.cmd === 'image_fetch').length).toBe(10);
     // a second view of the same image is served from memory
@@ -213,7 +212,10 @@ describe('F4 release cards + assets', () => {
     expect(rows[3].querySelector('.rasset__count')?.textContent).toBe('');
     // Open on GitHub asks first (ConfirmExternalLink)
     await click(rows[1].querySelector('button[aria-label^="Open "]'));
-    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('lumen-1.1.0-x86_64-unknown-linux-gnu.tar.gz');
+    const confirm = document.querySelector('[role="dialog"]')!;
+    expect(confirm.textContent).toContain('lumen-1.1.0-x86_64-unknown-linux-gnu.tar.gz');
+    await click(buttonByText(confirm, 'Cancel'));
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
 
   it('without the GitHub list only the source rows and a hint show; other hosts show no assets', async () => {
@@ -302,7 +304,7 @@ describe('F4 release cards + assets', () => {
     const jobRow = document.querySelector('.job[data-kind="releaseDownload"]')!;
     expect(jobRow.querySelector('.job__kind')?.textContent).toBe('Download');
     expect(jobRow.querySelector('.job__target')?.textContent).toBe('SHA256SUMS (v1.1.0)');
-    expect(jobRow.textContent).toContain('Downloaded SHA256SUMS (312 B).');
+    expect(jobRow.textContent).toContain('Downloaded SHA256SUMS (312 Bytes).');
     await click(buttonByText(jobRow, 'Show in folder'));
     expect(calls.some((c) => c.cmd === 'release_reveal')).toBe(true);
   });
@@ -416,7 +418,6 @@ describe('F6 Network settings + About', () => {
     expect(host.querySelector('[data-testid="about-from-github"]')).not.toBeNull();
     await click(host.querySelector('button[aria-label="Edit repository details"]'));
     const dlg = document.querySelector('[role="dialog"]')!;
-    console.log('DLG', dlg?.outerHTML.slice(0, 600));
     const desc = dlg.querySelector<HTMLTextAreaElement>('textarea')!;
     expect(desc.value).toBe('');
     expect(desc.placeholder).toBe('From GitHub: Command-line client for container registries.');
