@@ -794,3 +794,91 @@ Open items / handoff (v0.1.0 done):
 - Scripted edits (not Edit/Write): TASKS M9 checkboxes ticked by a PowerShell string replace; `.git\info\exclude`
   appended with `Add-Content` (no Windows paths). The smoke helpers (`smoke-portable.ps1`, `cdp-eval.mjs`) lived in the
   session scratchpad and are not in the repo; the procedure is in TESTING §4.
+
+## M11 — v0.2.0 backend: network client, images, GitHub info, release assets (2026-11-12)
+
+One subagent; lead decisions of TASKS "v0.2.0" taken as fixed. Decisions D-96..D-106. Commits c7f178f (F3 proof),
+7ea94a4 (rs-core wip), final M11 commit (tag `m11-done`).
+
+Built:
+- **F3** (D-96): proof test first (c7f178f: v0.1.0 unwrapped `<div>`, kept `align` on td/th only, passed
+  `width="100px;evil"`), fixture `tests/fixtures/align/README.md`; then `<div>` + checked `align` on
+  div/p/h1–h6/table/td/th/img and checked `width`/`height`. Security fixture still neutralised (`<div onclick>` →
+  bare `<div>`).
+- **F5** (D-97): `markdown::render_release_notes` (GitHub notes and tag annotations) turns contributor avatars into
+  `@user` mention links (`class="user-mention"`), before any image could be fetched.
+- **net.rs** (D-98): `Shelf.net`; https/public-host/redirect/size/time rules; `Transport` seam; `Net::offline()` on
+  every test shelf (refuses + counts); `net::Canned` (testkit) for canned answers; checking ureq resolver.
+- **imgcache.rs** (D-105): fetch + sniff + disk cache (200 MB LRU) + clear/size.
+- **github.rs** (D-99, D-101..D-103): conditional API GETs, rate-limit back-off, repo info into `gh_repo_info`, the
+  `sync` hook (info, notes, auto-download decision) used by Clone/Fetch/Fetch all/Import jobs.
+- **ghreleases.rs**: now on `Net` (no own ureq), ETag, assets/html_url/source links/download state merged into
+  `Release`; module no longer feature-gated (only the real transport is).
+- **assets.rs** (D-104, D-106): picker, release store paths, downloader (`.partial` + rename, skip existing, SHA-256,
+  size cap announced + streamed, cancel, progress, Zone.Identifier), partial cleanup (startup).
+- **Migration 0002** (D-99), settings keys (D-100), `RepoSummary.aboutUser/aboutGithub` (D-102).
+- **Jobs**: `JobKind.clone/fetch.autoDownload`, kinds `githubSync`, `releaseDownload`; `JobResult.cloned.notes`,
+  `FetchOutcome.notes`, `JobResult.synced`, `JobResult.downloaded`; `Progress.downloading`; `JobCtx::follow_up`
+  (runner submits after `Done`); `JobRunner::join` waits for follow-ups too.
+- **IPC** (48 → 52 commands): `release_download`, `release_reveal`, `image_fetch`, `image_bytes`; optional
+  `autoDownload` on `clone_start`, `fetch_start`, `import_confirm`; `cache_clear` also empties the image cache and
+  `cacheBytes` counts it. ARCH §4/§5.1/§8, golden (`UPDATE_SAMPLES=1`), `types.ts`, `commands.ts`, `types.test.ts`,
+  mock updated together.
+
+Tests: Rust `cargo test --workspace` 181 → 213 (+1 ignored live smoke: `ghreleases::live_github_smoke`, now also
+fetches repo info): rs-core 135 → 164 lib (net 7, imgcache 4, github 4, assets 7, markdown +2, db +1, ghreleases +1,
+fetch +1, jobs +2, settings changed), reposhelf 43 → 46 (+3 M11 command tests; hostile/notFound tables extended) and
+`--features e2e` 53, `--no-default-features` 46; TS 579 → 588 (mock +3: assets/download/reveal, import sync + About,
+images). All network in tests is canned (`Net::offline()` / `net::Canned`); no test made a real request.
+
+Gate M11 (all exit 0): `cargo test --workspace` · `cargo test -p reposhelf --features e2e` / `--no-default-features` ·
+`cargo test -p rs-core --no-default-features` · `cargo clippy --workspace --all-targets -D warnings` ·
+`cargo clippy -p reposhelf --all-targets --features e2e -D warnings` · `cargo clippy -p reposhelf -p rs-core
+--all-targets --no-default-features -D warnings` · `npm run typecheck` · `npm test` 588 · `npm run build` (initial JS
+437.6 kB < 1.5 MB).
+
+Deviations / notes:
+- Scripted edit (not Edit/Write): the first F3 sanitiser change in `markdown.rs` was applied with a Python string
+  replace (no Windows paths involved; re-read and verified, tests green); everything else via Edit/Write.
+- Minimal UI-layer touches only to keep gates green: `util/jobText.ts` (kind labels, `downloading` progress text and
+  fraction, `notesReport`), `JobsPopover.tsx` `resultLines` (synced/downloaded/notes), `state/settings.ts` defaults,
+  test fixtures. No new screens.
+- Not done here (M13 per plan): REQUIREMENTS NFR "offline" wording + TESTING.md rewrite; e2e seams for the new
+  network flows (the real exe has `Net::real()` only; an e2e transport seam must be added in M13, e.g. a canned
+  `Transport` behind `cfg(feature = "e2e")`); shipped-exe string check.
+- Tauri command names: `release_download`/`release_reveal` (not in the lead's text, which only said "Download" /
+  "Show in folder"); `releases_fetch_github` keeps its name and now also refreshes assets (conditional GET).
+- A Fetch all ending `Failed` (any repo failed) queues no auto-downloads (follow-ups only after `Done`).
+
+Handoff for M12 (frontend):
+- **New commands** (`src/ipc/commands.ts`): `image_fetch { url } → RemoteImage { key, mime, size }` then
+  `image_bytes { key } → ArrayBuffer` (make `new Blob([bytes], { type: mime })` → `blob:`; SVG only as `<img>`).
+  Errors: `refused` (setting off, non-https, private/local host, not an image, > 5 MB), `network`, `invalidUrl` →
+  fall back to the existing "Remote image: host" chip. `release_download { repoId, tag, asset } → JobId` (job kind
+  `releaseDownload`, progress `downloading { bytes, total }`, result `downloaded { repoId, tag, file, path, size,
+  sha256Checked, already }`); errors `notFound` (no cached GitHub list / unknown asset), `invalidInput`,
+  `unsupported`. `release_reveal { repoId, tag, asset } → null` (`notFound` when not downloaded).
+  `clone_start { input, autoDownload? }`, `fetch_start { repoId, autoDownload? }`, `import_confirm { token,
+  autoDownload? }` — omit/null = the setting.
+- **Payloads**: `Release` + `htmlUrl`, `sourceZipUrl`, `sourceTarUrl` (github.com origins, always), `assets:
+  ReleaseAsset[]` (`name, size, downloadCount|null, url, contentType|null, sha256|null, forThisPc, downloaded|null`)
+  — assets appear only after a GitHub releases fetch (hook or `releases_fetch_github`). Release notes HTML may
+  contain `<a class="user-mention">@user</a>` (style it). README HTML may now contain `<div align>`, `align` on
+  p/h1–h6/table/td/th/img, `width`/`height` on img — check the look is GitHub-like (presentational attributes work
+  natively; watch CSS resets such as `img { display:block }` or `max-width` that break `align="right"` floats).
+  `RepoSummary.aboutUser` (Edit About must prefill and save these, not the effective values) and `aboutGithub`
+  (`description, homepage, topics, htmlUrl, fetchedAt`). `Settings` + `loadRemoteImages, fetchReleaseNotes,
+  fetchRepoInfo, autoDownloadLatestRelease, autoDownloadOnFetchAll, downloadSizeCapMb`. `JobKind` `clone`/`fetch`
+  carry `autoDownload: boolean|null`; new kinds `githubSync { repoId, autoDownload }` (title "GitHub info o/r"),
+  `releaseDownload { repoId, tag, asset }` (title "Download <asset> (<tag>)"). `JobResult.cloned.notes`,
+  `fetched.notes`, `synced { repoId, notes }` — show notes in the jobs popover (current minimal rendering lists them
+  raw).
+- **Mock**: lumen (id 2) v1.1.0 has 4 assets after `releases_fetch_github` or any GitHub hook (Windows zip marked
+  `forThisPc`, with sha256; linux/mac tarballs; `SHA256SUMS`) and a `user-mention` in its notes; `release_download`
+  needs the GitHub list first; downloads record a fake store path so `releases_list` shows `downloaded` and
+  `release_reveal` resolves; clone/fetch/import hooks mark notes as fetched and, with auto-download on, start a
+  `releaseDownload` job (or note "already downloaded" / "no file for this PC"); Fetch all auto-downloads only with
+  `autoDownloadOnFetchAll`. `image_fetch` returns an SVG placeholder naming the host (`mime image/svg+xml`); hosts
+  containing `fail` answer `network`; https + public-looking hosts only; `cache_clear` forgets images; settings off →
+  `refused`. Settings defaults as above (mock persists to localStorage key `reposhelf-mock-settings`: an old stored
+  object is merged over the new defaults).

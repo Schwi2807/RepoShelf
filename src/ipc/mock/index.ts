@@ -10,7 +10,7 @@ import type { AppInfo, ImportPreview, JobKind, JobResult, RepoSummary, Settings 
 import { mockClonePreview } from './cloneUrl';
 import { buildFixtures, genericRepo } from './fixtures';
 import { MockJobs } from './mockJobs';
-import { MockRepo } from './repoModel';
+import { effectiveAbout, MockRepo } from './repoModel';
 import { readSwitches, SLOW_MS, type Switches } from './switches';
 
 export { readSwitches } from './switches';
@@ -36,7 +36,35 @@ const DEFAULT_SETTINGS: Settings = {
   sort: { key: 'updated', desc: true },
   sourceFilter: 'all',
   showDirtyNote: false,
+  loadRemoteImages: true,
+  fetchReleaseNotes: true,
+  fetchRepoInfo: true,
+  autoDownloadLatestRelease: true,
+  autoDownloadOnFetchAll: false,
+  downloadSizeCapMb: 1024,
 };
+
+/** Mock `image_fetch` (F2): an SVG placeholder naming the host, so nothing ever leaves the page. */
+function placeholderImage(host: string): ArrayBuffer {
+  const label = host.replace(/[^a-z0-9.-]/gi, '').slice(0, 40);
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="20" viewBox="0 0 160 20">` +
+    `<rect width="160" height="20" rx="3" fill="#1b6a80"/>` +
+    `<text x="80" y="14" font-size="11" text-anchor="middle" fill="#fff" font-family="sans-serif">${label}</text></svg>`;
+  return new TextEncoder().encode(svg).buffer as ArrayBuffer;
+}
+
+/** 64 hex chars from a string (not a real sha-256; the key is opaque to the UI). */
+function mockKey(s: string): string {
+  let out = '';
+  let h = 2166136261;
+  for (let round = 0; round < 8; round++) {
+    for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619) >>> 0;
+    h = Math.imul(h ^ round, 16777619) >>> 0;
+    out += h.toString(16).padStart(8, '0');
+  }
+  return out;
+}
 
 function loadSettings(): Settings {
   try {
@@ -73,6 +101,7 @@ export function createMockBackend(search: string, opts: { tickMs?: number } = {}
   const importTokens = new Map<string, string>();
   let importSeq = 0;
   const ghFetched = new Set<number>();
+  const images = new Map<string, string>();
   const eventListeners = new Map<keyof Events, Set<(p: never) => void>>();
   let refreshedSent = false;
 
@@ -101,20 +130,39 @@ export function createMockBackend(search: string, opts: { tickMs?: number } = {}
   });
   const slug = (r: MockRepo) => `${r.def.summary.owner}/${r.def.summary.name}`;
 
+  /**
+   * v0.2.0 hook (D-103) after Clone / Import / Fetch of a github.com repo: release notes become "fetched" (when
+   * a GitHub setting is on) and the auto-download (action option, else the setting) starts as its own
+   * `releaseDownload` job when the latest release has a file marked for this PC. Returns the job notes.
+   */
+  const ghHook = (r: MockRepo, autoDownload: boolean | null, downloadAllowed = true): string[] => {
+    if (r.githubUrl() === null) return [];
+    if (settings.fetchReleaseNotes || settings.fetchRepoInfo || settings.autoDownloadLatestRelease) ghFetched.add(r.id);
+    if (!downloadAllowed || !(autoDownload ?? settings.autoDownloadLatestRelease)) return [];
+    const latest = r.releases(true).find((x) => x.latest);
+    const a = latest?.assets.find((x) => x.forThisPc);
+    if (!latest || !a) return ['No release download: no file for this PC'];
+    if (a.downloaded) return [`Latest release ${latest.tag}: ${a.name} is already downloaded`];
+    setTimeout(() => jobs.start({ type: 'releaseDownload', repoId: r.id, tag: latest.tag, asset: a.name }, `Download ${a.name} (${latest.tag})`), 0);
+    return [];
+  };
+
   const planner = (kind: JobKind): { run: () => JobResult } => ({
     run: () => {
       if (kind.type === 'clone') {
         const p = mockClonePreview(kind.url, ARCHIVE_DIR);
         if (sw.clonefail) throw `Could not reach ${p.host}: the connection timed out.`;
         const id = nextRepoId++;
-        repos.set(id, new MockRepo(genericRepo(id, p.owner, p.name, 'cloned', p.targetDir, p.url)));
+        const r = new MockRepo(genericRepo(id, p.owner, p.name, 'cloned', p.targetDir, p.url));
+        repos.set(id, r);
         const skipped = /invalid/i.test(p.name) ? ['refs/heads/aux', 'refs/tags/CON'] : [];
-        return { type: 'cloned', repoId: id, skippedRefs: skipped };
+        return { type: 'cloned', repoId: id, skippedRefs: skipped, notes: ghHook(r, kind.autoDownload) };
       }
       if (kind.type === 'fetch') {
         const r = get(kind.repoId);
         if (sw.fetchfail) throw `Could not reach ${r.def.summary.originHost ?? 'the host'}: the connection timed out.`;
         r.def.summary.lastFetchedAt = now();
+        const notes = ghHook(r, kind.autoDownload);
         // M7.7: clones report tags too (a new tag, a local tag kept because the remote moved it, a skipped ref)
         if (r.def.summary.source === 'cloned') {
           return {
@@ -124,13 +172,35 @@ export function createMockBackend(search: string, opts: { tickMs?: number } = {}
             keptLocalTags: ['v1.1.0'],
             skippedRefs: ['refs/remotes/origin/AUX'],
             updatedBranches: ['origin/main'],
+            notes,
           };
         }
-        return { type: 'fetched', newCommits: 3, newTags: [], keptLocalTags: [], skippedRefs: [], updatedBranches: ['origin/main'] };
+        return { type: 'fetched', newCommits: 3, newTags: [], keptLocalTags: [], skippedRefs: [], updatedBranches: ['origin/main'], notes };
+      }
+      if (kind.type === 'githubSync') {
+        const r = get(kind.repoId);
+        return { type: 'synced', repoId: r.id, notes: ghHook(r, kind.autoDownload) };
+      }
+      if (kind.type === 'releaseDownload') {
+        const r = get(kind.repoId);
+        const rel = r.releases(true).find((x) => x.tag === kind.tag);
+        const a = rel?.assets.find((x) => x.name === kind.asset);
+        if (!rel || !a) throw 'release file not found';
+        if (a.size > settings.downloadSizeCapMb * 1024 * 1024) throw `${a.name} is larger than the download limit (${settings.downloadSizeCapMb} MB).`;
+        const owner = r.def.summary.owner;
+        const path = `${ARCHIVE_DIR}\\_releases\\github.com\\${owner}\\${r.def.summary.name}\\${kind.tag}\\${a.name}`;
+        const already = a.downloaded !== null;
+        r.downloaded.set(`${kind.tag}\n${a.name}`, path);
+        return { type: 'downloaded', repoId: r.id, tag: kind.tag, file: a.name, path, size: a.size, sha256Checked: a.sha256 !== null, already };
       }
       if (sw.fetchfail) throw 'Fetch failed for 2 repositories:\nlumen-ui/lumen: git: timed out\ninkwell/quill: git: timed out';
-      for (const r of repos.values()) if (r.def.summary.source === 'cloned') r.def.summary.lastFetchedAt = now();
-      return { type: 'fetched', newCommits: 5, newTags: ['v2.0.0'], keptLocalTags: [], skippedRefs: [], updatedBranches: ['origin/main'] };
+      const notes: string[] = [];
+      for (const r of repos.values()) {
+        if (r.def.summary.source !== 'cloned') continue;
+        r.def.summary.lastFetchedAt = now();
+        notes.push(...ghHook(r, null, settings.autoDownloadOnFetchAll).map((n) => `${slug(r)}: ${n}`));
+      }
+      return { type: 'fetched', newCommits: 5, newTags: ['v2.0.0'], keptLocalTags: [], skippedRefs: [], updatedBranches: ['origin/main'], notes };
     },
   });
 
@@ -150,6 +220,7 @@ export function createMockBackend(search: string, opts: { tickMs?: number } = {}
     },
     cache_clear: () => {
       cacheBytes = 0;
+      images.clear();
       return appInfo();
     },
     app_open_dir: ({ which }) => {
@@ -185,7 +256,7 @@ export function createMockBackend(search: string, opts: { tickMs?: number } = {}
       };
       return p;
     },
-    import_confirm: ({ token }) => {
+    import_confirm: ({ token, autoDownload }) => {
       const path = importTokens.get(token);
       if (!path) throw ipcError('invalidInput', 'The import selection expired. Pick the folder again.');
       importTokens.delete(token);
@@ -194,6 +265,10 @@ export function createMockBackend(search: string, opts: { tickMs?: number } = {}
       const id = nextRepoId++;
       const r = new MockRepo(genericRepo(id, 'example-dev', 'notebook', 'imported', path, 'https://github.com/example-dev/notebook.git'));
       repos.set(id, r);
+      // v0.2.0: GitHub info / auto-download as a follow-up job (like the backend; never blocks the import)
+      if (settings.fetchReleaseNotes || settings.fetchRepoInfo || (autoDownload ?? settings.autoDownloadLatestRelease)) {
+        jobs.start({ type: 'githubSync', repoId: id, autoDownload: autoDownload ?? null }, `GitHub info ${slug(r)}`);
+      }
       return r.def.summary;
     },
     repo_locate: ({ repoId }) => {
@@ -231,9 +306,9 @@ export function createMockBackend(search: string, opts: { tickMs?: number } = {}
         if (!out.includes(t)) out.push(t);
       }
       if (out.length > 20) throw ipcError('invalidInput', `${out.length} topics; the limit is 20.`);
-      r.def.summary.description = desc.length > 0 ? desc : null;
-      r.def.summary.homepage = hp.length > 0 ? hp : null;
-      r.def.summary.topics = out;
+      const user = { description: desc.length > 0 ? desc : null, homepage: hp.length > 0 ? hp : null, topics: out };
+      r.def.summary.aboutUser = user;
+      Object.assign(r.def.summary, effectiveAbout(user, r.def.summary.aboutGithub));
       return r.def.summary;
     },
     repo_detail: ({ repoId }) => {
@@ -300,16 +375,55 @@ export function createMockBackend(search: string, opts: { tickMs?: number } = {}
       return r.releases(true);
     },
     clone_preview: ({ input }) => mockClonePreview(input, ARCHIVE_DIR),
-    clone_start: ({ input }) => {
+    release_download: ({ repoId, tag, asset }) => {
+      const r = open(repoId);
+      for (const v of [tag, asset]) {
+        if (v.length === 0 || v.length > 512 || /[\u0000-\u001f]/.test(v)) throw ipcError('invalidInput', 'invalid release or file name');
+      }
+      if (!ghFetched.has(repoId)) throw ipcError('notFound', 'GitHub release list (load the release notes first) not found');
+      const known = r.releases(true).some((x) => x.tag === tag && x.assets.some((a) => a.name === asset));
+      if (!known) throw ipcError('notFound', 'release file not found');
+      return jobs.start({ type: 'releaseDownload', repoId, tag, asset }, `Download ${asset} (${tag})`);
+    },
+    release_reveal: ({ repoId, tag, asset }) => {
+      const r = open(repoId);
+      if (!r.downloaded.has(`${tag}\n${asset}`)) throw ipcError('notFound', 'downloaded file not found');
+      return null;
+    },
+    image_fetch: ({ url }) => {
+      if (!settings.loadRemoteImages) throw ipcError('refused', 'Remote images are turned off (Settings → Network).');
+      let u: URL;
+      try {
+        u = new URL(url);
+      } catch {
+        throw ipcError('invalidUrl', 'invalid image address');
+      }
+      const h = u.hostname.toLowerCase();
+      if (u.protocol !== 'https:' || u.username || u.port || !h.includes('.') || /^[\d.]+$|^\[|localhost$|\.local$/.test(h)) {
+        throw ipcError('refused', `Refused a non-public address: ${url}`);
+      }
+      // mock: hosts containing "fail" behave like an unreachable server (the UI falls back to the chip)
+      if (h.includes('fail')) throw ipcError('network', `network: could not reach ${h}`);
+      const key = mockKey(u.href);
+      images.set(key, h);
+      return { key, mime: 'image/svg+xml', size: placeholderImage(h).byteLength };
+    },
+    image_bytes: ({ key }) => {
+      if (!/^[0-9a-f]{64}$/.test(key)) throw ipcError('invalidInput', 'bad image key');
+      const h = images.get(key);
+      if (h === undefined) throw ipcError('notFound', 'cached image not found');
+      return placeholderImage(h);
+    },
+    clone_start: ({ input, autoDownload }) => {
       const p = mockClonePreview(input, ARCHIVE_DIR);
       const dup = [...repos.values()].find((r) => r.def.summary.originUrl === p.url);
       if (dup) throw ipcError('duplicate', `already on the shelf: ${slug(dup)}`);
-      return jobs.start({ type: 'clone', url: p.url }, `Clone ${p.host}/${p.owner}/${p.name}`);
+      return jobs.start({ type: 'clone', url: p.url, autoDownload: autoDownload ?? null }, `Clone ${p.host}/${p.owner}/${p.name}`);
     },
-    fetch_start: ({ repoId }) => {
+    fetch_start: ({ repoId, autoDownload }) => {
       const r = open(repoId);
       if (!r.def.fetchable) throw ipcError('refused', 'This repository has no https:// origin to fetch from.');
-      return jobs.start({ type: 'fetch', repoId }, `Fetch ${slug(r)}`);
+      return jobs.start({ type: 'fetch', repoId, autoDownload: autoDownload ?? null }, `Fetch ${slug(r)}`);
     },
     fetch_all_start: () => jobs.start({ type: 'fetchAll' }, 'Fetch all clones'),
     fast_forward: ({ repoId }) => {

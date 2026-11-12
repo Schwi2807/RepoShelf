@@ -50,6 +50,7 @@ const fetchOutcome = obj<T.FetchOutcome>({
   keptLocalTags: arr('string'),
   skippedRefs: arr('string'),
   updatedBranches: arr('string'),
+  notes: arr('string'),
 });
 
 const shapes = {
@@ -74,6 +75,16 @@ const shapes = {
     lastOpenedAt: n('number'),
     lastFetchedAt: n('number'),
     status: ref('RepoStatus'),
+    aboutUser: ref('AboutValues'),
+    aboutGithub: n(ref('GithubAbout')),
+  }),
+  AboutValues: obj<T.AboutValues>({ description: n('string'), homepage: n('string'), topics: arr('string') }),
+  GithubAbout: obj<T.GithubAbout>({
+    description: n('string'),
+    homepage: n('string'),
+    topics: arr('string'),
+    htmlUrl: n('string'),
+    fetchedAt: 'number',
   }),
   HeadState: union<T.HeadState>({ branch: { name: 'string' }, detached: { oid: 'string' }, unborn: { name: 'string' } }),
   RepoDetail: obj<T.RepoDetail>({
@@ -200,7 +211,22 @@ const shapes = {
     latest: 'boolean',
     previousTag: n('string'),
     ghNotes: 'boolean',
+    htmlUrl: n('string'),
+    sourceZipUrl: n('string'),
+    sourceTarUrl: n('string'),
+    assets: arr(ref('ReleaseAsset')),
   }),
+  ReleaseAsset: obj<T.ReleaseAsset>({
+    name: 'string',
+    size: 'number',
+    downloadCount: n('number'),
+    url: 'string',
+    contentType: n('string'),
+    sha256: n('string'),
+    forThisPc: 'boolean',
+    downloaded: n('string'),
+  }),
+  RemoteImage: obj<T.RemoteImage>({ key: 'string', mime: 'string', size: 'number' }),
   ImportPreview: obj<T.ImportPreview>({
     path: 'string',
     name: 'string',
@@ -212,8 +238,18 @@ const shapes = {
   ClonePreview: obj<T.ClonePreview>({ url: 'string', host: 'string', owner: 'string', name: 'string', targetDir: 'string' }),
   FetchOutcome: fetchOutcome,
   JobResult: union<T.JobResult>({
-    cloned: { repoId: 'number', skippedRefs: arr('string') },
+    cloned: { repoId: 'number', skippedRefs: arr('string'), notes: arr('string') },
     fetched: fetchOutcome.fields as Fields<T.FetchOutcome>,
+    synced: { repoId: 'number', notes: arr('string') },
+    downloaded: {
+      repoId: 'number',
+      tag: 'string',
+      file: 'string',
+      path: 'string',
+      size: 'number',
+      sha256Checked: 'boolean',
+      already: 'boolean',
+    },
   }),
   Removed: obj<T.Removed>({ path: 'string', source: ref('Source') }),
   RemoveResult: obj<T.RemoveResult>({ trashed: 'boolean' }),
@@ -221,7 +257,18 @@ const shapes = {
   SortKey: enumOf<T.SortKey>({ updated: true, name: true, added: true }),
   SortSpec: obj<T.SortSpec>({ key: ref('SortKey'), desc: 'boolean' }),
   SourceFilter: enumOf<T.SourceFilter>({ all: true, imported: true, cloned: true }),
-  Settings: obj<T.Settings>({ theme: ref('Theme'), sort: ref('SortSpec'), sourceFilter: ref('SourceFilter'), showDirtyNote: 'boolean' }),
+  Settings: obj<T.Settings>({
+    theme: ref('Theme'),
+    sort: ref('SortSpec'),
+    sourceFilter: ref('SourceFilter'),
+    showDirtyNote: 'boolean',
+    loadRemoteImages: 'boolean',
+    fetchReleaseNotes: 'boolean',
+    fetchRepoInfo: 'boolean',
+    autoDownloadLatestRelease: 'boolean',
+    autoDownloadOnFetchAll: 'boolean',
+    downloadSizeCapMb: 'number',
+  }),
   Version: obj<T.Version>({ major: 'number', minor: 'number', patch: 'number', extra: 'number', pre: n('string') }),
   AppInfo: obj<T.AppInfo>({
     version: 'string',
@@ -231,13 +278,20 @@ const shapes = {
     repoCount: 'number',
     archiveBytes: n('number'),
   }),
-  JobKind: union<T.JobKind>({ clone: { url: 'string' }, fetch: { repoId: 'number' }, fetchAll: {} }),
+  JobKind: union<T.JobKind>({
+    clone: { url: 'string', autoDownload: n('boolean') },
+    fetch: { repoId: 'number', autoDownload: n('boolean') },
+    fetchAll: {},
+    githubSync: { repoId: 'number', autoDownload: n('boolean') },
+    releaseDownload: { repoId: 'number', tag: 'string', asset: 'string' },
+  }),
   JobState: enumOf<T.JobState>({ waiting: true, running: true, done: true, failed: true, cancelled: true }),
   Progress: union<T.Progress>({
     connecting: {},
     receiving: { received: 'number', total: 'number', bytes: 'number' },
     resolving: { done: 'number', total: 'number' },
     finalizing: {},
+    downloading: { bytes: 'number', total: 'number' },
   }),
   JobInfo: obj<T.JobInfo>({
     id: 'number',
@@ -334,7 +388,20 @@ describe('IPC types match the Rust golden samples (D-24)', () => {
     const unknownSamples = [...sampled].filter((k) => !(k in shapes));
     expect(unknownSamples).toEqual([]);
     // shapes only ever nested (never sampled on their own) are still exercised through their parents
-    const nestedOnly = ['RefItem', 'Signature', 'CommitSummary', 'EntryCommit', 'Heading', 'LanguageStat', 'Hunk', 'AheadBehind', 'FetchOutcome'];
+    const nestedOnly = [
+      'RefItem',
+      'Signature',
+      'CommitSummary',
+      'EntryCommit',
+      'Heading',
+      'LanguageStat',
+      'Hunk',
+      'AheadBehind',
+      'FetchOutcome',
+      'AboutValues',
+      'GithubAbout',
+      'ReleaseAsset',
+    ];
     const missing = Object.keys(shapes).filter((k) => !sampled.has(k) && !nestedOnly.includes(k));
     expect(missing).toEqual([]);
   });

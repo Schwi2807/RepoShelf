@@ -3,7 +3,7 @@
 
 mod ipc_samples;
 
-use crate::cmd::{app, blob, commits, dialogs, jobs, library, refs, releases, tree};
+use crate::cmd::{app, blob, commits, dialogs, images, jobs, library, refs, releases, tree};
 use crate::ipc_error::CREDENTIALS;
 use crate::state::{AppState, Opener, Picker, Trasher};
 use rs_core::Shelf;
@@ -76,7 +76,7 @@ fn fake_worker(seen: Arc<Mutex<Vec<JobKind>>>) -> Worker {
     Arc::new(move |kind: &JobKind, _ctx: &JobCtx| {
         seen.lock().unwrap().push(kind.clone());
         match kind {
-            JobKind::Clone { .. } => Ok(JobResult::Cloned { repo_id: 99, skipped_refs: vec![] }),
+            JobKind::Clone { .. } => Ok(JobResult::Cloned { repo_id: 99, skipped_refs: vec![], notes: vec![] }),
             _ => Ok(JobResult::Fetched(FetchOutcome::default())),
         }
     })
@@ -246,8 +246,10 @@ fn unknown_repo_id_is_not_found_everywhere() {
         ("releases_fetch_github", ok(releases::releases_fetch_github_impl(s, x))),
         ("commit_detail", ok(commits::commit_detail_impl(s, x, &head))),
         ("commit_file_diff", ok(commits::commit_file_diff_impl(s, x, &head, 0, false))),
-        ("fetch_start", ok(jobs::fetch_start_impl(s, x))),
+        ("fetch_start", ok(jobs::fetch_start_impl(s, x, None))),
         ("fast_forward", ok(jobs::fast_forward_impl(s, x))),
+        ("release_download", ok(jobs::release_download_impl(s, x, "v1", "a.zip"))),
+        ("release_reveal", ok(releases::release_reveal_impl(s, x, "v1", "a.zip"))),
     ];
     for (name, r) in all {
         assert_eq!(code(r), "notFound", "{name}");
@@ -426,16 +428,16 @@ fn import_pick_and_confirm_with_token() {
     assert!(p.duplicate_of.is_none());
     // bad / unknown token
     for bad in ["", "nope", &"x".repeat(65)] {
-        assert_eq!(code(dialogs::import_confirm_impl(&e.st, bad)), "invalidInput", "{bad:?}");
+        assert_eq!(code(dialogs::import_confirm_impl(&e.st, bad, None)), "invalidInput", "{bad:?}");
     }
-    let s = dialogs::import_confirm_impl(&e.st, &p.token).unwrap();
+    let s = dialogs::import_confirm_impl(&e.st, &p.token, None).unwrap();
     assert_eq!(s.source, Source::Imported);
     // one-shot
-    assert_eq!(code(dialogs::import_confirm_impl(&e.st, &p.token)), "invalidInput");
+    assert_eq!(code(dialogs::import_confirm_impl(&e.st, &p.token, None)), "invalidInput");
     // a duplicate shows up in the preview
     let dup = dialogs::import_preview_for(&e.st, &e.basic.path).unwrap();
     assert_eq!(dup.duplicate_of, Some(e.id));
-    assert_eq!(code(dialogs::import_confirm_impl(&e.st, &dup.token)), "duplicate");
+    assert_eq!(code(dialogs::import_confirm_impl(&e.st, &dup.token, None)), "duplicate");
     // non-repo folder refused at preview
     e.picker.folders.lock().unwrap().push_back(Some(e.t.path().to_path_buf()));
     assert_eq!(code(dialogs::import_pick_impl(&e.st)), "notARepo");
@@ -450,7 +452,7 @@ fn expired_import_token_is_refused() {
         let entry = t.get_mut(&p.token).unwrap();
         entry.1 = std::time::Instant::now() - crate::state::IMPORT_TOKEN_TTL - std::time::Duration::from_secs(1);
     }
-    assert_eq!(code(dialogs::import_confirm_impl(&e.st, &p.token)), "invalidInput");
+    assert_eq!(code(dialogs::import_confirm_impl(&e.st, &p.token, None)), "invalidInput");
 }
 
 #[test]
@@ -667,7 +669,7 @@ fn clone_preview_and_start() {
     let e = env();
     for bad in ["", "git@github.com:o/r.git", "http://example.com/o/r", "file:///C:/x", "a/b/c", "https://u:p@github.com/o/r", "C:\\repo"] {
         assert_eq!(code(jobs::clone_preview_impl(&e.st, bad)), "invalidUrl", "{bad:?}");
-        assert_eq!(code(jobs::clone_start_impl(&e.st, bad)), "invalidUrl", "{bad:?}");
+        assert_eq!(code(jobs::clone_start_impl(&e.st, bad, None)), "invalidUrl", "{bad:?}");
     }
     assert!(e.st.jobs.list().is_empty(), "rejected input never creates a job");
     let p = jobs::clone_preview_impl(&e.st, "owner/repo").unwrap();
@@ -677,12 +679,12 @@ fn clone_preview_and_start() {
     let (ch, got) = recording_channel();
     let snap = jobs::jobs_subscribe_impl(&e.st, "main", ch);
     assert!(snap.is_empty());
-    let id = jobs::clone_start_impl(&e.st, " owner/repo ").unwrap();
+    let id = jobs::clone_start_impl(&e.st, " owner/repo ", None).unwrap();
     e.st.jobs.join();
     let info = e.st.jobs.get(id).unwrap();
     assert_eq!(info.state, JobState::Done);
     assert_eq!(info.title, "Clone owner/repo");
-    assert_eq!(*e.worked.lock().unwrap(), vec![JobKind::Clone { url: "https://github.com/owner/repo.git".into() }]);
+    assert_eq!(*e.worked.lock().unwrap(), vec![JobKind::clone_url("https://github.com/owner/repo.git")]);
     // the channel saw waiting → running → done, camelCase JobInfo
     let events = got.lock().unwrap().clone();
     let states: Vec<&str> = events.iter().map(|v| v["state"].as_str().unwrap()).collect();
@@ -700,13 +702,13 @@ fn clone_preview_and_start() {
 #[test]
 fn fetch_jobs_cancel_retry_dismiss() {
     let e = env();
-    let id = jobs::fetch_start_impl(&e.st, e.id).unwrap();
+    let id = jobs::fetch_start_impl(&e.st, e.id, None).unwrap();
     e.st.jobs.join();
     assert_eq!(e.st.jobs.get(id).unwrap().title, "Fetch example/basic");
     assert_eq!(e.st.jobs.get(id).unwrap().state, JobState::Done);
     // no origin → refused synchronously
     let local = add(&e, &testkit::releases(&e.t.path().join("noorigin.git")), Source::Imported);
-    assert_eq!(code(jobs::fetch_start_impl(&e.st, local)), "refused");
+    assert_eq!(code(jobs::fetch_start_impl(&e.st, local, None)), "refused");
     let all = jobs::fetch_all_start_impl(&e.st).unwrap();
     e.st.jobs.join();
     assert_eq!(e.st.jobs.get(all).unwrap().kind, JobKind::FetchAll);
@@ -759,6 +761,7 @@ fn job_errors_get_friendly_text() {
         JobKind::Clone { .. } => Err(Error::Git(git2::Error::new(git2::ErrorCode::GenericError, git2::ErrorClass::Http, "request failed with status code: 401"))),
         JobKind::Fetch { .. } => Err(Error::Git(git2::Error::new(git2::ErrorCode::GenericError, git2::ErrorClass::Os, "failed to connect to host"))),
         JobKind::FetchAll => Err(Error::Cancelled),
+        JobKind::GithubSync { .. } | JobKind::ReleaseDownload { .. } => Err(Error::Network("unused".into())),
     });
     let t = tempfile::tempdir().unwrap();
     let shelf = Arc::new(testkit::shelf(t.path()));
@@ -766,8 +769,8 @@ fn job_errors_get_friendly_text() {
     let id = rs_core::library::import(&shelf, &basic.path).unwrap().id;
     let worker = crate::state::friendly_worker(shelf.clone(), base);
     let st = AppState::with_worker(shelf, false, worker, Arc::new(FakePicker::default()), Arc::new(FakeTrash::default()), Arc::new(FakeOpener::default()));
-    let c = jobs::clone_start_impl(&st, "https://codeberg.org/o/r").unwrap();
-    let f = jobs::fetch_start_impl(&st, id).unwrap();
+    let c = jobs::clone_start_impl(&st, "https://codeberg.org/o/r", None).unwrap();
+    let f = jobs::fetch_start_impl(&st, id, None).unwrap();
     let a = jobs::fetch_all_start_impl(&st).unwrap();
     st.jobs.join();
     assert_eq!(st.jobs.get(c).unwrap().error.as_deref(), Some(CREDENTIALS));
@@ -782,7 +785,7 @@ fn file_clone_seam_absent_without_e2e() {
     let e = env_with(None, true);
     let (_up, url) = testkit::upstream_downstream(&e.t.path().join("up").join("demo"));
     assert_eq!(code(jobs::clone_preview_impl(&e.st, &url)), "invalidUrl");
-    assert_eq!(code(jobs::clone_start_impl(&e.st, &url)), "invalidUrl");
+    assert_eq!(code(jobs::clone_start_impl(&e.st, &url, None)), "invalidUrl");
 }
 
 /// e2e build with the flag: file:// clone and fetch through the command layer (D-14, D-20).
@@ -796,7 +799,7 @@ fn file_clone_seam_in_e2e_build() {
     let (mut up, url) = testkit::upstream_downstream(&t.path().join("up").join("demo"));
     let p = jobs::clone_preview_impl(&st, &url).unwrap();
     assert_eq!(p.name, "demo");
-    let id = jobs::clone_start_impl(&st, &url).unwrap();
+    let id = jobs::clone_start_impl(&st, &url, None).unwrap();
     st.jobs.join();
     let info = st.jobs.get(id).unwrap();
     assert_eq!(info.state, JobState::Done, "{:?}", info.error);
@@ -804,13 +807,13 @@ fn file_clone_seam_in_e2e_build() {
     // the UI offers Fetch on the file:// clone only through the seam (D-90)
     assert!(library::repo_detail_impl(&st, repo_id).unwrap().fetchable);
     up.file("more", b"1").commit("more", testkit::T0 + 999);
-    let f = jobs::fetch_start_impl(&st, repo_id).unwrap();
+    let f = jobs::fetch_start_impl(&st, repo_id, None).unwrap();
     st.jobs.join();
     let info = st.jobs.get(f).unwrap();
     assert_eq!(info.state, JobState::Done, "{:?}", info.error);
     // without the flag the same build refuses file://
     let off = AppState::with_worker(shelf.clone(), false, crate::state::make_worker(shelf, false), Arc::new(FakePicker::default()), Arc::new(FakeTrash::default()), Arc::new(FakeOpener::default()));
-    assert_eq!(code(jobs::clone_start_impl(&off, &url)), "invalidUrl");
+    assert_eq!(code(jobs::clone_start_impl(&off, &url, None)), "invalidUrl");
     assert!(!library::repo_detail_impl(&off, repo_id).unwrap().fetchable, "file:// is not fetchable without the seam");
 }
 
@@ -841,6 +844,123 @@ fn navigation_guard_allows_only_the_app() {
     assert!(!crate::is_app_url(&u("https://localhost:1450/"), true));
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// v0.2.0 M11: remote images, release downloads, GitHub follow-up jobs (all offline: canned HTTP)
+
+/// An env whose shelf talks to `canned` (or refuses everything with `Net::offline()`).
+fn env_net(canned: Option<Arc<rs_core::net::Canned>>) -> (tempfile::TempDir, AppState, Arc<FakeOpener>, Arc<Mutex<Vec<JobKind>>>) {
+    let t = tempfile::tempdir().unwrap();
+    let mut s = testkit::shelf(t.path());
+    if let Some(c) = canned {
+        s = s.with_net(rs_core::net::Net::new(c));
+    }
+    let shelf = Arc::new(s);
+    std::fs::create_dir_all(&shelf.dirs.archive).unwrap();
+    let opener = Arc::new(FakeOpener::default());
+    let worked = Arc::new(Mutex::new(Vec::new()));
+    let st = AppState::with_worker(
+        shelf,
+        false,
+        fake_worker(worked.clone()),
+        Arc::new(FakePicker::default()),
+        Arc::new(FakeTrash::default()),
+        opener.clone(),
+    );
+    (t, st, opener, worked)
+}
+
+/// A work-tree repo with a github.com origin.
+fn github_repo(dir: &Path) -> PathBuf {
+    let mut b = testkit::repo(dir);
+    b.file("a", b"1").commit("one", testkit::T0).tag("v1.0.0", false).set_head().origin("https://github.com/o/r.git");
+    dir.to_path_buf()
+}
+
+#[test]
+fn image_commands_fetch_cache_and_refuse() {
+    let c = rs_core::net::Canned::new();
+    c.on("https://example.com/a.png", 200, &[("content-type", "image/png")], b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec());
+    let (_t, st, _, _) = env_net(Some(c.clone()));
+    let img = images::image_fetch_impl(&st, "https://example.com/a.png").unwrap();
+    assert_eq!(img.mime, "image/png");
+    assert_eq!(images::image_bytes_impl(&st, &img.key).unwrap().len() as u64, img.size);
+    assert!(app::app_info_impl(&st).unwrap().cache_bytes >= img.size);
+    for bad in ["", "..", "../x", "C:\\x", &"g".repeat(64), &"A".repeat(64), &"a".repeat(63)] {
+        assert_eq!(code(images::image_bytes_impl(&st, bad)), "invalidInput", "{bad:?}");
+    }
+    for bad in ["http://example.com/a.png", "https://127.0.0.1/a.png", "https://localhost/a.png", "file:///C:/x.png", "javascript:alert(1)", "rsrepo:/a.png"] {
+        assert_eq!(code(images::image_fetch_impl(&st, bad)), "refused", "{bad:?}");
+    }
+    assert_eq!(code(images::image_fetch_impl(&st, "nope")), "invalidUrl");
+    assert_eq!(c.seen().len(), 1, "refusals never reach the transport");
+    // Clear cache empties the image cache too
+    app::cache_clear_impl(&st).unwrap();
+    assert_eq!(code(images::image_bytes_impl(&st, &img.key)), "notFound");
+    // the setting turns it off (enforced in Rust)
+    let off = rs_core::settings::Settings { load_remote_images: false, ..Default::default() };
+    app::settings_set_impl(&st, off).unwrap();
+    assert_eq!(code(images::image_fetch_impl(&st, "https://example.com/a.png")), "refused");
+    assert_eq!(c.seen().len(), 1);
+}
+
+#[test]
+fn release_download_and_reveal_use_names_from_the_cached_answer() {
+    let (t, st, opener, worked) = env_net(None);
+    let id = testkit::register_raw(&st.shelf, &github_repo(&t.path().join("r")), Source::Imported).unwrap();
+    assert_eq!(code(jobs::release_download_impl(&st, id, "v1.0.0", "a.zip")), "notFound", "no cached list yet");
+    let json = r#"[{"tag_name":"v1.0.0","assets":[{"name":"a.zip","size":1,"browser_download_url":"https://github.com/o/r/releases/download/v1.0.0/a.zip"}]}]"#;
+    rs_core::ghreleases::store(&st.shelf, id, json).unwrap();
+    for (tag, asset) in [("", "a.zip"), ("v1.0.0", ""), ("v1\n", "a.zip"), ("v1.0.0", &"x".repeat(600))] {
+        assert_eq!(code(jobs::release_download_impl(&st, id, tag, asset)), "invalidInput", "{tag:?} {asset:?}");
+    }
+    for (tag, asset) in [("v2", "a.zip"), ("v1.0.0", "b.zip"), ("v1.0.0", "..\\..\\x.exe"), ("v1.0.0", "https://evil.example/a.zip")] {
+        assert_eq!(code(jobs::release_download_impl(&st, id, tag, asset)), "notFound", "{tag:?} {asset:?}");
+    }
+    let job = jobs::release_download_impl(&st, id, "v1.0.0", "a.zip").unwrap();
+    st.jobs.join();
+    assert!(st.jobs.get(job).unwrap().title.contains("a.zip"));
+    assert_eq!(*worked.lock().unwrap(), vec![JobKind::ReleaseDownload { repo_id: id, tag: "v1.0.0".into(), asset: "a.zip".into() }]);
+    // reveal: only an existing file in the store, path computed in Rust
+    assert_eq!(code(releases::release_reveal_impl(&st, id, "v1.0.0", "a.zip")), "notFound");
+    let file = st.shelf.dirs.archive.join("_releases").join("github.com").join("o").join("r").join("v1.0.0").join("a.zip");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(&file, b"x").unwrap();
+    releases::release_reveal_impl(&st, id, "v1.0.0", "a.zip").unwrap();
+    assert_eq!(opener.reveals.lock().unwrap().as_slice(), std::slice::from_ref(&file));
+    let list = releases::releases_list_impl(&st, id).unwrap();
+    assert_eq!(list[0].assets[0].downloaded.as_deref(), Some(file.display().to_string().as_str()));
+    assert_eq!(list[0].source_zip_url.as_deref(), Some("https://github.com/o/r/archive/refs/tags/v1.0.0.zip"));
+}
+
+#[test]
+fn import_queues_github_sync_and_actions_pass_their_download_option() {
+    let (t, st, _, worked) = env_net(None);
+    let gh = github_repo(&t.path().join("gh"));
+    let p = dialogs::import_preview_for(&st, &gh).unwrap();
+    let sum = dialogs::import_confirm_impl(&st, &p.token, Some(false)).unwrap();
+    // a non-GitHub import queues nothing
+    let mut b = testkit::repo(&t.path().join("lab"));
+    b.file("a", b"1").commit("one", testkit::T0).set_head().origin("https://gitlab.com/o/lab.git");
+    let p2 = dialogs::import_preview_for(&st, &t.path().join("lab")).unwrap();
+    dialogs::import_confirm_impl(&st, &p2.token, None).unwrap();
+    jobs::clone_start_impl(&st, "o/r2", Some(true)).unwrap();
+    jobs::fetch_start_impl(&st, sum.id, Some(false)).unwrap();
+    st.jobs.join();
+    let got = worked.lock().unwrap().clone();
+    assert!(got.contains(&JobKind::GithubSync { repo_id: sum.id, auto_download: Some(false) }), "{got:?}");
+    assert!(got.contains(&JobKind::Clone { url: "https://github.com/o/r2.git".into(), auto_download: Some(true) }), "{got:?}");
+    assert!(got.contains(&JobKind::Fetch { repo_id: sum.id, auto_download: Some(false) }), "{got:?}");
+    assert_eq!(got.iter().filter(|k| matches!(k, JobKind::GithubSync { .. })).count(), 1, "{got:?}");
+    // every GitHub setting off → no follow-up job either
+    let off = rs_core::settings::Settings { fetch_release_notes: false, fetch_repo_info: false, auto_download_latest_release: false, ..Default::default() };
+    app::settings_set_impl(&st, off).unwrap();
+    let gh2 = github_repo(&t.path().join("gh2"));
+    let p3 = dialogs::import_preview_for(&st, &gh2).unwrap();
+    dialogs::import_confirm_impl(&st, &p3.token, None).unwrap();
+    st.jobs.join();
+    assert_eq!(worked.lock().unwrap().iter().filter(|k| matches!(k, JobKind::GithubSync { .. })).count(), 1);
+}
+
 /// Every command of ARCH §5.1 is in `generate_handler!` and nothing else is.
 #[test]
 fn every_arch_command_is_registered() {
@@ -866,7 +986,7 @@ fn every_arch_command_is_registered() {
         .collect();
     want.sort();
     got.sort();
-    assert_eq!(want.len(), 48, "{want:?}");
+    assert_eq!(want.len(), 52, "{want:?}");
     assert_eq!(got, want);
 }
 

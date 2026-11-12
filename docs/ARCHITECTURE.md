@@ -539,6 +539,12 @@ CREATE TABLE jobs (                               -- FR-7: clone/fetch jobs; fai
 CREATE INDEX cache_last_commit_age ON cache_last_commit(created_at);
 ```
 
+v0.2.0 (M11, D-99) `0002_github.sql`: `cache_gh_releases.etag` (conditional GETs) and table `gh_repo_info` (repo_id,
+etag, fetched_at, description, homepage, topics_json, html_url) — fetched About values kept apart from the user's
+`repo_meta`/`repo_topics`; not a `cache_*` table, so "Clear cache" keeps it. Additive only; tested against a
+v0.1.0-shaped DB with rows in every table. README images are cached on disk (`<data>\img-cache\`, 200 MB LRU), release
+assets live in `<archive>\_releases\<host>\<owner>\<name>\<tag>\<file>`.
+
 Cache pruning: on start, keep at most 2,000 `cache_last_commit` rows (oldest deleted) and drop cache rows whose
 `tip` is neither a current ref tip nor used in the last 30 days (cheap: `created_at`). Rows in `jobs` with
 state `running`/`waiting` at startup become `failed` with "Interrupted (app closed)" — Retry available.
@@ -563,7 +569,7 @@ camelCase; Rust command names snake_case.
 | `library_refresh` | `requestId` | `RepoSummary[]` | 1, 4, R-9 |
 | `repo_by_slug` | `owner, name` | `RepoSummary` | 12, 34 |
 | `import_pick` | – | `ImportPreview \| null` (opens folder dialog in Rust) | 5 |
-| `import_confirm` | `token` (from preview; backend keeps the picked path) | `RepoSummary` | 5 |
+| `import_confirm` | `token` (from preview; backend keeps the picked path), `autoDownload?` (v0.2.0; `null` = setting) | `RepoSummary` (+ queues a `githubSync` job for github.com origins when a GitHub setting is on, D-103) | 5, F6 |
 | `repo_locate` | `repoId` (opens folder dialog in Rust) | `RepoSummary \| null` (null = cancelled, D-58) | 4 |
 | `repo_remove` | `repoId` | `{ trashed: bool }` (cloned inside the archive → `trash::delete`, D-50) | 36 |
 | `repo_set_metadata` | `repoId, description, homepage, topics` | `RepoSummary` | 20 |
@@ -589,11 +595,15 @@ camelCase; Rust command names snake_case.
 | `branches_list` | `repoId` | `BranchRow[]` | 29 |
 | `branches_ahead_behind` | `repoId, names[], requestId` | `[name, AheadBehind][]` | 29 |
 | `tags_list` | `repoId` | `TagRow[]` | 30 |
-| `releases_list` | `repoId` | `Release[]` (cached GH notes merged if present) | 31 |
-| `releases_fetch_github` | `repoId` | `Release[]` (feature `ghreleases`; network) | 31 opt |
+| `releases_list` | `repoId` | `Release[]` (cached GH notes, assets with download state and source links merged if present; no network) | 31, F4 |
+| `releases_fetch_github` | `repoId` | `Release[]` (feature `ghreleases`; network, `If-None-Match`) | 31 opt |
+| `release_download` | `repoId, tag, asset` (names from the cached GitHub answer; never a URL or path) | `JobId` (`releaseDownload` job; `unsupported` without the feature) | F4 |
+| `release_reveal` | `repoId, tag, asset` | `()` (Explorer on the downloaded file; `notFound` if absent) | F4 |
+| `image_fetch` | `url` (https, public host; refused when `loadRemoteImages` is off) | `RemoteImage { key, mime, size }` (fetched by Rust or from the disk cache) | F2 |
+| `image_bytes` | `key` (64 hex from `image_fetch`) | raw `ArrayBuffer` (`tauri::ipc::Response`) | F2 |
 | `clone_preview` | `input` | `ClonePreview` | 6 |
-| `clone_start` | `input` | `JobId` | 6–9 |
-| `fetch_start` | `repoId` | `JobId` | 10 |
+| `clone_start` | `input`, `autoDownload?` (v0.2.0; `null` = setting) | `JobId` | 6–9, F4 |
+| `fetch_start` | `repoId`, `autoDownload?` (v0.2.0; `null` = setting) | `JobId` | 10, F4 |
 | `fetch_all_start` | – | `JobId` (sequential, cancellable; optional) | S1 |
 | `fast_forward` | `repoId` | `string` (new tip) | 11 |
 | `jobs_subscribe` | `channel: Channel<JobInfo>` | `JobInfo[]` snapshot | 7, NFR-P7 |
@@ -940,7 +950,15 @@ opener plugin). Everything else ignored. `window.open` is never used; Tauri's de
 denied via `on_navigation` returning false for any non-app URL (defence in depth; *verify in M4* that the hook applies to the
 config-defined window, otherwise create the window in `lib.rs` with the builder).
 
-**Network**: only `clone_start`, `fetch_start`/`fetch_all_start`, `releases_fetch_github`. No credentials callback,
+**Network**: only `clone_start`, `fetch_start`/`fetch_all_start`, `releases_fetch_github`, and since v0.2.0 (M11,
+D-98..D-106) `import_confirm`'s GitHub follow-up job, the GitHub hook after Clone / Fetch / Fetch all, `image_fetch`
+and `release_download`, each behind a setting (`settings.rs` "Network" keys). Every HTTP request goes through
+rs-core `net.rs` (`Shelf.net`): https only, default port, no userinfo, DNS names only (no IP literals, no
+`localhost`/`.local`/`.internal`/single-label hosts), every resolved address public (checked again by the ureq
+resolver on the addresses actually connected), redirects followed by hand and re-checked per hop (API: none, D-49;
+images: ≤ 5 to any public host; release assets: ≤ 5 within `github.com` + its download CDN hosts), size and time caps
+per profile, no cookies, no credentials, `User-Agent: RepoShelf/<version>`. The webview itself stays offline: images
+reach it as bytes → `blob:` (CSP unchanged). Downloads are never run or unpacked. No credentials callback,
 no ssh transport compiled in, no submodule recursion, no LFS. `GIT_TERMINAL_PROMPT` irrelevant (libgit2). A
 test asserts no git2 remote or ureq call happens outside those commands (a counting hook in rs-core under
 `testkit`), plus the M8 browse-only run with the network adapter disabled (NFR-O1).

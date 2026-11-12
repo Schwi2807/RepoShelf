@@ -21,6 +21,7 @@ import type {
   LatestCommit,
   RefsList,
   Release,
+  RemoteImage,
   RemoveResult,
   Rendered,
   RepoDetail,
@@ -60,7 +61,8 @@ export interface Commands {
   library_refresh: { args: Req; ret: RepoSummary[] };
   repo_by_slug: { args: { owner: string; name: string }; ret: RepoSummary };
   import_pick: { args: NoArgs; ret: ImportPreview | null };
-  import_confirm: { args: { token: string }; ret: RepoSummary };
+  /** `autoDownload` (v0.2.0): the dialog's checkbox; omitted/null = the setting. */
+  import_confirm: { args: { token: string; autoDownload?: boolean | null }; ret: RepoSummary };
   repo_locate: { args: Repo; ret: RepoSummary | null };
   repo_remove: { args: Repo; ret: RemoveResult };
   repo_set_metadata: {
@@ -94,9 +96,13 @@ export interface Commands {
   tags_list: { args: Repo; ret: TagRow[] };
   releases_list: { args: Repo; ret: Release[] };
   releases_fetch_github: { args: Repo; ret: Release[] };
+  release_download: { args: Repo & { tag: string; asset: string }; ret: JobId };
+  release_reveal: { args: Repo & { tag: string; asset: string }; ret: null };
+  image_fetch: { args: { url: string }; ret: RemoteImage };
+  image_bytes: { args: { key: string }; ret: ArrayBuffer };
   clone_preview: { args: { input: string }; ret: ClonePreview };
-  clone_start: { args: { input: string }; ret: JobId };
-  fetch_start: { args: Repo; ret: JobId };
+  clone_start: { args: { input: string; autoDownload?: boolean | null }; ret: JobId };
+  fetch_start: { args: Repo & { autoDownload?: boolean | null }; ret: JobId };
   fetch_all_start: { args: NoArgs; ret: JobId };
   fast_forward: { args: Repo; ret: string };
   jobs_subscribe: { args: { channel: ChannelLike<JobInfo> }; ret: JobInfo[] };
@@ -111,7 +117,7 @@ export type CommandName = keyof Commands;
 export type ArgsOf<K extends CommandName> = Commands[K]['args'];
 export type RetOf<K extends CommandName> = Commands[K]['ret'];
 
-/** Every command name, in ARCH §5.1 order (48). */
+/** Every command name, in ARCH §5.1 order (52). */
 export const COMMAND_NAMES = [
   'app_info',
   'settings_get',
@@ -150,6 +156,10 @@ export const COMMAND_NAMES = [
   'tags_list',
   'releases_list',
   'releases_fetch_github',
+  'release_download',
+  'release_reveal',
+  'image_fetch',
+  'image_bytes',
   'clone_preview',
   'clone_start',
   'fetch_start',

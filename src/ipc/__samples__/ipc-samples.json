@@ -269,6 +269,7 @@
     "error": null,
     "id": 7,
     "kind": {
+      "autoDownload": null,
       "type": "clone",
       "url": "https://github.com/o/r.git"
     },
@@ -287,6 +288,7 @@
     "error": null,
     "id": 8,
     "kind": {
+      "autoDownload": null,
       "repoId": 1,
       "type": "fetch"
     },
@@ -295,6 +297,7 @@
       "keptLocalTags": [],
       "newCommits": 1,
       "newTags": [],
+      "notes": [],
       "skippedRefs": [],
       "type": "fetched",
       "updatedBranches": []
@@ -316,26 +319,55 @@
     "title": "Clone o/r"
   },
   "JobKind.clone": {
+    "autoDownload": false,
     "type": "clone",
     "url": "https://github.com/o/r.git"
   },
   "JobKind.fetch": {
+    "autoDownload": null,
     "repoId": 3,
     "type": "fetch"
   },
   "JobKind.fetchAll": {
     "type": "fetchAll"
   },
+  "JobKind.githubSync": {
+    "autoDownload": true,
+    "repoId": 3,
+    "type": "githubSync"
+  },
+  "JobKind.releaseDownload": {
+    "asset": "demo-1.0.0-x86_64-pc-windows-msvc.zip",
+    "repoId": 3,
+    "tag": "v1.0.0",
+    "type": "releaseDownload"
+  },
   "JobResult.cloned": {
+    "notes": [
+      "GitHub info: rate limit reached"
+    ],
     "repoId": 4,
     "skippedRefs": [],
     "type": "cloned"
+  },
+  "JobResult.downloaded": {
+    "already": false,
+    "file": "demo.zip",
+    "path": "C:\\a\\demo.zip",
+    "repoId": 4,
+    "sha256Checked": true,
+    "size": 1024,
+    "tag": "v1.0.0",
+    "type": "downloaded"
   },
   "JobResult.fetched": {
     "keptLocalTags": [],
     "newCommits": 2,
     "newTags": [
       "v1"
+    ],
+    "notes": [
+      "o/r: No release download: no stable release on GitHub"
     ],
     "skippedRefs": [
       "LLM/x"
@@ -344,6 +376,11 @@
     "updatedBranches": [
       "main"
     ]
+  },
+  "JobResult.synced": {
+    "notes": [],
+    "repoId": 4,
+    "type": "synced"
   },
   "JobState.cancelled": "cancelled",
   "JobState.done": "done",
@@ -426,6 +463,11 @@
   "Progress.connecting": {
     "type": "connecting"
   },
+  "Progress.downloading": {
+    "bytes": 512,
+    "total": 1024,
+    "type": "downloading"
+  },
   "Progress.finalizing": {
     "type": "finalizing"
   },
@@ -459,15 +501,35 @@
     "tags": []
   },
   "Release": {
+    "assets": [
+      {
+        "contentType": "application/zip",
+        "downloadCount": 7,
+        "downloaded": "C:\\a\\_releases\\github.com\\o\\demo\\v1.0.0\\demo.zip",
+        "forThisPc": true,
+        "name": "demo-1.0.0-x86_64-pc-windows-msvc.zip",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "size": 1024,
+        "url": "https://github.com/o/demo/releases/download/v1.0.0/demo-1.0.0-x86_64-pc-windows-msvc.zip"
+      }
+    ],
     "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "date": 1,
     "ghNotes": false,
+    "htmlUrl": "https://github.com/o/demo/releases/tag/v1.0.0",
     "latest": true,
     "notesHtml": null,
     "prerelease": false,
     "previousTag": null,
+    "sourceTarUrl": "https://github.com/o/demo/archive/refs/tags/v1.0.0.tar.gz",
+    "sourceZipUrl": "https://github.com/o/demo/archive/refs/tags/v1.0.0.zip",
     "tag": "v1.0.0",
     "title": "v1"
+  },
+  "RemoteImage": {
+    "key": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "mime": "image/png",
+    "size": 3
   },
   "RemoveResult": {
     "trashed": true
@@ -500,6 +562,22 @@
     "license": "MIT",
     "releaseCount": 3,
     "summary": {
+      "aboutGithub": {
+        "description": "gh",
+        "fetchedAt": 4,
+        "homepage": "https://o.example",
+        "htmlUrl": "https://github.com/o/demo",
+        "topics": [
+          "cli"
+        ]
+      },
+      "aboutUser": {
+        "description": "d",
+        "homepage": null,
+        "topics": [
+          "rust"
+        ]
+      },
       "addedAt": 2,
       "clonedAt": null,
       "defaultBranch": "main",
@@ -540,6 +618,22 @@
     "type": "ok"
   },
   "RepoSummary": {
+    "aboutGithub": {
+      "description": "gh",
+      "fetchedAt": 4,
+      "homepage": "https://o.example",
+      "htmlUrl": "https://github.com/o/demo",
+      "topics": [
+        "cli"
+      ]
+    },
+    "aboutUser": {
+      "description": "d",
+      "homepage": null,
+      "topics": [
+        "rust"
+      ]
+    },
     "addedAt": 2,
     "clonedAt": null,
     "defaultBranch": "main",
@@ -572,6 +666,12 @@
     "tree": "dddddddddddddddddddddddddddddddddddddddd"
   },
   "Settings": {
+    "autoDownloadLatestRelease": true,
+    "autoDownloadOnFetchAll": false,
+    "downloadSizeCapMb": 1024,
+    "fetchReleaseNotes": true,
+    "fetchRepoInfo": true,
+    "loadRemoteImages": true,
     "showDirtyNote": true,
     "sort": {
       "desc": true,

@@ -55,6 +55,10 @@ fn startup<R: tauri::Runtime>(app: &mut tauri::App<R>, test_file_clone: bool) ->
     if let Err(e) = rs_core::clone::cleanup_partials(&dirs.archive) {
         eprintln!("RepoShelf: partial clone cleanup failed: {e}");
     }
+    // v0.2.0: leftovers of a killed release download
+    if let Err(e) = rs_core::assets::cleanup_partials(&dirs.archive) {
+        eprintln!("RepoShelf: partial download cleanup failed: {e}");
+    }
     let shelf = Arc::new(Shelf::open(dirs.clone())?);
     let shell = Arc::new(TauriShell { app: app.handle().clone() });
     let (picker, opener): (Arc<dyn state::Picker>, Arc<dyn state::Opener>) = (shell.clone(), shell);
@@ -162,9 +166,13 @@ pub fn run() {
             cmd::refs::tags_list,
             cmd::releases::releases_list,
             cmd::releases::releases_fetch_github,
+            cmd::releases::release_reveal,
+            cmd::images::image_fetch,
+            cmd::images::image_bytes,
             cmd::jobs::clone_preview,
             cmd::jobs::clone_start,
             cmd::jobs::fetch_start,
+            cmd::jobs::release_download,
             cmd::jobs::fetch_all_start,
             cmd::jobs::fast_forward,
             cmd::jobs::jobs_subscribe,

@@ -28,9 +28,25 @@ export function cloneReport(skippedRefs: string[]): string[] {
   return ['Cloned.', `Skipped ${plural(skippedRefs.length, 'ref')} Windows cannot store: ${names(skippedRefs, 6)}.`];
 }
 
-/** Per-kind heading: "Clone", "Fetch", "Fetch all clones". */
+/** Per-kind heading: "Clone", "Fetch", "Fetch all clones" (+ v0.2.0 "GitHub info", "Download"). */
 export function kindLabel(k: JobKind): string {
-  return k.type === 'clone' ? 'Clone' : k.type === 'fetch' ? 'Fetch' : 'Fetch all clones';
+  switch (k.type) {
+    case 'clone':
+      return 'Clone';
+    case 'fetch':
+      return 'Fetch';
+    case 'fetchAll':
+      return 'Fetch all clones';
+    case 'githubSync':
+      return 'GitHub info';
+    case 'releaseDownload':
+      return 'Download';
+  }
+}
+
+/** v0.2.0 (M11 minimal; M12 owns the wording): GitHub / auto-download notes of a finished job. */
+export function notesReport(notes: string[]): string[] {
+  return notes;
 }
 
 export function progressText(p: Progress | null, state: JobInfo['state']): string {
@@ -48,6 +64,10 @@ export function progressText(p: Progress | null, state: JobInfo['state']): strin
       return `Resolving deltas: ${p.total > 0 ? Math.floor((p.done / p.total) * 100) : 0}% (${p.done}/${p.total})`;
     case 'finalizing':
       return 'Finishing…';
+    case 'downloading':
+      return p.total > 0
+        ? `Downloading: ${Math.floor((p.bytes / p.total) * 100)}% (${formatBytes(p.bytes)} of ${formatBytes(p.total)})`
+        : `Downloading: ${formatBytes(p.bytes)}`;
   }
 }
 
@@ -56,6 +76,7 @@ export function progressFraction(p: Progress | null): number | null {
   if (!p) return null;
   if (p.type === 'receiving' && p.total > 0) return p.received / p.total;
   if (p.type === 'resolving' && p.total > 0) return p.done / p.total;
+  if (p.type === 'downloading' && p.total > 0) return Math.min(1, p.bytes / p.total);
   if (p.type === 'finalizing') return 1;
   return null;
 }

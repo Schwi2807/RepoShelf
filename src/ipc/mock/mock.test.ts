@@ -81,7 +81,77 @@ describe('switches', () => {
 
 describe('backend behaviour the UI relies on', () => {
   it('implements every command', () => {
-    expect(COMMAND_NAMES).toHaveLength(48);
+    expect(COMMAND_NAMES).toHaveLength(52);
+  });
+
+  it('v0.2.0: release assets, download job, reveal, and the auto-download options', async () => {
+    vi.useRealTimers();
+    const m = createMockBackend('', { tickMs: 20 });
+    const seen: JobInfo[] = [];
+    await m.invoke('jobs_subscribe', { channel: { onmessage: (j: JobInfo) => seen.push(j) } });
+    // before GitHub notes are loaded: no assets, downloads refused
+    const plain = await m.invoke('releases_list', { repoId: LUMEN });
+    expect(plain.every((r) => r.assets.length === 0 && r.htmlUrl === null)).toBe(true);
+    expect(plain[0].sourceZipUrl).toMatch(/^https:\/\/github\.com\/lumen-ui\/lumen\/archive\/refs\/tags\/.+\.zip$/);
+    await expect(m.invoke('release_download', { repoId: LUMEN, tag: 'v1.1.0', asset: 'x.zip' })).rejects.toMatchObject({ code: 'notFound' });
+    const gh = await m.invoke('releases_fetch_github', { repoId: LUMEN });
+    const v11 = gh.find((r) => r.tag === 'v1.1.0')!;
+    expect(v11.assets.map((a) => a.forThisPc)).toEqual([true, false, false, false]);
+    expect(v11.htmlUrl).toBe('https://github.com/lumen-ui/lumen/releases/tag/v1.1.0');
+    await expect(m.invoke('release_download', { repoId: LUMEN, tag: 'v1.1.0', asset: '' })).rejects.toMatchObject({ code: 'invalidInput' });
+    await expect(m.invoke('release_reveal', { repoId: LUMEN, tag: 'v1.1.0', asset: v11.assets[0].name })).rejects.toMatchObject({ code: 'notFound' });
+    const id = await m.invoke('release_download', { repoId: LUMEN, tag: 'v1.1.0', asset: v11.assets[0].name });
+    await until(() => seen.some((j) => j.id === id && j.state === 'done'));
+    const done = seen.filter((j) => j.id === id).pop()!;
+    expect(done.kind).toEqual({ type: 'releaseDownload', repoId: LUMEN, tag: 'v1.1.0', asset: v11.assets[0].name });
+    expect(done.result).toMatchObject({ type: 'downloaded', already: false, sha256Checked: true });
+    await expect(m.invoke('release_reveal', { repoId: LUMEN, tag: 'v1.1.0', asset: v11.assets[0].name })).resolves.toBeNull();
+    const after = await m.invoke('releases_list', { repoId: LUMEN });
+    expect(after.find((r) => r.tag === 'v1.1.0')!.assets[0].downloaded).toContain('\\_releases\\github.com\\lumen-ui\\lumen\\v1.1.0\\');
+    // a fetch with the option on: already downloaded → a note, no new download job
+    const f = await m.invoke('fetch_start', { repoId: LUMEN, autoDownload: true });
+    await until(() => seen.some((j) => j.id === f && j.state === 'done'));
+    const fr = seen.filter((j) => j.id === f).pop()!;
+    expect(fr.kind).toEqual({ type: 'fetch', repoId: LUMEN, autoDownload: true });
+    expect(fr.result).toMatchObject({ type: 'fetched', notes: [expect.stringContaining('already downloaded')] });
+  });
+
+  it('v0.2.0: import queues a GitHub sync job; settings carry the network defaults', async () => {
+    vi.useRealTimers();
+    const m = createMockBackend('', { tickMs: 20 });
+    const s = await m.invoke('settings_get', {});
+    expect(s).toMatchObject({ loadRemoteImages: true, fetchReleaseNotes: true, fetchRepoInfo: true, autoDownloadLatestRelease: true, autoDownloadOnFetchAll: false, downloadSizeCapMb: 1024 });
+    const seen: JobInfo[] = [];
+    await m.invoke('jobs_subscribe', { channel: { onmessage: (j: JobInfo) => seen.push(j) } });
+    const p = (await m.invoke('import_pick', {}))!;
+    const sum = await m.invoke('import_confirm', { token: p.token, autoDownload: false });
+    expect(sum.aboutUser).toEqual({ description: sum.description, homepage: sum.homepage, topics: sum.topics });
+    await until(() => seen.some((j) => j.kind.type === 'githubSync' && j.state === 'done'));
+    expect(seen.find((j) => j.kind.type === 'githubSync')!.kind).toEqual({ type: 'githubSync', repoId: sum.id, autoDownload: false });
+    // Edit About keeps the user's values apart from GitHub's
+    const ed = await m.invoke('repo_set_metadata', { repoId: LUMEN, description: 'Mine', homepage: null, topics: [] });
+    expect(ed.aboutUser).toEqual({ description: 'Mine', homepage: null, topics: [] });
+    expect(ed.description).toBe('Mine');
+  });
+
+  it('v0.2.0: remote images come as bytes from the mock, never from the network', async () => {
+    const m = createMockBackend('');
+    const img = await m.invoke('image_fetch', { url: 'https://img.shields.io/badge/build-passing-green' });
+    expect(img).toMatchObject({ mime: 'image/svg+xml' });
+    expect(img.key).toMatch(/^[0-9a-f]{64}$/);
+    const bytes = await m.invoke('image_bytes', { key: img.key });
+    expect(new TextDecoder().decode(bytes)).toContain('img.shields.io');
+    for (const bad of ['http://example.com/a.png', 'https://127.0.0.1/a.png', 'https://localhost/a.png', 'https://user:pw@example.com/a.png']) {
+      await expect(m.invoke('image_fetch', { url: bad })).rejects.toMatchObject({ code: 'refused' });
+    }
+    await expect(m.invoke('image_fetch', { url: 'https://fail.example.com/a.png' })).rejects.toMatchObject({ code: 'network' });
+    await expect(m.invoke('image_bytes', { key: '../x' })).rejects.toMatchObject({ code: 'invalidInput' });
+    await m.invoke('cache_clear', {});
+    await expect(m.invoke('image_bytes', { key: img.key })).rejects.toMatchObject({ code: 'notFound' });
+    const s = await m.invoke('settings_get', {});
+    await m.invoke('settings_set', { settings: { ...s, loadRemoteImages: false } });
+    await expect(m.invoke('image_fetch', { url: 'https://img.shields.io/x' })).rejects.toMatchObject({ code: 'refused' });
+    await m.invoke('settings_set', { settings: s });
   });
 
   it('rejects with { code, message }', async () => {
@@ -165,7 +235,8 @@ describe('backend behaviour the UI relies on', () => {
     const seen: JobInfo[] = [];
     const snap0 = await m.invoke('jobs_subscribe', { channel: { onmessage: (j) => seen.push(j) } });
     expect(snap0).toEqual([]);
-    const id = await m.invoke('fetch_start', { repoId: LUMEN });
+    // (v0.2.0) no auto-download follow-up job in this test
+    const id = await m.invoke('fetch_start', { repoId: LUMEN, autoDownload: false });
     // running jobs cannot be retried and are not dismissed (rs-core JobRunner)
     await expect(m.invoke('jobs_retry', { jobId: id })).rejects.toMatchObject({ code: 'refused' });
     await m.invoke('jobs_dismiss', { jobId: id });

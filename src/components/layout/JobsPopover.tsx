@@ -12,7 +12,7 @@ import { href } from '../../router/router';
 import { Link } from '../../router/Link';
 import { cancelJob, dismissJob, isActive, retryJob, useJobs } from '../../state/jobs';
 import { useLibrary } from '../../state/library';
-import { cloneReport, fetchReport, kindLabel, progressFraction, progressText } from '../../util/jobText';
+import { cloneReport, fetchReport, kindLabel, notesReport, progressFraction, progressText } from '../../util/jobText';
 import { Button } from '../ui/Button';
 import { useDismiss } from '../ui/Popover';
 
@@ -34,7 +34,16 @@ export function jobTarget(j: JobInfo): string {
 function resultLines(j: JobInfo): string[] {
   const r = j.result;
   if (!r) return ['Done.'];
-  return r.type === 'cloned' ? cloneReport(r.skippedRefs) : fetchReport(r);
+  switch (r.type) {
+    case 'cloned':
+      return [...cloneReport(r.skippedRefs), ...notesReport(r.notes)];
+    case 'fetched':
+      return [...fetchReport(r), ...notesReport(r.notes)];
+    case 'synced':
+      return r.notes.length > 0 ? notesReport(r.notes) : ['GitHub info updated.'];
+    case 'downloaded':
+      return [r.already ? `${r.file} was already downloaded.` : `Downloaded ${r.file}.`];
+  }
 }
 
 export function JobRow({ job }: { job: JobInfo }) {

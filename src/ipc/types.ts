@@ -31,6 +31,26 @@ export interface RepoSummary {
   lastOpenedAt: number | null;
   lastFetchedAt: number | null;
   status: RepoStatus;
+  /** v0.2.0 (D-102): `description`/`homepage`/`topics` above are effective values (user's when set, else
+   * GitHub's). Edit About shows and saves `aboutUser` only. */
+  aboutUser: AboutValues;
+  aboutGithub: GithubAbout | null;
+}
+
+/** The user's own About values. */
+export interface AboutValues {
+  description: string | null;
+  homepage: string | null;
+  topics: string[];
+}
+
+/** About values fetched from the GitHub API. */
+export interface GithubAbout {
+  description: string | null;
+  homepage: string | null;
+  topics: string[];
+  htmlUrl: string | null;
+  fetchedAt: number;
 }
 
 export type HeadState =
@@ -276,6 +296,35 @@ export interface Release {
   latest: boolean;
   previousTag: string | null;
   ghNotes: boolean;
+  /** v0.2.0 (F4): GitHub release page, from the cached API answer. */
+  htmlUrl: string | null;
+  /** GitHub "Source code" archives (github.com origins only; open externally). */
+  sourceZipUrl: string | null;
+  sourceTarUrl: string | null;
+  /** From the cached GitHub answer; empty without one. */
+  assets: ReleaseAsset[];
+}
+
+/** One GitHub release asset (F4). */
+export interface ReleaseAsset {
+  name: string;
+  size: number;
+  downloadCount: number | null;
+  /** `browser_download_url`, for "Open on GitHub" only — downloads go through `release_download`. */
+  url: string;
+  contentType: string | null;
+  sha256: string | null;
+  /** The picker's choice for this PC (at most one per release). */
+  forThisPc: boolean;
+  /** Local path in the release store when downloaded. */
+  downloaded: string | null;
+}
+
+/** `image_fetch` result (F2); bytes via `image_bytes(key)`. */
+export interface RemoteImage {
+  key: string;
+  mime: string;
+  size: number;
 }
 
 export interface ImportPreview {
@@ -302,11 +351,24 @@ export interface FetchOutcome {
   keptLocalTags: string[];
   skippedRefs: string[];
   updatedBranches: string[];
+  /** v0.2.0: GitHub info / auto-download remarks (never a fetch failure). */
+  notes: string[];
 }
 
 export type JobResult =
-  | { type: 'cloned'; repoId: number; skippedRefs: string[] }
-  | ({ type: 'fetched' } & FetchOutcome);
+  | { type: 'cloned'; repoId: number; skippedRefs: string[]; notes: string[] }
+  | ({ type: 'fetched' } & FetchOutcome)
+  | { type: 'synced'; repoId: number; notes: string[] }
+  | {
+      type: 'downloaded';
+      repoId: number;
+      tag: string;
+      file: string;
+      path: string;
+      size: number;
+      sha256Checked: boolean;
+      already: boolean;
+    };
 
 export interface Removed {
   path: string;
@@ -333,6 +395,14 @@ export interface Settings {
   sort: SortSpec;
   sourceFilter: SourceFilter;
   showDirtyNote: boolean;
+  /** v0.2.0 "Network" settings (D-100). */
+  loadRemoteImages: boolean;
+  fetchReleaseNotes: boolean;
+  fetchRepoInfo: boolean;
+  autoDownloadLatestRelease: boolean;
+  autoDownloadOnFetchAll: boolean;
+  /** 1 … 16384 (clamped by the backend). */
+  downloadSizeCapMb: number;
 }
 
 export interface Version {
@@ -360,7 +430,13 @@ export interface AppInfo {
 
 export type JobId = number;
 
-export type JobKind = { type: 'clone'; url: string } | { type: 'fetch'; repoId: number } | { type: 'fetchAll' };
+/** `autoDownload`: the action's option (`null` = the setting). */
+export type JobKind =
+  | { type: 'clone'; url: string; autoDownload: boolean | null }
+  | { type: 'fetch'; repoId: number; autoDownload: boolean | null }
+  | { type: 'fetchAll' }
+  | { type: 'githubSync'; repoId: number; autoDownload: boolean | null }
+  | { type: 'releaseDownload'; repoId: number; tag: string; asset: string };
 
 export type JobState = 'waiting' | 'running' | 'done' | 'failed' | 'cancelled';
 
@@ -368,7 +444,8 @@ export type Progress =
   | { type: 'connecting' }
   | { type: 'receiving'; received: number; total: number; bytes: number }
   | { type: 'resolving'; done: number; total: number }
-  | { type: 'finalizing' };
+  | { type: 'finalizing' }
+  | { type: 'downloading'; bytes: number; total: number };
 
 export interface JobInfo {
   id: JobId;

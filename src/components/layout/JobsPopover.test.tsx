@@ -8,7 +8,7 @@ import { JobsList, jobTarget } from './JobsPopover';
 
 installHarness();
 
-const base: JobInfo = { id: 1, kind: { type: 'clone', url: 'https://github.com/o/r.git' }, state: 'running', progress: null, title: 'Clone o/r', result: null, error: null, startedAt: 0 };
+const base: JobInfo = { id: 1, kind: { type: 'clone', url: 'https://github.com/o/r.git', autoDownload: null }, state: 'running', progress: null, title: 'Clone o/r', result: null, error: null, startedAt: 0 };
 
 function render(jobs: JobInfo[]): HTMLElement {
   const host = document.createElement('div');
@@ -24,15 +24,15 @@ describe('jobs popover rows', () => {
     const host = render([
       { ...base, id: 1, state: 'waiting' },
       { ...base, id: 2, state: 'running', progress: { type: 'receiving', received: 50, total: 200, bytes: 2048 } },
-      { ...base, id: 3, state: 'running', kind: { type: 'fetch', repoId: 2 }, title: 'Fetch lumen-ui/lumen', progress: { type: 'resolving', done: 3, total: 4 } },
-      { ...base, id: 4, state: 'done', result: { type: 'cloned', repoId: 99, skippedRefs: ['refs/heads/aux', 'refs/tags/CON'] } },
+      { ...base, id: 3, state: 'running', kind: { type: 'fetch', repoId: 2, autoDownload: null }, title: 'Fetch lumen-ui/lumen', progress: { type: 'resolving', done: 3, total: 4 } },
+      { ...base, id: 4, state: 'done', result: { type: 'cloned', repoId: 99, skippedRefs: ['refs/heads/aux', 'refs/tags/CON'], notes: [] } },
       {
         ...base,
         id: 5,
         state: 'done',
-        kind: { type: 'fetch', repoId: 2 },
+        kind: { type: 'fetch', repoId: 2, autoDownload: null },
         title: 'Fetch lumen-ui/lumen',
-        result: { type: 'fetched', newCommits: 3, newTags: ['v2.0.0'], keptLocalTags: ['v1.1.0'], skippedRefs: [], updatedBranches: ['origin/main'] },
+        result: { type: 'fetched', newCommits: 3, newTags: ['v2.0.0'], keptLocalTags: ['v1.1.0'], skippedRefs: [], updatedBranches: ['origin/main'], notes: [] },
       },
       { ...base, id: 6, state: 'failed', error: 'Could not reach github.com: the connection timed out.' },
       { ...base, id: 7, state: 'cancelled' },

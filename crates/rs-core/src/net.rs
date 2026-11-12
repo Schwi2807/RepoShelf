@@ -67,6 +67,10 @@ pub struct RawResponse {
 pub trait Transport: Send + Sync {
     fn resolve(&self, host: &str) -> std::io::Result<Vec<IpAddr>>;
     fn get(&self, url: &Url, headers: &[(&str, String)], timeout: Duration) -> Result<RawResponse>;
+    /// `false` only for a build without the HTTP client (the GitHub hook then stays silent).
+    fn available(&self) -> bool {
+        true
+    }
 }
 
 /// A checked, final response (after redirects).
@@ -129,7 +133,7 @@ fn too_large(max: u64) -> Error {
 
 pub fn human_bytes(n: u64) -> String {
     const MB: u64 = 1 << 20;
-    if n >= 1 << 30 && n % (1 << 30) == 0 {
+    if n >= 1 << 30 && n.is_multiple_of(1 << 30) {
         format!("{} GB", n >> 30)
     } else if n >= MB {
         format!("{} MB", n / MB)
@@ -172,6 +176,11 @@ impl Net {
     /// Refuses (and counts, `testkit::net_calls`) every request: the default for test shelves.
     pub fn offline() -> Net {
         Net::new(Arc::new(Offline))
+    }
+
+    /// `false` in a build without the HTTP client (`ghreleases` off).
+    pub fn available(&self) -> bool {
+        self.t.available()
     }
 
     pub fn rate_limited_until(&self) -> Option<i64> {
@@ -325,6 +334,9 @@ impl Transport for Unavailable {
     }
     fn get(&self, _url: &Url, _h: &[(&str, String)], _t: Duration) -> Result<RawResponse> {
         Err(Error::Unsupported("Network features are not included in this build.".into()))
+    }
+    fn available(&self) -> bool {
+        false
     }
 }
 

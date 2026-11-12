@@ -178,7 +178,19 @@ export function lumen(): RepoDef {
     // M7.8: a merge commit on the first commits page
     merges: [{ at: 28, branch: 'next-dialog', commits: ['Dialog: initial focus option', 'Dialog: docs', 'Dialog: fix Escape in nested menus'] }],
     ghNotes: {
-      'v1.1.0': { title: 'Lumen 1.1 — theming', html: '<p>Release notes from GitHub: <strong>theming guide</strong>, focus fixes.</p>\n' },
+      'v1.1.0': {
+        title: 'Lumen 1.1 — theming',
+        // v0.2.0 (F5): contributor avatars arrive as mention links (rs-core `render_release_notes`)
+        html:
+          '<p>Release notes from GitHub: <strong>theming guide</strong>, focus fixes.</p>\n' +
+          '<p>Thanks to <a href="https://github.com/mira-dev" rel="noopener noreferrer" class="user-mention">@mira-dev</a>.</p>\n',
+        assets: [
+          { name: 'lumen-1.1.0-x86_64-pc-windows-msvc.zip', size: 2_412_800, downloadCount: 318, sha256: 'a'.repeat(64), forThisPc: true },
+          { name: 'lumen-1.1.0-x86_64-unknown-linux-gnu.tar.gz', size: 2_301_440, downloadCount: 97 },
+          { name: 'lumen-1.1.0-aarch64-apple-darwin.tar.gz', size: 2_280_100, downloadCount: 54 },
+          { name: 'SHA256SUMS', size: 312 },
+        ],
+      },
     },
   };
 }

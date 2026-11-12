@@ -40,8 +40,21 @@ export interface TagDef {
   notesHtml?: string;
 }
 
+/** Fixture summaries may omit the v0.2.0 About sources; `MockRepo` fills them (user = the fixture's values). */
+export type SummaryDef = Omit<RepoSummary, 'aboutUser' | 'aboutGithub'> & Partial<Pick<RepoSummary, 'aboutUser' | 'aboutGithub'>>;
+
+/** One GitHub release asset served by the mock (`releases_fetch_github` adds them to the tag's card). */
+export interface AssetDef {
+  name: string;
+  size: number;
+  downloadCount?: number;
+  sha256?: string;
+  /** The mock's "picker" choice for this PC. */
+  forThisPc?: boolean;
+}
+
 export interface RepoDef {
-  summary: RepoSummary;
+  summary: SummaryDef;
   isBare: boolean;
   head: HeadState;
   license: string | null;
@@ -62,7 +75,7 @@ export interface RepoDef {
   /** Commit (mainline index) that touches every file (`?huge`: 400 files). */
   hugeCommitAt?: number;
   /** GitHub release notes served by `releases_fetch_github` (tag → html). */
-  ghNotes?: Record<string, { title: string; html: string }>;
+  ghNotes?: Record<string, { title: string; html: string; htmlUrl?: string; assets?: AssetDef[] }>;
   /**
    * M7.8 merge commits (applied after generation, so the generated history stays identical): mainline commit `at`
    * becomes "Merge branch '<branch>'" with a second parent = the tip of `commits` (side commits forked from the

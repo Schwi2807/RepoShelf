@@ -10,6 +10,13 @@ export const DEFAULT_SETTINGS: Settings = {
   sort: { key: 'updated', desc: true },
   sourceFilter: 'all',
   showDirtyNote: false,
+  // v0.2.0 "Network" defaults (same as rs-core settings.rs)
+  loadRemoteImages: true,
+  fetchReleaseNotes: true,
+  fetchRepoInfo: true,
+  autoDownloadLatestRelease: true,
+  autoDownloadOnFetchAll: false,
+  downloadSizeCapMb: 1024,
 };
 
 export interface SettingsState {

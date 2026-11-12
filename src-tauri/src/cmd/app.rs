@@ -23,6 +23,7 @@ fn cache_bytes(st: &AppState) -> Result<u64> {
         total += c.query_row("SELECT COUNT(*) * 56 FROM cache_commit_count", [], |r| r.get::<_, i64>(0))?;
         Ok(total.max(0) as u64)
     })
+    .map(|db| db + rs_core::imgcache::size(&st.shelf))
 }
 
 /// Bytes under `root` (iterative, no symlink following); `None` past `cap` entries or on an unreadable root.
@@ -77,7 +78,8 @@ pub fn settings_set_impl(st: &AppState, s: Settings) -> Result<Settings> {
     settings::load(&st.shelf.db)
 }
 
-/// S10 "Clear caches": every cache table (counts, last commits, languages, GitHub notes). Repos and settings stay.
+/// S10 "Clear caches": every cache table (counts, last commits, languages, GitHub notes) and the README image
+/// cache (v0.2.0). Repos, settings, fetched About values (`gh_repo_info`) and downloaded releases stay.
 pub fn cache_clear_impl(st: &AppState) -> Result<AppInfo> {
     st.shelf.db.tx(|tx| {
         for t in CACHE_TABLES.iter().chain(["cache_commit_count"].iter()) {
@@ -85,6 +87,7 @@ pub fn cache_clear_impl(st: &AppState) -> Result<AppInfo> {
         }
         Ok(())
     })?;
+    rs_core::imgcache::clear(&st.shelf)?;
     app_info_impl(st)
 }
 

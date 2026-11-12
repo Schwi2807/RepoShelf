@@ -34,12 +34,16 @@ pub fn import_preview_for(st: &AppState, dir: &Path) -> Result<ImportPreview> {
     Ok(p)
 }
 
-pub fn import_confirm_impl(st: &AppState, token: &str) -> Result<RepoSummary> {
+/// Imports, then (github.com origins, settings on) queues the GitHub info / auto-download follow-up job —
+/// never waits for the network (D-103). `auto_download`: the dialog's checkbox (`None` = setting).
+pub fn import_confirm_impl(st: &AppState, token: &str, auto_download: Option<bool>) -> Result<RepoSummary> {
     if token.is_empty() || token.len() > 64 {
         return Err(Error::InvalidInput("Unknown folder selection. Choose the folder again.".into()));
     }
     let path = st.take_import_token(token)?;
-    library::import(&st.shelf, &path)
+    let sum = library::import(&st.shelf, &path)?;
+    super::jobs::queue_github_sync(st, sum.id, auto_download);
+    Ok(sum)
 }
 
 /// FR-4 "Locate…": folder dialog → relocate. `None` when the dialog was cancelled.
@@ -104,8 +108,8 @@ pub async fn import_pick(state: St<'_>) -> CmdResult<Option<ImportPreview>> {
 }
 
 #[tauri::command]
-pub async fn import_confirm(state: St<'_>, token: String) -> CmdResult<RepoSummary> {
-    blocking(&state, move |st| import_confirm_impl(st, &token)).await
+pub async fn import_confirm(state: St<'_>, token: String, auto_download: Option<bool>) -> CmdResult<RepoSummary> {
+    blocking(&state, move |st| import_confirm_impl(st, &token, auto_download)).await
 }
 
 #[tauri::command]

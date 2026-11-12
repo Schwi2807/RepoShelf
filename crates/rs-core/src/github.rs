@@ -165,7 +165,7 @@ pub fn applies(s: &Shelf, repo_id: i64) -> bool {
 /// The post-action hook (Clone / Import / Fetch / Fetch all). Never fails; never touches git.
 pub fn sync(s: &Shelf, repo_id: i64, opts: SyncOpts, ctx: &JobCtx) -> SyncReport {
     let mut rep = SyncReport::default();
-    if !opts.any() || !applies(s, repo_id) {
+    if !opts.any() || !s.net.available() || !applies(s, repo_id) {
         return rep;
     }
     let mut note = |what: &str, e: &Error| rep.notes.push(format!("{what}: {e}"));

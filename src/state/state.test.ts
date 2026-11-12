@@ -26,6 +26,8 @@ function repo(id: number, p: Partial<RepoSummary>): RepoSummary {
     lastOpenedAt: null,
     lastFetchedAt: null,
     status: { type: 'ok' },
+    aboutUser: { description: null, homepage: null, topics: [] },
+    aboutGithub: null,
     ...p,
   };
 }

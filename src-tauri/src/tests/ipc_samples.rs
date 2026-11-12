@@ -51,9 +51,15 @@ pub fn samples() -> Map<String, Value> {
     put("Settings".into(), v(Settings { show_dirty_note: true, ..Settings::default() }).unwrap());
     put("AheadBehindEntry".into(), v(("feature".to_string(), AheadBehind { ahead: 1, behind: 0, capped: false })).unwrap());
     // jobs
-    put("JobKind.clone".into(), v(JobKind::Clone { url: "https://github.com/o/r.git".into() }).unwrap());
-    put("JobKind.fetch".into(), v(JobKind::Fetch { repo_id: 3 }).unwrap());
+    put("JobKind.clone".into(), v(JobKind::Clone { url: "https://github.com/o/r.git".into(), auto_download: Some(false) }).unwrap());
+    put("JobKind.fetch".into(), v(JobKind::fetch(3)).unwrap());
     put("JobKind.fetchAll".into(), v(JobKind::FetchAll).unwrap());
+    put("JobKind.githubSync".into(), v(JobKind::GithubSync { repo_id: 3, auto_download: Some(true) }).unwrap());
+    put(
+        "JobKind.releaseDownload".into(),
+        v(JobKind::ReleaseDownload { repo_id: 3, tag: "v1.0.0".into(), asset: "demo-1.0.0-x86_64-pc-windows-msvc.zip".into() }).unwrap(),
+    );
+    put("Progress.downloading".into(), v(Progress::Downloading { bytes: 512, total: 1024 }).unwrap());
     for s in [JobState::Waiting, JobState::Running, JobState::Done, JobState::Failed, JobState::Cancelled] {
         put(format!("JobState.{}", s.as_db()), v(s).unwrap());
     }
@@ -63,11 +69,11 @@ pub fn samples() -> Map<String, Value> {
     put("Progress.finalizing".into(), v(Progress::Finalizing).unwrap());
     put(
         "JobInfo".into(),
-        job(7, JobKind::Clone { url: "https://github.com/o/r.git".into() }, JobState::Running, Some(Progress::Receiving { received: 1, total: 2, bytes: 3 }), None, None),
+        job(7, JobKind::clone_url("https://github.com/o/r.git"), JobState::Running, Some(Progress::Receiving { received: 1, total: 2, bytes: 3 }), None, None),
     );
     put(
         "JobInfo.done".into(),
-        job(8, JobKind::Fetch { repo_id: 1 }, JobState::Done, None, Some(JobResult::Fetched(FetchOutcome { new_commits: 1, ..Default::default() })), None),
+        job(8, JobKind::fetch(1), JobState::Done, None, Some(JobResult::Fetched(FetchOutcome { new_commits: 1, ..Default::default() })), None),
     );
     put("JobInfo.failed".into(), job(9, JobKind::FetchAll, JobState::Failed, None, None, Some("Could not reach github.com: failed to connect to host")));
     out
@@ -99,7 +105,8 @@ fn samples_cover_every_tagged_variant() {
     for k in [
         "RepoStatus.ok", "RepoStatus.missing", "RepoStatus.empty", "RepoStatus.corrupt", "HeadState.branch", "HeadState.detached",
         "HeadState.unborn", "BlobKind.text", "BlobKind.image", "BlobKind.binary", "BlobKind.lfsPointer", "BlobKind.submodule",
-        "BlobKind.symlink", "JobResult.cloned", "JobResult.fetched",
+        "BlobKind.symlink", "JobResult.cloned", "JobResult.fetched", "JobResult.synced", "JobResult.downloaded", "JobKind.githubSync",
+        "JobKind.releaseDownload", "Progress.downloading",
     ] {
         assert!(s.contains_key(k), "{k}");
     }

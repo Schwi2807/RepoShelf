@@ -44,20 +44,59 @@ pub fn clone_preview_impl(st: &AppState, input: &str) -> Result<ClonePreview> {
 }
 
 /// Validates synchronously (bad input → `invalidUrl` before any job exists), then queues the clone.
-pub fn clone_start_impl(st: &AppState, input: &str) -> Result<JobId> {
+/// `auto_download`: the dialog's checkbox (`None` = setting `autoDownloadLatestRelease`).
+pub fn clone_start_impl(st: &AppState, input: &str, auto_download: Option<bool>) -> Result<JobId> {
     let p = clone_preview_impl(st, input)?;
-    st.jobs.submit(JobKind::Clone { url: p.url }, format!("Clone {}/{}", p.owner, p.name))
+    st.jobs.submit(JobKind::Clone { url: p.url, auto_download }, format!("Clone {}/{}", p.owner, p.name))
 }
 
 /// FR-10: managed clones and imported repos with an https origin (the UI asks before fetching an imported repo).
-pub fn fetch_start_impl(st: &AppState, repo_id: i64) -> Result<JobId> {
+/// `auto_download`: the Fetch menu option (`None` = setting).
+pub fn fetch_start_impl(st: &AppState, repo_id: i64, auto_download: Option<bool>) -> Result<JobId> {
     let sum = rs_core::repo::summary(&st.shelf, repo_id)?;
     let origin = sum.origin_url.as_deref();
     let ok = rs_core::repo::is_fetchable(origin) || origin.is_some_and(|o| test_file_input(st, o));
     if !ok {
         return Err(Error::Refused(rs_core::fetch::NEEDS_HTTPS.into()));
     }
-    st.jobs.submit(JobKind::Fetch { repo_id }, format!("Fetch {}/{}", sum.owner, sum.name))
+    st.jobs.submit(JobKind::Fetch { repo_id, auto_download }, format!("Fetch {}/{}", sum.owner, sum.name))
+}
+
+/// Upper bound for tag / asset names from the UI (GitHub's own limits are far lower).
+const MAX_NAME: usize = 512;
+
+/// F4 "Download": one asset of the cached GitHub release list (looked up by tag + name in Rust, never a URL or
+/// a path from the webview) into the release store, as a cancellable job. Feature off → `unsupported`.
+pub fn release_download_impl(st: &AppState, repo_id: i64, tag: &str, asset: &str) -> Result<JobId> {
+    for v in [tag, asset] {
+        if v.is_empty() || v.len() > MAX_NAME || v.chars().any(char::is_control) {
+            return Err(Error::InvalidInput("invalid release or file name".into()));
+        }
+    }
+    rs_core::repo::summary(&st.shelf, repo_id)?;
+    if !st.shelf.net.available() {
+        return Err(Error::Unsupported("Release downloads are not included in this build.".into()));
+    }
+    let gh = rs_core::ghreleases::cached(&st.shelf, repo_id)?.ok_or_else(|| Error::not_found("GitHub release list (load the release notes first)"))?;
+    let known = gh.iter().any(|r| r.tag_name == tag && r.assets.iter().any(|a| a.name == asset));
+    if !known {
+        return Err(Error::not_found("release file"));
+    }
+    st.jobs.submit(
+        JobKind::ReleaseDownload { repo_id, tag: tag.to_string(), asset: asset.to_string() },
+        format!("Download {asset} ({tag})"),
+    )
+}
+
+/// After an import (D-103): GitHub info / notes (+ auto-download) as a follow-up job, only for github.com
+/// origins and when any of the settings asks for it. `None` when nothing is queued.
+pub fn queue_github_sync(st: &AppState, repo_id: i64, auto_download: Option<bool>) -> Option<JobId> {
+    let opts = rs_core::github::SyncOpts::from_settings(&st.shelf, auto_download);
+    if !opts.any() || !st.shelf.net.available() || !rs_core::github::applies(&st.shelf, repo_id) {
+        return None;
+    }
+    let sum = rs_core::repo::summary(&st.shelf, repo_id).ok()?;
+    st.jobs.submit(JobKind::GithubSync { repo_id, auto_download }, format!("GitHub info {}/{}", sum.owner, sum.name)).ok()
 }
 
 /// S1 "Fetch all": one sequential, cancellable job over every fetchable repo.
@@ -94,13 +133,18 @@ pub async fn clone_preview(state: St<'_>, input: String) -> CmdResult<ClonePrevi
 }
 
 #[tauri::command]
-pub async fn clone_start(state: St<'_>, input: String) -> CmdResult<JobId> {
-    blocking(&state, move |st| clone_start_impl(st, &input)).await
+pub async fn clone_start(state: St<'_>, input: String, auto_download: Option<bool>) -> CmdResult<JobId> {
+    blocking(&state, move |st| clone_start_impl(st, &input, auto_download)).await
 }
 
 #[tauri::command]
-pub async fn fetch_start(state: St<'_>, repo_id: i64) -> CmdResult<JobId> {
-    blocking(&state, move |st| fetch_start_impl(st, repo_id)).await
+pub async fn fetch_start(state: St<'_>, repo_id: i64, auto_download: Option<bool>) -> CmdResult<JobId> {
+    blocking(&state, move |st| fetch_start_impl(st, repo_id, auto_download)).await
+}
+
+#[tauri::command]
+pub async fn release_download(state: St<'_>, repo_id: i64, tag: String, asset: String) -> CmdResult<JobId> {
+    blocking(&state, move |st| release_download_impl(st, repo_id, &tag, &asset)).await
 }
 
 #[tauri::command]

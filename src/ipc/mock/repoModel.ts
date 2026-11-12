@@ -4,6 +4,7 @@
 
 import { ipcError } from '../errors';
 import type {
+  AboutValues,
   AheadBehind,
   BlobKind,
   BlobMeta,
@@ -16,12 +17,14 @@ import type {
   EntryKind,
   FileChange,
   FileDiff,
+  GithubAbout,
   LastCommits,
   RefItem,
   RefKind,
   RefsList,
   Release,
   Rendered,
+  RepoSummary,
   ResolvedRev,
   TagRow,
   TreeEntry,
@@ -29,7 +32,7 @@ import type {
 } from '../types';
 import { languageFor } from '../../hl/languages';
 import { fakeOid, genHistory, hash32, HOUR, PEOPLE, sig, type GenCommit } from './fixtures/gen';
-import type { BranchDef, FileSpec, RepoDef } from './fixtures/model';
+import type { BranchDef, FileSpec, RepoDef, SummaryDef } from './fixtures/model';
 
 export const PAGE_LIMIT = 35;
 export const SCAN_CAP = 20_000;
@@ -118,12 +121,33 @@ interface Change {
   noNewline?: boolean;
 }
 
+/** A `RepoDef` whose summary carries the v0.2.0 About sources. */
+export type MockDef = RepoDef & { summary: RepoSummary };
+
+/** D-102 in the mock: fixture values are the user's; effective = user's when set, else GitHub's. */
+export function withAbout(s: SummaryDef): RepoSummary {
+  const aboutUser = s.aboutUser ?? { description: s.description, homepage: s.homepage, topics: [...s.topics] };
+  const aboutGithub = s.aboutGithub ?? null;
+  return { ...s, aboutUser, aboutGithub, ...effectiveAbout(aboutUser, aboutGithub) };
+}
+
+export function effectiveAbout(u: AboutValues, g: GithubAbout | null): Pick<RepoSummary, 'description' | 'homepage' | 'topics'> {
+  const set = (v: string | null) => v !== null && v.trim().length > 0;
+  return {
+    description: set(u.description) ? u.description : (g?.description ?? null),
+    homepage: set(u.homepage) ? u.homepage : (g?.homepage ?? null),
+    topics: u.topics.length > 0 ? u.topics : [...(g?.topics ?? [])],
+  };
+}
+
 /** Mock cap for ahead/behind counts (rs-core uses a larger one); `?huge` shows the capped marker. */
 const AB_CAP = 1_000;
 
 export class MockRepo {
-  readonly def: RepoDef;
+  readonly def: MockDef;
   readonly mainline: GenCommit[];
+  /** v0.2.0: assets "downloaded" in this mock session (`tag\nname` → fake store path). */
+  readonly downloaded = new Map<string, string>();
   private readonly byOid = new Map<string, GenCommit>();
   private readonly sideChains = new Map<string, GenCommit[]>();
   private readonly dirs = new Map<string, TreeEntry[]>();
@@ -131,7 +155,8 @@ export class MockRepo {
   private readonly textCache = new Map<string, string | null>();
 
   constructor(def: RepoDef) {
-    this.def = def;
+    def.summary = withAbout(def.summary);
+    this.def = def as MockDef;
     this.mainline = def.history ? genHistory(def.history) : [];
     for (const c of this.mainline) this.byOid.set(c.summary.oid, c);
     this.applyMerges();
@@ -716,6 +741,8 @@ export class MockRepo {
       const latest = !pre && !latestGiven;
       if (latest) latestGiven = true;
       const gh = withGh ? this.def.ghNotes?.[t.item.name] : undefined;
+      const repoUrl = this.githubUrl();
+      const tag = encodeURIComponent(t.item.name);
       return {
         tag: t.item.name,
         commit: t.commit.oid,
@@ -726,7 +753,26 @@ export class MockRepo {
         latest,
         previousTag: tags[i + 1]?.item.name ?? null,
         ghNotes: gh !== undefined,
+        htmlUrl: gh && repoUrl ? (gh.htmlUrl ?? `${repoUrl}/releases/tag/${tag}`) : null,
+        sourceZipUrl: repoUrl ? `${repoUrl}/archive/refs/tags/${tag}.zip` : null,
+        sourceTarUrl: repoUrl ? `${repoUrl}/archive/refs/tags/${tag}.tar.gz` : null,
+        assets: (gh?.assets ?? []).map((a) => ({
+          name: a.name,
+          size: a.size,
+          downloadCount: a.downloadCount ?? null,
+          url: `${repoUrl}/releases/download/${tag}/${encodeURIComponent(a.name)}`,
+          contentType: null,
+          sha256: a.sha256 ?? null,
+          forThisPc: a.forThisPc === true,
+          downloaded: this.downloaded.get(`${t.item.name}\n${a.name}`) ?? null,
+        })),
       };
     });
+  }
+
+  /** `https://github.com/<owner>/<name>` for a github.com origin, else null. */
+  githubUrl(): string | null {
+    const m = /^https:\/\/github\.com\/([^/]+)\/([^/]+?)(\.git)?$/.exec(this.def.summary.originUrl ?? '');
+    return m ? `https://github.com/${m[1]}/${m[2]}` : null;
   }
 }

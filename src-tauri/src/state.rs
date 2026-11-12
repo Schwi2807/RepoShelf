@@ -219,9 +219,11 @@ impl Subscribers {
 /// Host named in friendly job errors.
 fn job_host(shelf: &Shelf, kind: &JobKind) -> Option<String> {
     match kind {
-        JobKind::Clone { url } => rs_core::validate::clone_url(url).ok().map(|u| u.host),
-        JobKind::Fetch { repo_id } => rs_core::repo::summary(shelf, *repo_id).ok().and_then(|s| s.origin_host),
+        JobKind::Clone { url, .. } => rs_core::validate::clone_url(url).ok().map(|u| u.host),
+        JobKind::Fetch { repo_id, .. } => rs_core::repo::summary(shelf, *repo_id).ok().and_then(|s| s.origin_host),
         JobKind::FetchAll => None,
+        JobKind::GithubSync { .. } => Some("api.github.com".into()),
+        JobKind::ReleaseDownload { .. } => Some("github.com".into()),
     }
 }
 
