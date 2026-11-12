@@ -10,6 +10,7 @@ import type { ClonePreview } from '../../ipc/types';
 import { Button } from '../ui/Button';
 import { Spinner } from '../ui/bits';
 import { Dialog } from '../ui/Dialog';
+import { AutoDownloadCheck, isGithubUrl, useAutoDownload } from './AutoDownloadCheck';
 
 export const PREVIEW_DEBOUNCE_MS = 250;
 
@@ -25,6 +26,7 @@ export function CloneDialog({ onClose }: { onClose: () => void }) {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const seq = useRef(0);
+  const autoDl = useAutoDownload();
 
   useEffect(() => {
     const value = input.trim();
@@ -53,7 +55,7 @@ export function CloneDialog({ onClose }: { onClose: () => void }) {
     setBusy(true);
     setSubmitError(null);
     try {
-      await cloneStart(input.trim());
+      await cloneStart(input.trim(), isGithubUrl(check.preview.url) ? autoDl.value : null);
       onClose();
     } catch (e) {
       setSubmitError(errorText(e));
@@ -139,6 +141,7 @@ export function CloneDialog({ onClose }: { onClose: () => void }) {
           <p className="field__hint">Make sure the host is the one you expect. RepoShelf connects to it once to download the repository.</p>
         </div>
       )}
+      {check.state === 'ok' && isGithubUrl(check.preview.url) && <AutoDownloadCheck checked={autoDl.checked} onChange={autoDl.set} />}
       {submitError && (
         <p className="field__error" role="alert">
           {submitError}

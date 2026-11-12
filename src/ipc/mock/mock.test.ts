@@ -18,7 +18,8 @@ async function until(cond: () => boolean, ms = 8000): Promise<void> {
 describe('switches', () => {
   it('parses the search string', () => {
     expect(readSwitches('?slow&huge')).toMatchObject({ slow: true, huge: true, empty: false });
-    expect(readSwitches('')).toEqual({ empty: false, slow: false, clonefail: false, fetchfail: false, huge: false });
+    expect(readSwitches('')).toEqual({ empty: false, slow: false, clonefail: false, fetchfail: false, huge: false, gh: false });
+    expect(readSwitches('?gh').gh).toBe(true);
     expect(readSwitches('?empty=0').empty).toBe(false);
   });
 
@@ -140,7 +141,10 @@ describe('backend behaviour the UI relies on', () => {
     expect(img).toMatchObject({ mime: 'image/svg+xml' });
     expect(img.key).toMatch(/^[0-9a-f]{64}$/);
     const bytes = await m.invoke('image_bytes', { key: img.key });
-    expect(new TextDecoder().decode(bytes)).toContain('img.shields.io');
+    // badge hosts give a 120×20 badge labelled with the path, others a square tile naming the host
+    expect(new TextDecoder().decode(bytes)).toContain('build-passing-green');
+    const tile = await m.invoke('image_fetch', { url: 'https://user-images.example.org/shot.png' });
+    expect(new TextDecoder().decode(await m.invoke('image_bytes', { key: tile.key }))).toContain('user-images.example.org');
     for (const bad of ['http://example.com/a.png', 'https://127.0.0.1/a.png', 'https://localhost/a.png', 'https://user:pw@example.com/a.png']) {
       await expect(m.invoke('image_fetch', { url: bad })).rejects.toMatchObject({ code: 'refused' });
     }

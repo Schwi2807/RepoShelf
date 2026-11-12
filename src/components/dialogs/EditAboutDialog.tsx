@@ -1,7 +1,8 @@
 // Edit About (FR-20, S10): description, homepage, topics chip input. Stored in the app DB only (`repo_set_metadata`);
 // the repository's files are never touched. Client rules mirror `validate::topics`; server errors are shown as sent.
+// v0.2.0: prefilled with and saving `aboutUser` only; GitHub's fetched values appear as placeholders.
 
-import { Save } from 'lucide-react';
+import { Info, Save } from 'lucide-react';
 import { useId, useState, type KeyboardEvent } from 'react';
 import { repoSetMetadata } from '../../ipc/api';
 import { errorText } from '../../ipc/errors';
@@ -14,9 +15,12 @@ import { Dialog } from '../ui/Dialog';
 
 export function EditAboutDialog({ summary, onClose }: { summary: RepoSummary; onClose: () => void }) {
   const ids = useId();
-  const [description, setDescription] = useState(summary.description ?? '');
-  const [homepage, setHomepage] = useState(summary.homepage ?? '');
-  const [topics, setTopics] = useState<string[]>(summary.topics);
+  // v0.2.0 (D-102): the user's own values, never the effective ones (which may be GitHub's); GitHub's show as hints.
+  const user = summary.aboutUser;
+  const gh = summary.aboutGithub;
+  const [description, setDescription] = useState(user.description ?? '');
+  const [homepage, setHomepage] = useState(user.homepage ?? '');
+  const [topics, setTopics] = useState<string[]>(user.topics);
   const [draft, setDraft] = useState('');
   const [topicError, setTopicError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -88,7 +92,7 @@ export function EditAboutDialog({ summary, onClose }: { summary: RepoSummary; on
             rows={3}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="Short description of this repository"
+            placeholder={gh?.description ? `From GitHub: ${gh.description}` : 'Short description of this repository'}
           />
           <p className={tooLong ? 'field__error' : 'field__hint'}>
             {description.trim().length} / {MAX_DESCRIPTION} characters
@@ -103,7 +107,7 @@ export function EditAboutDialog({ summary, onClose }: { summary: RepoSummary; on
             className="input"
             value={homepage}
             onChange={(e) => setHomepage(e.target.value)}
-            placeholder="https://example.org"
+            placeholder={gh?.homepage ? `From GitHub: ${gh.homepage}` : 'https://example.org'}
             spellCheck={false}
             autoComplete="off"
           />
@@ -149,6 +153,15 @@ export function EditAboutDialog({ summary, onClose }: { summary: RepoSummary; on
             <p className="field__hint">Lowercase letters, digits and hyphens. Saved on this PC only; the repository is not changed.</p>
           )}
         </div>
+        {gh && (
+          <p className="notice" data-testid="about-github-note">
+            <Info size={16} aria-hidden="true" />
+            <span>
+              GitHub info is shown for any field you leave empty
+              {gh.topics.length > 0 && topics.length === 0 ? ` (topics: ${gh.topics.join(', ')})` : ''}. Your values win when set.
+            </span>
+          </p>
+        )}
       </form>
       {error && (
         <p className="notice notice--danger mt-3" role="alert">

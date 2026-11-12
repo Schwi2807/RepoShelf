@@ -45,12 +45,30 @@ const DEFAULT_SETTINGS: Settings = {
 };
 
 /** Mock `image_fetch` (F2): an SVG placeholder naming the host, so nothing ever leaves the page. */
-function placeholderImage(host: string): ArrayBuffer {
-  const label = host.replace(/[^a-z0-9.-]/gi, '').slice(0, 40);
-  const svg =
-    `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="20" viewBox="0 0 160 20">` +
-    `<rect width="160" height="20" rx="3" fill="#1b6a80"/>` +
-    `<text x="80" y="14" font-size="11" text-anchor="middle" fill="#fff" font-family="sans-serif">${label}</text></svg>`;
+/** Mock remote image: a badge (shields-like hosts or `/badge` paths, 120×20, labelled with the last path segment)
+ * or a square picture tile naming the host (160×160). */
+function placeholderImage(url: string): ArrayBuffer {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    u = new URL('https://unknown.invalid/');
+  }
+  const clean = (s: string) => s.replace(/[^a-z0-9.-]/gi, ' ').trim().slice(0, 40);
+  const host = clean(u.hostname);
+  let svg: string;
+  if (/shields|badge/i.test(u.hostname + u.pathname)) {
+    const label = clean(decodeURIComponent(u.pathname.split('/').filter(Boolean).pop() ?? host)) || host;
+    svg =
+      `<svg xmlns="http://www.w3.org/2000/svg" width="120" height="20" viewBox="0 0 120 20">` +
+      `<rect width="120" height="20" rx="3" fill="#1b6a80"/>` +
+      `<text x="60" y="14" font-size="11" text-anchor="middle" fill="#fff" font-family="sans-serif">${label}</text></svg>`;
+  } else {
+    svg =
+      `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160">` +
+      `<rect width="160" height="160" rx="12" fill="#2a8a8f"/><circle cx="80" cy="66" r="30" fill="#e8f4f2"/>` +
+      `<text x="80" y="134" font-size="12" text-anchor="middle" fill="#fff" font-family="sans-serif">${host}</text></svg>`;
+  }
   return new TextEncoder().encode(svg).buffer as ArrayBuffer;
 }
 
@@ -101,6 +119,8 @@ export function createMockBackend(search: string, opts: { tickMs?: number } = {}
   const importTokens = new Map<string, string>();
   let importSeq = 0;
   const ghFetched = new Set<number>();
+  // `?gh`: GitHub release lists already cached (assets visible at once)
+  if (sw.gh) for (const r of repos.values()) if (r.githubUrl() !== null) ghFetched.add(r.id);
   const images = new Map<string, string>();
   const eventListeners = new Map<keyof Events, Set<(p: never) => void>>();
   let refreshedSent = false;
@@ -405,8 +425,8 @@ export function createMockBackend(search: string, opts: { tickMs?: number } = {}
       // mock: hosts containing "fail" behave like an unreachable server (the UI falls back to the chip)
       if (h.includes('fail')) throw ipcError('network', `network: could not reach ${h}`);
       const key = mockKey(u.href);
-      images.set(key, h);
-      return { key, mime: 'image/svg+xml', size: placeholderImage(h).byteLength };
+      images.set(key, u.href);
+      return { key, mime: 'image/svg+xml', size: placeholderImage(u.href).byteLength };
     },
     image_bytes: ({ key }) => {
       if (!/^[0-9a-f]{64}$/.test(key)) throw ipcError('invalidInput', 'bad image key');

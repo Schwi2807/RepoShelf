@@ -1,6 +1,7 @@
 // About sidebar (FR-18, FR-19, FR-20): gear → Edit About, description, homepage (confirmed external link), topics,
 // origin, license, "Imported from" / "Cloned … · last fetched …", counts; Releases box; Languages box (stacked bar +
-// list, own palette).
+// list, own palette). v0.2.0: values are the effective ones (the user's win over GitHub's, D-102); a line says
+// when some come from GitHub.
 
 import { Archive, Eye, GitBranch, Globe, HardDrive, Link2, Package, Scale, Settings, Tag } from 'lucide-react';
 import { useState } from 'react';
@@ -44,6 +45,16 @@ export function ExternalText({ url, className }: { url: string; className?: stri
   );
 }
 
+/** v0.2.0 (D-102): true when an effective About value shown comes from GitHub (the user's field is empty). */
+export function ghShown(s: RepoSummary): boolean {
+  const g = s.aboutGithub;
+  if (!g) return false;
+  const u = s.aboutUser;
+  return (
+    (!u.description?.trim() && !!g.description?.trim()) || (!u.homepage?.trim() && !!g.homepage?.trim()) || (u.topics.length === 0 && g.topics.length > 0)
+  );
+}
+
 export function AboutSidebar({
   summary,
   detail,
@@ -73,6 +84,11 @@ export function AboutSidebar({
             </p>
           )}
           <TopicChips topics={summary.topics} />
+          {ghShown(summary) && summary.aboutGithub && (
+            <p className="about__source muted small" data-testid="about-from-github">
+              Some details from GitHub, fetched <RelativeTime secs={summary.aboutGithub.fetchedAt} />. Edit to use your own.
+            </p>
+          )}
           <ul className="about__facts">
             {summary.originUrl && (
               <li className="about__line">

@@ -1,7 +1,8 @@
 // S0 global header (FR-32): logo + name (home) · RepoJump · "+" menu · jobs · theme toggle · settings.
 
-import { Download, FolderPlus, Monitor, Moon, Plus, Settings, Sun } from 'lucide-react';
-import { href } from '../../router/router';
+import { ArrowLeft, ArrowRight, Download, FolderPlus, Monitor, Moon, Plus, Settings, Sun } from 'lucide-react';
+import { useSyncExternalStore } from 'react';
+import { back, forward, historyPos, href, subscribe } from '../../router/router';
 import { Link } from '../../router/Link';
 import { useSettings } from '../../state/settings';
 import { nextTheme, setTheme } from '../../state/theme';
@@ -52,6 +53,29 @@ export function AddMenu() {
   );
 }
 
+/** F1: on-screen Back / Forward (Alt+Left/Right and mouse buttons 4/5 keep working, router.ts). Disabled when the
+ * app's own history has no entry in that direction. */
+export function HistoryButtons() {
+  const pos = useSyncExternalStore(subscribe, historyPos, historyPos);
+  return (
+    <nav className="gh__hist" aria-label="History">
+      <button type="button" className="gh__btn" aria-label="Back (Alt+Left)" title="Back (Alt+Left)" disabled={!pos.canBack} onClick={back}>
+        <ArrowLeft size={16} aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        className="gh__btn"
+        aria-label="Forward (Alt+Right)"
+        title="Forward (Alt+Right)"
+        disabled={!pos.canForward}
+        onClick={forward}
+      >
+        <ArrowRight size={16} aria-hidden="true" />
+      </button>
+    </nav>
+  );
+}
+
 export function GlobalHeader() {
   return (
     <header className="gh">
@@ -60,8 +84,11 @@ export function GlobalHeader() {
           <AppMark className="gh__mark" />
           <span className="gh__brand-name">RepoShelf</span>
         </Link>
-        <div className="gh__search">
-          <RepoJump />
+        <div className="gh__mid">
+          <HistoryButtons />
+          <div className="gh__search">
+            <RepoJump />
+          </div>
         </div>
         <nav className="gh__actions" aria-label="App">
           <AddMenu />

@@ -330,6 +330,15 @@ export function freshClone(): RepoDef {
       lastOpenedAt: null,
       lastFetchedAt: NOW - 1 * HOUR,
       status: { type: 'ok' },
+      // v0.2.0 (D-102): About comes from GitHub only (the user never edited it)
+      aboutUser: { description: null, homepage: null, topics: [] },
+      aboutGithub: {
+        description: 'Command-line client for container registries.',
+        homepage: null,
+        topics: ['go', 'cli', 'containers'],
+        htmlUrl: 'https://github.com/tidewater/harbor-cli',
+        fetchedAt: NOW - 1 * HOUR,
+      },
     },
     isBare: true,
     fetchable: true,

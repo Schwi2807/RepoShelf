@@ -108,7 +108,8 @@ export function GhNotesButton({ summary, anyGhNotes }: { summary: RepoSummary; a
             <span className="mono">
               {summary.owner}/{summary.name}
             </span>{' '}
-            and keep the release notes it gets back. Nothing else leaves this computer.
+            and keep the release notes and the list of release files it gets back. Nothing is downloaded until you choose a
+            file.
           </p>
           {err && (
             <p className="field__error" role="alert">

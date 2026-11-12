@@ -52,8 +52,31 @@ export const ThemeProvider = Ctx.Provider;
 export const useTheme = (): Theme => useContext(Ctx);
 `;
 
-const README_HTML = `<h1><a href="#user-content-lumen" id="user-content-lumen" rel="noopener noreferrer"></a>Lumen</h1>
-<p>Accessible React components with a tiny footprint. Themeable with CSS custom properties.</p>
+// v0.2.0 (F2/F3): a typical centred GitHub README head, in the shape the rs-core sanitiser emits (D-96): centred
+// logo + h1 + tagline, a badge row (links around remote images), a centred table of feature cards with images, a
+// right-floated screenshot, and one image from an unreachable host (chip fallback).
+const README_HTML = `<div align="center">
+<img src="https://raw.githubusercontent.com/lumen-ui/lumen/main/docs/logo.png" width="96" height="96" alt="Lumen logo">
+<h1 align="center">Lumen</h1>
+<p align="center">Accessible React components with a tiny footprint. Themeable with CSS custom properties.</p>
+<p align="center">
+<a href="https://github.com/lumen-ui/lumen/actions" rel="noopener noreferrer"><img src="https://img.shields.io/badge/build-passing-green" alt="build"></a>
+<a href="https://www.npmjs.com/package/lumen-ui" rel="noopener noreferrer"><img src="https://img.shields.io/badge/npm-v2.0.0--beta.1-blue" alt="npm"></a>
+<img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="license">
+</p>
+</div>
+<table align="center">
+<tr>
+<td align="center"><img src="https://user-images.example.org/lumen/button.png" width="72" alt="Button"><br><b>Buttons</b><br>Three tones, two sizes</td>
+<td align="center"><img src="https://user-images.example.org/lumen/dialog.png" width="72" alt="Dialog"><br><b>Dialogs</b><br>Focus trapped and returned</td>
+<td align="center"><img src="https://user-images.example.org/lumen/theme.png" width="72" alt="Theme"><br><b>Theming</b><br>CSS custom properties</td>
+</tr>
+</table>
+<img align="right" width="180" src="https://user-images.example.org/lumen/screenshot.png" alt="Screenshot of the demo page">
+<p>Lumen ships unstyled-by-default primitives with a small theme layer on top. Every component is keyboard friendly,
+follows the WAI-ARIA authoring practices and renders without a runtime CSS-in-JS library. The demo page on the right
+shows the default light theme.</p>
+<p>Diagram (its server is offline in this mock): <img src="https://fail.example.com/lumen/architecture.png" alt="architecture diagram"></p>
 <h2><a href="#user-content-quick-start" id="user-content-quick-start" rel="noopener noreferrer"></a>Quick start</h2>
 <pre><code class="language-bash">npm install lumen-ui
 </code></pre>
@@ -75,7 +98,6 @@ Questions? <a href="mailto:maintainers@example.com" rel="noopener noreferrer">ma
 const README: Rendered = {
   html: README_HTML,
   headings: [
-    { level: 1, text: 'Lumen', anchor: 'user-content-lumen' },
     { level: 2, text: 'Quick start', anchor: 'user-content-quick-start' },
     { level: 2, text: 'Components', anchor: 'user-content-components' },
   ],

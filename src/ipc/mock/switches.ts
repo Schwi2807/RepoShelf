@@ -11,6 +11,8 @@ export interface Switches {
   fetchfail: boolean;
   /** 1,000-entry dir, 10k-commit history, 400-file commit. */
   huge: boolean;
+  /** v0.2.0: GitHub release lists already cached for github.com repos (assets visible without "Load"). */
+  gh: boolean;
 }
 
 export const SLOW_MS = 600;
@@ -24,5 +26,6 @@ export function readSwitches(search: string): Switches {
     clonefail: on('clonefail'),
     fetchfail: on('fetchfail'),
     huge: on('huge'),
+    gh: on('gh'),
   };
 }

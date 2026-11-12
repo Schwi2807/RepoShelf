@@ -66,10 +66,36 @@
   flex: none;
 }
 
+/* F1: Back / Forward sit directly left of the search; the pair is centred like the search alone was. */
+.gh__mid {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 640px;
+  margin: 0 auto;
+  min-width: 0;
+}
+
+.gh__hist {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: none;
+}
+
+.gh__btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.gh__btn:disabled:hover {
+  background: transparent;
+}
+
 .gh__search {
   flex: 1;
-  max-width: 560px;
-  margin: 0 auto;
+  min-width: 0;
 }
 
 .gh__actions {
@@ -215,7 +241,7 @@
   .cols--3-1 {
     grid-template-columns: minmax(0, 1fr);
   }
-  .gh__search {
+  .gh__mid {
     max-width: none;
   }
   .gh__brand-name {

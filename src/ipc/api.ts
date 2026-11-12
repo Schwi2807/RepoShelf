@@ -24,6 +24,7 @@ import type {
   LatestCommit,
   RefsList,
   Release,
+  RemoteImage,
   RemoveResult,
   Rendered,
   RepoDetail,
@@ -58,7 +59,9 @@ export const libraryRefresh = (requestId: string): Promise<RepoSummary[]> => cal
 export const repoBySlug = (owner: string, name: string): Promise<RepoSummary> =>
   call('repo_by_slug', { owner, name });
 export const importPick = (): Promise<ImportPreview | null> => call('import_pick', {});
-export const importConfirm = (token: string): Promise<RepoSummary> => call('import_confirm', { token });
+/** `autoDownload` (v0.2.0): the dialog's checkbox; null = the setting. */
+export const importConfirm = (token: string, autoDownload: boolean | null = null): Promise<RepoSummary> =>
+  call('import_confirm', { token, autoDownload });
 export const repoLocate = (repoId: number): Promise<RepoSummary | null> => call('repo_locate', { repoId });
 export const repoRemove = (repoId: number): Promise<RemoveResult> => call('repo_remove', { repoId });
 export const repoSetMetadata = (
@@ -132,11 +135,24 @@ export const branchesAheadBehind = (repoId: number, names: string[], requestId: 
 export const tagsList = (repoId: number): Promise<TagRow[]> => call('tags_list', { repoId });
 export const releasesList = (repoId: number): Promise<Release[]> => call('releases_list', { repoId });
 export const releasesFetchGithub = (repoId: number): Promise<Release[]> => call('releases_fetch_github', { repoId });
+/** v0.2.0 (F4): download one GitHub release file into the release store → job `releaseDownload`. */
+export const releaseDownload = (repoId: number, tag: string, asset: string): Promise<JobId> =>
+  call('release_download', { repoId, tag, asset });
+/** Show a downloaded release file in Explorer (`notFound` when it is not downloaded). */
+export const releaseReveal = (repoId: number, tag: string, asset: string): Promise<void> =>
+  call('release_reveal', { repoId, tag, asset }).then(() => undefined);
+
+// Remote images (v0.2.0, F2): fetched + cached in Rust; the webview only gets bytes → blob:.
+export const imageFetch = (url: string): Promise<RemoteImage> => call('image_fetch', { url });
+export const imageBytes = (key: string): Promise<ArrayBuffer> => call('image_bytes', { key });
 
 // Clone / fetch / jobs
 export const clonePreview = (input: string): Promise<ClonePreview> => call('clone_preview', { input });
-export const cloneStart = (input: string): Promise<JobId> => call('clone_start', { input });
-export const fetchStart = (repoId: number): Promise<JobId> => call('fetch_start', { repoId });
+/** `autoDownload`: the action's option; null = the setting (v0.2.0). */
+export const cloneStart = (input: string, autoDownload: boolean | null = null): Promise<JobId> =>
+  call('clone_start', { input, autoDownload });
+export const fetchStart = (repoId: number, autoDownload: boolean | null = null): Promise<JobId> =>
+  call('fetch_start', { repoId, autoDownload });
 export const fetchAllStart = (): Promise<JobId> => call('fetch_all_start', {});
 export const fastForward = (repoId: number): Promise<string> => call('fast_forward', { repoId });
 export const jobsCancel = (jobId: JobId): Promise<boolean> => call('jobs_cancel', { jobId });

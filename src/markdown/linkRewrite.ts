@@ -2,7 +2,8 @@
 // Rust; here it is parsed into an INERT <template> (nothing loads, nothing runs) and rewritten before mounting:
 // - `rsrepo:/path` anchors → in-app blob routes (the blob view redirects to the tree view for directories);
 // - `rsrepo:/path` images → collected for `blob_bytes` → blob: URLs (src removed until then);
-// - remote http(s) images → a link chip "Remote image: <host>" (NFR-S2: nothing loads from the network);
+// - remote http(s) images → a link chip "Remote image: <host>" (NFR-S2: nothing loads from the network); the
+//   inert <img> is returned too, so MarkdownBody can show it from backend bytes (F2, setting loadRemoteImages);
 // - http(s)/mailto anchors → marked external (click → ConfirmExternalLink);
 // - `#fragment` anchors kept (scrolled in-page by MarkdownBody);
 // - any other href (javascript:, data:, //host, relative leftovers…) removed;
@@ -28,9 +29,19 @@ export interface CodeBlock {
   lang: string;
 }
 
+/** A remote http(s) image (F2): mounted as `chip`; `restore` (detached, `img` inside or itself) replaces the chip
+ * when the bytes arrive through the backend. `img` has no `src` until then (`data-remote-src` = `url`). */
+export interface RemoteImg {
+  chip: HTMLElement;
+  img: HTMLImageElement;
+  restore: Element;
+  url: string;
+}
+
 export interface RewriteResult {
   fragment: DocumentFragment;
   images: RepoImage[];
+  remoteImages: RemoteImg[];
   codeBlocks: CodeBlock[];
 }
 
@@ -123,6 +134,7 @@ export function rewriteHtml(html: string, ctx: RewriteContext, doc: Document = d
 
   // images
   const images: RepoImage[] = [];
+  const remoteImages: RemoteImg[] = [];
   for (const img of [...root.querySelectorAll('img')]) {
     const src = (img.getAttribute('src') ?? '').trim();
     const alt = img.getAttribute('alt') ?? '';
@@ -145,10 +157,20 @@ export function rewriteHtml(html: string, ctx: RewriteContext, doc: Document = d
       chip.setAttribute('rel', 'noopener noreferrer');
       chip.setAttribute('title', alt ? `${alt} — ${src}` : src);
       chip.textContent = `Remote image: ${hostOf(src)}`;
+      // The chip is what mounts (nothing loads from the network, NFR-S2). With remote images on, MarkdownBody
+      // swaps `restore` (the inert <img>, inside its link when it had one) back in once the bytes are here (F2).
+      img.removeAttribute('src');
+      img.setAttribute('data-remote-src', src);
       // an image wrapped in a link: replace the whole link so there is one clear target
       const parent = img.parentElement;
-      if (parent && parent.tagName === 'A' && parent.childNodes.length === 1) parent.replaceWith(chip);
-      else img.replaceWith(chip);
+      let restore: Element = img;
+      if (parent && parent.tagName === 'A' && parent.childNodes.length === 1) {
+        parent.replaceWith(chip);
+        restore = parent;
+      } else {
+        img.replaceWith(chip);
+      }
+      remoteImages.push({ chip, img, restore, url: src });
       continue;
     }
     if (DATA_IMAGE.test(src)) continue;
@@ -162,7 +184,7 @@ export function rewriteHtml(html: string, ctx: RewriteContext, doc: Document = d
     if (cls) codeBlocks.push({ el: code as HTMLElement, lang: cls.slice('language-'.length) });
   }
 
-  return { fragment: root, images, codeBlocks };
+  return { fragment: root, images, remoteImages, codeBlocks };
 }
 
 function missingImage(doc: Document, alt: string): HTMLElement {

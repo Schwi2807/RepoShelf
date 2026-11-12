@@ -1,5 +1,6 @@
 // Mounts sanitised markdown HTML (README, .md preview, release notes) after `rewriteHtml`, then:
-// repo images → `blob_meta` + `blob_bytes` → blob: URLs (revoked on unmount); fenced code → highlighter worker;
+// repo images → `blob_meta` + `blob_bytes` → blob: URLs (revoked on unmount); remote images (setting on) →
+// `image_fetch` + `image_bytes` → blob: URLs, lazily and capped (F2, else the chip); fenced code → highlighter worker;
 // every click is intercepted: in-app → router, `#fragment` → scroll inside the body, http(s)/mailto →
 // ConfirmExternalLink, anything else → nothing (NFR-S3).
 
@@ -9,7 +10,9 @@ import { blobBytes, blobMeta } from '../ipc/api';
 import { highlightBlock } from '../hl/highlighter';
 import { languageForFence } from '../hl/languages';
 import { navigate } from '../router/router';
-import { rewriteHtml } from './linkRewrite';
+import { useSettings } from '../state/settings';
+import { rewriteHtml, type RemoteImg } from './linkRewrite';
+import { loadRemoteImage } from './remoteImages';
 
 export interface MarkdownBodyProps {
   html: string;
@@ -25,14 +28,51 @@ export interface MarkdownBodyProps {
 
 export function MarkdownBody({ html, repoId, owner = '', repo = '', rev = '', commit, className }: MarkdownBodyProps) {
   const host = useRef<HTMLDivElement>(null);
+  const loadRemote = useSettings().settings.loadRemoteImages;
 
   useEffect(() => {
     const el = host.current;
     if (!el) return;
     let alive = true;
     const urls: string[] = [];
-    const { fragment, images, codeBlocks } = rewriteHtml(html, { owner, repo, rev });
+    const { fragment, images, remoteImages, codeBlocks } = rewriteHtml(html, { owner, repo, rev });
     el.replaceChildren(fragment);
+
+    // F2: remote images through the backend, lazily (only chips near the viewport), at most MAX_PARALLEL at once
+    // (remoteImages.ts). Any failure — or the setting off — keeps the "Remote image: host" chip.
+    let observer: IntersectionObserver | null = null;
+    if (loadRemote && remoteImages.length > 0) {
+      const byChip = new Map<Element, RemoteImg>(remoteImages.map((r) => [r.chip, r]));
+      const start = (r: RemoteImg) => {
+        loadRemoteImage(r.url, () => alive)
+          .then((blob) => {
+            if (!alive || !r.chip.isConnected) return;
+            const url = URL.createObjectURL(blob);
+            urls.push(url);
+            r.chip.replaceWith(r.restore);
+            r.img.src = url;
+          })
+          .catch(() => {
+            if (alive) r.chip.classList.add('md-remote-image--failed');
+          });
+      };
+      if (typeof IntersectionObserver === 'function') {
+        observer = new IntersectionObserver(
+          (entries) => {
+            for (const e of entries) {
+              if (!e.isIntersecting) continue;
+              observer?.unobserve(e.target);
+              const r = byChip.get(e.target);
+              if (r) start(r);
+            }
+          },
+          { rootMargin: '300px 0px' },
+        );
+        for (const r of remoteImages) observer.observe(r.chip);
+      } else {
+        for (const r of remoteImages) start(r);
+      }
+    }
 
     if (repoId !== undefined) {
       const at = commit ?? rev;
@@ -69,9 +109,10 @@ export function MarkdownBody({ html, repoId, owner = '', repo = '', rev = '', co
 
     return () => {
       alive = false;
+      observer?.disconnect();
       for (const u of urls) URL.revokeObjectURL(u);
     };
-  }, [html, repoId, owner, repo, rev, commit]);
+  }, [html, repoId, owner, repo, rev, commit, loadRemote]);
 
   const onClick = (e: MouseEvent<HTMLDivElement>) => {
     const a = (e.target as Element).closest('a');

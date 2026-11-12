@@ -2,17 +2,34 @@
 // per-kind heading, progress from the `Progress` variants, Cancel (waiting and running), Retry (failed only — the
 // backend refuses others), Dismiss. Done rows vanish after 5 s (jobs store); failures stay with the backend's
 // message. Results: clones list the refs Windows could not store (FR-9) and link to the new repo; fetches report
-// new commits, new tags, kept local tags and skipped refs.
+// new commits, new tags, kept local tags and skipped refs. v0.2.0: GitHub info (`githubSync`) and release downloads
+// (`releaseDownload`, with "Show in folder" — the only way back to a file whose tag has no release card, D-80) plus
+// the GitHub notes of clone / fetch / import.
 
-import { Activity, Archive, CircleAlert, CircleCheck, CircleSlash, LoaderCircle, RefreshCw, RotateCcw, X, type LucideIcon } from 'lucide-react';
+import {
+  Activity,
+  Archive,
+  CircleAlert,
+  CircleCheck,
+  CircleSlash,
+  Download,
+  FolderOpen,
+  Globe,
+  LoaderCircle,
+  RefreshCw,
+  RotateCcw,
+  X,
+  type LucideIcon,
+} from 'lucide-react';
 import { useRef, useState } from 'react';
+import { releaseReveal } from '../../ipc/api';
 import { errorText } from '../../ipc/errors';
 import type { JobInfo } from '../../ipc/types';
 import { href } from '../../router/router';
 import { Link } from '../../router/Link';
 import { cancelJob, dismissJob, isActive, retryJob, useJobs } from '../../state/jobs';
 import { useLibrary } from '../../state/library';
-import { cloneReport, fetchReport, kindLabel, notesReport, progressFraction, progressText } from '../../util/jobText';
+import { cloneReport, downloadReport, fetchReport, kindLabel, notesReport, progressFraction, progressText } from '../../util/jobText';
 import { Button } from '../ui/Button';
 import { useDismiss } from '../ui/Popover';
 
@@ -27,11 +44,20 @@ const STATE_ICON: Record<JobInfo['state'], LucideIcon> = {
 /** What the job works on, without the kind word the backend puts in front ("Clone owner/name" → "owner/name"). */
 export function jobTarget(j: JobInfo): string {
   if (j.kind.type === 'fetchAll') return 'every clone on the shelf';
-  const t = j.title.replace(/^(clone|fetch)\s+/i, '');
+  if (j.kind.type === 'releaseDownload') return `${j.kind.asset} (${j.kind.tag})`;
+  const t = j.title.replace(/^(clone|fetch|github info|download)\s+/i, '');
   return t.length > 0 ? t : j.kind.type === 'clone' ? j.kind.url : j.title;
 }
 
-function resultLines(j: JobInfo): string[] {
+const KIND_ICON: Record<JobInfo['kind']['type'], LucideIcon> = {
+  clone: Archive,
+  fetch: RefreshCw,
+  fetchAll: RefreshCw,
+  githubSync: Globe,
+  releaseDownload: Download,
+};
+
+export function resultLines(j: JobInfo): string[] {
   const r = j.result;
   if (!r) return ['Done.'];
   switch (r.type) {
@@ -42,8 +68,16 @@ function resultLines(j: JobInfo): string[] {
     case 'synced':
       return r.notes.length > 0 ? notesReport(r.notes) : ['GitHub info updated.'];
     case 'downloaded':
-      return [r.already ? `${r.file} was already downloaded.` : `Downloaded ${r.file}.`];
+      return [downloadReport(r)];
   }
+}
+
+function RevealButton({ repoId, tag, file, onError }: { repoId: number; tag: string; file: string; onError: (e: unknown) => void }) {
+  return (
+    <Button size="sm" icon={FolderOpen} onClick={() => releaseReveal(repoId, tag, file).catch(onError)}>
+      Show in folder
+    </Button>
+  );
 }
 
 export function JobRow({ job }: { job: JobInfo }) {
@@ -52,9 +86,10 @@ export function JobRow({ job }: { job: JobInfo }) {
   const f = progressFraction(job.progress);
   const active = isActive(job);
   const Icon = STATE_ICON[job.state];
-  const KindIcon = job.kind.type === 'clone' ? Archive : RefreshCw;
+  const KindIcon = KIND_ICON[job.kind.type];
   const res = job.result;
   const cloned = job.state === 'done' && res?.type === 'cloned' ? lib.repos?.find((r) => r.id === res.repoId) : undefined;
+  const downloaded = job.state === 'done' && res?.type === 'downloaded' ? res : undefined;
 
   const run = (p: Promise<unknown>) => {
     setActionError(null);
@@ -104,6 +139,9 @@ export function JobRow({ job }: { job: JobInfo }) {
             Open repository
           </Link>
         )}
+        {downloaded && (
+          <RevealButton repoId={downloaded.repoId} tag={downloaded.tag} file={downloaded.file} onError={(e) => setActionError(errorText(e))} />
+        )}
         {active && (
           <Button size="sm" icon={X} onClick={() => run(cancelJob(job.id))}>
             Cancel
@@ -125,7 +163,7 @@ export function JobRow({ job }: { job: JobInfo }) {
 }
 
 export function JobsList({ jobs }: { jobs: JobInfo[] }) {
-  if (jobs.length === 0) return <div className="menu__note jobs__empty">No clones or fetches running.</div>;
+  if (jobs.length === 0) return <div className="menu__note jobs__empty">No background jobs (clones, fetches, downloads) running.</div>;
   return (
     <ul className="menu jobs__list scroll-y">
       {jobs.map((j) => (

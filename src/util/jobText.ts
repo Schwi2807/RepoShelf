@@ -44,9 +44,21 @@ export function kindLabel(k: JobKind): string {
   }
 }
 
-/** v0.2.0 (M11 minimal; M12 owns the wording): GitHub / auto-download notes of a finished job. */
+/** v0.2.0: GitHub / auto-download remarks of a finished job (never a failure, D-103), one sentence each. */
 export function notesReport(notes: string[]): string[] {
-  return notes;
+  return notes
+    .map((n) => n.trim())
+    .filter((n) => n.length > 0)
+    .map((n) => {
+      const s = n.charAt(0).toUpperCase() + n.slice(1);
+      return /[.!?…]$/.test(s) ? s : s + '.';
+    });
+}
+
+/** "Downloaded x.zip (2.3 MB, SHA-256 checked) into the release folder." */
+export function downloadReport(r: { file: string; size: number; sha256Checked: boolean; already: boolean }): string {
+  if (r.already) return `${r.file} was already downloaded.`;
+  return `Downloaded ${r.file} (${formatBytes(r.size)}${r.sha256Checked ? ', SHA-256 checked' : ''}).`;
 }
 
 export function progressText(p: Progress | null, state: JobInfo['state']): string {

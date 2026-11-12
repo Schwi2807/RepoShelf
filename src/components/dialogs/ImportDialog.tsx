@@ -14,12 +14,14 @@ import { applySummary } from '../../state/repoCache';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/bits';
 import { Dialog } from '../ui/Dialog';
+import { AutoDownloadCheck, isGithubUrl, useAutoDownload } from './AutoDownloadCheck';
 
 export function ImportDialog({ onClose }: { onClose: () => void }) {
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const { repos } = useLibrary();
+  const autoDl = useAutoDownload();
   const dup = preview?.duplicateOf != null ? (repos ?? []).find((r) => r.id === preview.duplicateOf) : undefined;
 
   const pick = async () => {
@@ -41,7 +43,7 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
     setBusy(true);
     setError(null);
     try {
-      const r = await importConfirm(preview.token);
+      const r = await importConfirm(preview.token, isGithubUrl(preview.originUrl) ? autoDl.value : null);
       applySummary(r);
       onClose();
       navigate(href('code', { owner: r.owner, repo: r.name }));
@@ -108,6 +110,9 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
               <Info size={16} aria-hidden="true" />
               <span>Read-only: browsing never writes to this folder. Fetch (optional, asks first) is the only exception.</span>
             </p>
+          )}
+          {preview.duplicateOf === null && isGithubUrl(preview.originUrl) && (
+            <AutoDownloadCheck checked={autoDl.checked} onChange={autoDl.set} />
           )}
         </div>
       )}

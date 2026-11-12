@@ -1,8 +1,9 @@
 // S2 repo header row 1 (FR-10, FR-11, FR-12, FR-36): book icon, `owner / name`, source badge, origin link (confirmed),
-// Fetch (clones directly; fetchable imported repos after the D-3 confirm) with the "N new commits" result,
+// Fetch (clones directly; fetchable imported repos after the D-3 confirm) with the "N new commits" result; for
+// github.com origins a split menu picks "with / without the latest release download" (v0.2.0 F4, else the setting),
 // Fast-forward when `canFastForward`, Open folder, "…" → Copy location / Remove from shelf.
 
-import { Archive, BookMarked, Ellipsis, FastForward, FolderOpen, Globe, HardDrive, Link2, RefreshCw, Trash2 } from 'lucide-react';
+import { Archive, BookMarked, ChevronDown, Download, Ellipsis, FastForward, FolderOpen, Globe, HardDrive, Link2, RefreshCw, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { fastForward, fetchStart, repoOpenFolder } from '../../ipc/api';
 import { errorText } from '../../ipc/errors';
@@ -12,6 +13,8 @@ import { copyLocation, href, navigate } from '../../router/router';
 import { Link } from '../../router/Link';
 import { useJobs } from '../../state/jobs';
 import { refreshLibrary } from '../../state/library';
+import { useSettings } from '../../state/settings';
+import { isGithubUrl } from '../dialogs/AutoDownloadCheck';
 import { shortOid } from '../../util/format';
 import { fetchResultText } from '../../util/jobText';
 import { FetchConfirmDialog } from '../dialogs/FetchConfirmDialog';
@@ -40,6 +43,7 @@ export function RepoHeader({ summary, detail }: { summary: RepoSummary; detail: 
   const [removing, setRemoving] = useState(false);
   const [ffBusy, setFfBusy] = useState(false);
   const jobs = useJobs();
+  const autoDefault = useSettings().settings.autoDownloadLatestRelease;
   const missing = summary.status.type === 'missing';
   const canFetch = detail?.fetchable === true && !missing;
   const job = jobId === null ? undefined : jobs.find((j) => j.id === jobId);
@@ -59,9 +63,17 @@ export function RepoHeader({ summary, detail }: { summary: RepoSummary; detail: 
     }
   }, [job]);
 
-  const startFetch = () => {
+  // F4: the Fetch menu's choice (null = the setting), kept across the imported-repo confirm.
+  const [autoDl, setAutoDl] = useState<boolean | null>(null);
+  const github = isGithubUrl(summary.originUrl);
+  const startFetch = (auto: boolean | null = autoDl) => {
     setMsg(null);
-    fetchStart(summary.id).then(setJobId, (e: unknown) => setMsg({ text: errorText(e), error: true }));
+    fetchStart(summary.id, github ? auto : null).then(setJobId, (e: unknown) => setMsg({ text: errorText(e), error: true }));
+  };
+  const requestFetch = (auto: boolean | null) => {
+    setAutoDl(auto);
+    if (summary.source === 'imported') setConfirming(true);
+    else startFetch(auto);
   };
 
   const origin = summary.originUrl;
@@ -122,20 +134,31 @@ export function RepoHeader({ summary, detail }: { summary: RepoSummary; detail: 
           </Button>
         )}
         {canFetch && (
-          <Button
-            size="sm"
-            icon={running ? undefined : RefreshCw}
-            disabled={running}
-            onClick={() => (summary.source === 'imported' ? setConfirming(true) : startFetch())}
-          >
-            {running ? (
-              <>
-                <Spinner size={14} label="Fetching" /> Fetching…
-              </>
-            ) : (
-              'Fetch'
+          <div className={github ? 'btn-split' : undefined}>
+            <Button size="sm" icon={running ? undefined : RefreshCw} disabled={running} onClick={() => requestFetch(null)}>
+              {running ? (
+                <>
+                  <Spinner size={14} label="Fetching" /> Fetching…
+                </>
+              ) : (
+                'Fetch'
+              )}
+            </Button>
+            {github && !running && (
+              <Dropdown
+                label="Fetch options"
+                icon={ChevronDown}
+                size="sm"
+                align="right"
+                caret={false}
+                header={`Release download: ${autoDefault ? 'on' : 'off'} by default (Settings)`}
+                items={[
+                  { key: 'fetch-dl', label: 'Fetch and download the latest release', icon: Download, onSelect: () => requestFetch(true) },
+                  { key: 'fetch-only', label: 'Fetch without downloading a release', icon: RefreshCw, onSelect: () => requestFetch(false) },
+                ]}
+              />
             )}
-          </Button>
+          </div>
         )}
         <Button
           size="sm"
@@ -162,7 +185,7 @@ export function RepoHeader({ summary, detail }: { summary: RepoSummary; detail: 
         />
       </div>
       {confirming && (
-        <FetchConfirmDialog summary={summary} isBare={detail?.isBare ?? false} onConfirm={startFetch} onClose={() => setConfirming(false)} />
+        <FetchConfirmDialog summary={summary} isBare={detail?.isBare ?? false} onConfirm={() => startFetch()} onClose={() => setConfirming(false)} />
       )}
       {removing && (
         <RemoveDialog summary={summary} onClose={() => setRemoving(false)} onRemoved={() => navigate(href('dashboard'))} />

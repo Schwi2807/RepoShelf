@@ -1751,7 +1751,151 @@
 }
 
 .rcard__sub {
-  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: 6px;
+}
+
+/* F4: tag chip, commit link and "Open on GitHub" like github.com's release header. */
+.rcard__tagchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  background: var(--bg-subtle);
+  color: var(--fg-default);
+  font-size: 12px;
+  line-height: 20px;
+}
+
+.rcard__tagchip:hover,
+.rcard__oid:hover {
+  color: var(--fg-link);
+  text-decoration: none;
+}
+
+.rcard__oid {
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.rcard__gh {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  color: var(--fg-muted);
+}
+
+.rcard__gh:hover {
+  color: var(--fg-link);
+}
+
+/* Assets (F4) */
+.rassets {
+  margin-top: var(--space-4);
+}
+
+.rassets__summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 4px 0;
+  cursor: pointer;
+  list-style-position: inside;
+}
+
+.rassets__title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.rassets__list {
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+}
+
+.rasset {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 80px 110px auto;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  padding: 6px var(--space-3);
+  min-height: 40px;
+  font-size: 13.5px;
+}
+
+.rasset + .rasset {
+  border-top: 1px solid var(--border-muted);
+}
+
+.rasset--pc {
+  background: var(--accent-subtle);
+}
+
+.rasset--source {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.rasset__main {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.rasset__icon {
+  flex: none;
+  color: var(--fg-muted);
+}
+
+.rasset__name {
+  font-weight: 600;
+  min-width: 0;
+}
+
+a.rasset__name {
+  font-weight: 400;
+}
+
+.rasset__size,
+.rasset__count {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.rasset__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-1);
+}
+
+.rasset__progress,
+.rasset__error {
+  grid-column: 1 / -1;
+}
+
+.rasset__progress {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rasset__error {
+  margin: 0;
+}
+
+.rassets__note {
+  margin: var(--space-2) 0 0;
 }
 
 .rcard__notes {
@@ -1789,6 +1933,14 @@
     flex-wrap: wrap;
     gap: var(--space-3);
     padding-top: 0;
+  }
+
+  .rasset {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .rasset__count {
+    display: none;
   }
 
   .brow {
@@ -1918,6 +2070,23 @@
 }
 
 .settings__version {
+  margin: 0;
+}
+
+.setting-cap__input {
+  width: 110px;
+}
+
+/* Clone / Import "download the latest release" checkbox (F4) */
+.autodl {
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-md);
+}
+
+/* About: where an effective value came from (F6) */
+.about__source {
   margin: 0;
 }
 

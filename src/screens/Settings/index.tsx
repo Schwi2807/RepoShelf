@@ -1,5 +1,6 @@
 // S10 Settings page (FR-33, FR-35, D-16): theme (light / dark / system), data + archive folders (read-only, Copy and
-// Open via the backend, D-76), cache size + Clear cache, the optional "uncommitted changes" note, app version.
+// Open via the backend, D-76), cache size + Clear cache, the optional "uncommitted changes" note, the v0.2.0
+// "Network" section (five switches + the download size cap, D-100), app version.
 
 import { FolderOpen, Monitor, Moon, Sun, Trash2, type LucideIcon } from 'lucide-react';
 import { useState } from 'react';
@@ -10,7 +11,8 @@ import { CopyButton } from '../../components/ui/CopyButton';
 import { appInfo, appOpenDir, cacheClear } from '../../ipc/api';
 import { errorText } from '../../ipc/errors';
 import { invalidate, prime, qk, useQuery } from '../../ipc/query';
-import type { AppDir, Theme } from '../../ipc/types';
+import type { AppDir, Settings as SettingsT, Theme } from '../../ipc/types';
+import { resetRemoteImages } from '../../markdown/remoteImages';
 import { updateSettings, useSettings } from '../../state/settings';
 import { setTheme } from '../../state/theme';
 import { formatBytes, formatCount } from '../../util/format';
@@ -53,6 +55,111 @@ function Folder({ which, label, path, hint }: { which: AppDir; label: string; pa
   );
 }
 
+type NetToggle = 'loadRemoteImages' | 'fetchReleaseNotes' | 'fetchRepoInfo' | 'autoDownloadLatestRelease' | 'autoDownloadOnFetchAll';
+
+const NET_TOGGLES: { key: NetToggle; title: string; hint: string }[] = [
+  {
+    key: 'loadRemoteImages',
+    title: 'Load remote images',
+    hint: 'Pictures and badges in READMEs and release notes are downloaded by RepoShelf (https, public hosts, up to 5 MB, images only) and kept in the cache, so they also show offline later. Off: a “Remote image” link instead.',
+  },
+  {
+    key: 'fetchReleaseNotes',
+    title: 'Fetch GitHub release notes',
+    hint: 'On Clone, Import and Fetch of a github.com repository, ask api.github.com for its releases (notes and the list of files).',
+  },
+  {
+    key: 'fetchRepoInfo',
+    title: 'Fetch GitHub repository info',
+    hint: 'Same moments: the description, website and topics from GitHub. Your own Edit About values always win.',
+  },
+  {
+    key: 'autoDownloadLatestRelease',
+    title: 'Download the latest release for this PC',
+    hint: 'After Clone, Import and Fetch, download the file of the newest GitHub release made for Windows on this PC into the archive folder (_releases). Never run or unpacked. Each dialog and the Fetch menu can turn it off once.',
+  },
+  {
+    key: 'autoDownloadOnFetchAll',
+    title: 'Also download on “Fetch all”',
+    hint: 'Off by default: Fetch all only fetches.',
+  },
+];
+
+export const SIZE_CAP_MIN = 1;
+export const SIZE_CAP_MAX = 16384;
+
+/** Parse the size-cap field: whole MB, clamped like the backend; null when not a number. */
+export function parseSizeCap(text: string): number | null {
+  const t = text.trim();
+  if (!/^\d+$/.test(t)) return null;
+  return Math.min(SIZE_CAP_MAX, Math.max(SIZE_CAP_MIN, Number(t)));
+}
+
+/** S10 "Network" (v0.2.0, D-100): every network use besides Clone / Fetch is a switch here; Rust enforces each. */
+function NetworkSettings() {
+  const { settings } = useSettings();
+  const [cap, setCap] = useState<string | null>(null);
+  const shown = cap ?? String(settings.downloadSizeCapMb);
+  const invalid = cap !== null && parseSizeCap(cap) === null;
+  const commitCap = () => {
+    if (cap === null) return;
+    const v = parseSizeCap(cap);
+    if (v === null) return;
+    setCap(null);
+    if (v !== settings.downloadSizeCapMb) void updateSettings({ downloadSizeCapMb: v });
+  };
+  return (
+    <Box header={<h2 className="box__title">Network</h2>}>
+      <div className="box__body stack" data-testid="network-settings">
+        <p className="muted small">
+          RepoShelf uses the network only for what is switched on here, besides Clone and Fetch themselves. Everything goes through the
+          app (https only, no cookies or sign-in); the page you are looking at never connects anywhere.
+        </p>
+        {NET_TOGGLES.map((t) => (
+          <label key={t.key} className="check-row">
+            <input
+              type="checkbox"
+              name={t.key}
+              checked={settings[t.key]}
+              onChange={(e) => void updateSettings({ [t.key]: e.target.checked } as Partial<SettingsT>)}
+            />
+            <span>
+              <strong>{t.title}</strong>
+              <span className="muted small">{t.hint}</span>
+            </span>
+          </label>
+        ))}
+        <div className="field setting-cap">
+          <label className="label" htmlFor="setting-cap">
+            Largest release download
+          </label>
+          <div className="row">
+            <input
+              id="setting-cap"
+              className="input setting-cap__input"
+              inputMode="numeric"
+              value={shown}
+              aria-invalid={invalid}
+              onChange={(e) => setCap(e.target.value)}
+              onBlur={commitCap}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') commitCap();
+                if (e.key === 'Escape') setCap(null);
+              }}
+            />
+            <span className="muted">MB</span>
+          </div>
+          <p className={invalid ? 'field__error' : 'field__hint'}>
+            {invalid
+              ? `A whole number from ${SIZE_CAP_MIN} to ${formatCount(SIZE_CAP_MAX)}.`
+              : 'Bigger files are not downloaded (checked before and while downloading). 1,024 MB by default.'}
+          </p>
+        </div>
+      </div>
+    </Box>
+  );
+}
+
 export default function Settings() {
   const info = useQuery(qk('app_info'), () => appInfo());
   const { settings, error } = useSettings();
@@ -65,6 +172,7 @@ export default function Settings() {
     try {
       const before = info.data?.cacheBytes ?? 0;
       const next = await cacheClear();
+      resetRemoteImages();
       prime(qk('app_info'), next);
       setClearMsg(`Cleared ${formatBytes(before)}. Counts and last-commit columns are computed again when needed.`);
     } catch (e) {
@@ -140,7 +248,8 @@ export default function Settings() {
             <Button icon={Trash2} onClick={() => void clear()} disabled={clearing || !info.data || info.data.cacheBytes === 0}>
               {clearing ? 'Clearing…' : 'Clear cache'}
             </Button>
-            <span className="muted small">Removes stored commit counts, last-commit columns, language stats and GitHub notes. Repositories stay.</span>
+            <span className="muted small">Removes stored commit counts, last-commit columns, language stats, GitHub notes and remote images. Repositories,
+              GitHub repository info and downloaded release files stay.</span>
           </div>
           {clearMsg && (
             <p className="muted small" role="status">
@@ -171,6 +280,8 @@ export default function Settings() {
           </label>
         </div>
       </Box>
+
+      <NetworkSettings />
 
       <p className="muted small settings__version">
         RepoShelf {info.data ? <span className="mono">{info.data.version}</span> : '…'} · read-only GitHub-style browser for your local

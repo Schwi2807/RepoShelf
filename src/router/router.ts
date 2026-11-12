@@ -69,6 +69,18 @@ function newKey(): string {
   return `${Date.now().toString(36)}-${keySeq}`;
 }
 
+// F1 (v0.2.0, D-108): every entry also carries its own index (`idx`) in `history.state`; `maxIdx` is the highest
+// index forward can reach (a push cuts it back to the new entry). Kept in sessionStorage so a reload keeps it.
+const MAX_IDX_KEY = 'reposhelf-history-max';
+let currentIdx = 0;
+let maxIdx = 0;
+let pos: HistoryPos = { canBack: false, canForward: false };
+
+export interface HistoryPos {
+  canBack: boolean;
+  canForward: boolean;
+}
+
 function stateKey(): string | null {
   const s: unknown = history.state;
   if (s !== null && typeof s === 'object' && typeof (s as { key?: unknown }).key === 'string') {
@@ -77,14 +89,61 @@ function stateKey(): string | null {
   return null;
 }
 
-function ensureKey(): void {
+function stateIdx(): number | null {
+  const s: unknown = history.state;
+  if (s !== null && typeof s === 'object') {
+    const i = (s as { idx?: unknown }).idx;
+    if (typeof i === 'number' && Number.isInteger(i) && i >= 0) return i;
+  }
+  return null;
+}
+
+function storedMax(): number {
+  try {
+    const v = Number(sessionStorage.getItem(MAX_IDX_KEY));
+    return Number.isInteger(v) && v >= 0 ? v : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function setMax(v: number): void {
+  maxIdx = v;
+  try {
+    sessionStorage.setItem(MAX_IDX_KEY, String(v));
+  } catch {
+    // storage unavailable: forward state lasts for this page only
+  }
+}
+
+function updatePos(): void {
+  const next = { canBack: currentIdx > 0, canForward: currentIdx < maxIdx };
+  if (next.canBack !== pos.canBack || next.canForward !== pos.canForward) pos = next;
+}
+
+/** `first`: the entry the app started on (index 0 unless a reload brought its own). Otherwise an entry without our
+ * state is a new one (plain `<a href="#/…">`, typed URL): one past the previous entry, forward cut off. */
+function ensureKey(first = false): void {
   const k = stateKey();
   if (k !== null) {
     currentKey = k;
+    const i = stateIdx();
+    if (i !== null) currentIdx = i;
+    if (first) setMax(Math.max(storedMax(), currentIdx));
+    else if (currentIdx > maxIdx) setMax(currentIdx);
+    updatePos();
     return;
   }
   currentKey = newKey();
-  history.replaceState({ key: currentKey }, '');
+  currentIdx = first ? 0 : currentIdx + 1;
+  setMax(currentIdx);
+  history.replaceState({ key: currentKey, idx: currentIdx }, '');
+  updatePos();
+}
+
+/** Whether Back / Forward have an in-app entry to go to (stable object per state, for useSyncExternalStore). */
+export function historyPos(): HistoryPos {
+  return pos;
 }
 
 function emit(): void {
@@ -138,7 +197,7 @@ export function startRouter(): void {
   if (started) return;
   started = true;
   if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
-  ensureKey();
+  ensureKey(true);
   window.addEventListener('popstate', onPopState);
   window.addEventListener('hashchange', onHashChange);
   window.addEventListener('scroll', onScroll, { passive: true });
@@ -158,6 +217,14 @@ export function stopRouter(): void {
   scrollMemory.clear();
   pendingRestore = null;
   currentKey = '';
+  currentIdx = 0;
+  maxIdx = 0;
+  pos = { canBack: false, canForward: false };
+  try {
+    sessionStorage.removeItem(MAX_IDX_KEY);
+  } catch {
+    // ignore
+  }
 }
 
 export function subscribe(l: Listener): () => void {
@@ -176,16 +243,28 @@ export function navigate(to: string, opts: { replace?: boolean; keepScroll?: boo
   scrollMemory.set(currentKey, window.scrollY);
   const key = newKey();
   const url = location.pathname + location.search + hash;
-  if (opts.replace) history.replaceState({ key }, '', url);
-  else history.pushState({ key }, '', url);
+  if (opts.replace) {
+    history.replaceState({ key, idx: currentIdx }, '', url);
+  } else {
+    currentIdx += 1;
+    setMax(currentIdx);
+    history.pushState({ key, idx: currentIdx }, '', url);
+  }
   currentKey = key;
+  updatePos();
   pendingRestore = opts.keepScroll ? null : 0;
   restoreGen += 1;
   emit();
 }
 
+/** Back within the app only (the first entry has nowhere to go). */
 export function back(): void {
-  history.back();
+  if (pos.canBack) history.back();
+}
+
+/** Forward when an entry exists. */
+export function forward(): void {
+  if (pos.canForward) history.forward();
 }
 
 let cached: { hash: string; route: Route } | null = null;
