@@ -21,6 +21,7 @@ url = "2.5"
 comrak = { version = "0.59", default-features = false }
 ammonia = "4.2"
 ureq = "3.4"
+sha2 = "0.10"
 tauri = { version = "2", features = [] }
 tauri-build = { version = "2", features = [] }
 tauri-plugin-dialog = "2"

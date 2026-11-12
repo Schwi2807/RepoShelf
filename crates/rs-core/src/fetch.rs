@@ -231,6 +231,10 @@ fn fetch_all_with(
 ) -> Result<FetchOutcome> {
     let mut total = FetchOutcome::default();
     let mut failures = Vec::new();
+    // v0.2.0 hook (D-103): GitHub info / notes per repo; auto-download only with `autoDownloadOnFetchAll`.
+    let st = crate::settings::load(&s.db).unwrap_or_default();
+    let opts = crate::github::SyncOpts { info: st.fetch_repo_info, notes: st.fetch_release_notes, download: st.auto_download_on_fetch_all };
+    let mut limit_noted = false;
     for sum in crate::library::list(s)? {
         ctx.check()?;
         if !sum.origin_url.as_deref().is_some_and(&eligible) {
@@ -239,6 +243,17 @@ fn fetch_all_with(
         let slug = format!("{}/{}", sum.owner, sum.name);
         match one(s, sum.id, ctx) {
             Ok(o) => {
+                if opts.any() && crate::github::applies(s, sum.id) {
+                    if crate::github::is_rate_limited(s) {
+                        if !limit_noted {
+                            total.notes.push("GitHub info skipped for the remaining repositories (request limit reached)".into());
+                            limit_noted = true;
+                        }
+                    } else {
+                        let notes = crate::github::finish(crate::github::sync(s, sum.id, opts, ctx), ctx);
+                        total.notes.extend(notes.into_iter().map(|n| format!("{slug}: {n}")));
+                    }
+                }
                 total.new_commits = total.new_commits.saturating_add(o.new_commits);
                 total.new_tags.extend(o.new_tags.into_iter().map(|t| format!("{slug}: {t}")));
                 total.kept_local_tags.extend(o.kept_local_tags.into_iter().map(|t| format!("{slug}: {t}")));
@@ -448,5 +463,64 @@ mod tests {
         let before = testkit::net_calls();
         assert_eq!(fetch_all(&s, &JobCtx::noop()).unwrap(), FetchOutcome::default());
         assert_eq!(testkit::net_calls(), before);
+    }
+
+    /// v0.2.0 (D-103): Fetch all runs the GitHub hook per repo, auto-downloads only with
+    /// `autoDownloadOnFetchAll`, and notes a rate limit once.
+    #[test]
+    fn fetch_all_github_hook() {
+        use crate::net::{Canned, Net};
+        let t = tempfile::tempdir().unwrap();
+        let c = Canned::new();
+        let s = testkit::shelf(t.path()).with_net(Net::new(c.clone()));
+        let mut ids = Vec::new();
+        for n in ["a", "b"] {
+            let mut b = testkit::repo(&t.path().join(n));
+            b.file("f", b"1").commit("one", T0).tag("v1.0.0", false).set_head().origin(&format!("https://github.com/o/{n}.git"));
+            let id = testkit::register_raw(&s, &t.path().join(n), crate::types::Source::Imported).unwrap();
+            s.db.with(|c| Ok(c.execute("UPDATE repos SET origin_url = ?1 WHERE id = ?2", rusqlite::params![format!("https://github.com/o/{n}.git"), id])?))
+                .unwrap();
+            ids.push(id);
+            let rel = serde_json::json!([{"tag_name": "v1.0.0", "assets": [
+                {"name": format!("{n}-windows-x64.zip"), "size": 1, "browser_download_url": format!("https://github.com/o/{n}/releases/download/v1.0.0/{n}-windows-x64.zip")},
+                {"name": format!("{n}-linux-x86_64.tar.gz"), "size": 1, "browser_download_url": format!("https://github.com/o/{n}/releases/download/v1.0.0/{n}-linux-x86_64.tar.gz")},
+                {"name": format!("{n}-macos-aarch64.tar.gz"), "size": 1, "browser_download_url": format!("https://github.com/o/{n}/releases/download/v1.0.0/{n}-macos-aarch64.tar.gz")}
+            ]}]);
+            c.on(&format!("https://api.github.com/repos/o/{n}"), 200, &[], br#"{"description":"d"}"#.to_vec())
+                .on(&format!("https://api.github.com/repos/o/{n}/releases?per_page=100"), 200, &[], rel.to_string().into_bytes());
+        }
+        let fake_ok = |_: &Shelf, _: i64, _: &JobCtx| Ok(FetchOutcome::default());
+        let gh = |o: &str| o.contains("github.com");
+        // default settings: info + notes, no download
+        let ctx = JobCtx::noop();
+        let out = fetch_all_with(&s, &ctx, gh, fake_ok).unwrap();
+        assert!(ctx.take_follow_ups().is_empty(), "Fetch all never downloads by default");
+        assert!(out.notes.is_empty(), "{:?}", out.notes);
+        assert_eq!(c.seen().len(), 4);
+        for id in &ids {
+            assert_eq!(crate::repo::summary(&s, *id).unwrap().description.as_deref(), Some("d"));
+        }
+        // with the setting: one download job per repo (on a desktop OS the picker finds one file each)
+        crate::settings::save(&s.db, &crate::settings::Settings { auto_download_on_fetch_all: true, ..Default::default() }).unwrap();
+        let ctx = JobCtx::noop();
+        fetch_all_with(&s, &ctx, gh, fake_ok).unwrap();
+        let ups = ctx.take_follow_ups();
+        if matches!(std::env::consts::OS, "windows" | "linux" | "macos") && matches!(std::env::consts::ARCH, "x86_64" | "aarch64") {
+            assert_eq!(ups.len(), 2, "{ups:?}");
+            assert!(matches!(&ups[0].0, crate::jobs::JobKind::ReleaseDownload { tag, .. } if tag == "v1.0.0"));
+        }
+        // rate limit: one note for the whole run, no further requests
+        let c2 = Canned::new();
+        let s2 = testkit::shelf(&t.path().join("x")).with_net(Net::new(c2.clone()));
+        for n in ["a", "b"] {
+            let id = testkit::register_raw(&s2, &t.path().join(n), crate::types::Source::Imported).unwrap();
+            s2.db.with(|c| Ok(c.execute("UPDATE repos SET origin_url = ?1 WHERE id = ?2", rusqlite::params![format!("https://github.com/o/{n}.git"), id])?))
+                .unwrap();
+            c2.on(&format!("https://api.github.com/repos/o/{n}"), 429, &[], Vec::new());
+        }
+        let out = fetch_all_with(&s2, &JobCtx::noop(), gh, fake_ok).unwrap();
+        assert_eq!(c2.seen().len(), 1, "{:?}", c2.seen_urls());
+        assert_eq!(out.notes.len(), 2, "{:?}", out.notes);
+        assert!(out.notes[0].starts_with("local/a: GitHub info:") && out.notes[1].contains("remaining repositories"), "{:?}", out.notes);
     }
 }

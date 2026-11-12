@@ -30,9 +30,14 @@ pub mod tree;
 // Data: library, clone, fetch (M3)
 pub mod clone;
 pub mod fetch;
-#[cfg(feature = "ghreleases")]
 pub mod ghreleases;
 pub mod library;
+
+// v0.2.0 network features (M11): shared HTTP client, README images, GitHub info, release assets
+pub mod assets;
+pub mod github;
+pub mod imgcache;
+pub mod net;
 
 #[cfg(any(test, feature = "testkit"))]
 pub mod testkit;
@@ -46,6 +51,8 @@ use paths::Dirs;
 pub struct Shelf {
     pub db: Db,
     pub dirs: Dirs,
+    /// Every HTTP request goes through this (D-98). Real on `open`, refusing on `in_memory` (tests).
+    pub net: net::Net,
 }
 
 impl Shelf {
@@ -54,12 +61,18 @@ impl Shelf {
     pub fn open(dirs: Dirs) -> Result<Shelf> {
         std::fs::create_dir_all(paths::long(&dirs.data))?;
         let db = Db::open(&paths::db_file(&dirs))?;
-        Ok(Shelf { db, dirs })
+        Ok(Shelf { db, dirs, net: net::Net::real() })
     }
 
-    /// In-memory DB (tests); `dirs` are only recorded, nothing is created.
+    /// In-memory DB (tests); `dirs` are only recorded, nothing is created. The network is `Net::offline()`.
     pub fn in_memory(dirs: Dirs) -> Result<Shelf> {
-        Ok(Shelf { db: Db::open_in_memory()?, dirs })
+        Ok(Shelf { db: Db::open_in_memory()?, dirs, net: net::Net::offline() })
+    }
+
+    /// Replaces the HTTP client (tests: `net::Canned`; later e2e seams).
+    pub fn with_net(mut self, net: net::Net) -> Shelf {
+        self.net = net;
+        self
     }
 }
 

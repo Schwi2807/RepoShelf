@@ -8,6 +8,7 @@ use crate::error::{Error, Result};
 use crate::refs::{HEADS, TAGS};
 use crate::types::{HeadState, RepoDetail, RepoStatus, RepoSummary, Source};
 use git2::{ErrorCode, Repository, RepositoryOpenFlags, StatusOptions};
+use rusqlite::OptionalExtension;
 use std::path::{Path, PathBuf};
 
 fn status_of(s: &str, message: Option<String>) -> RepoStatus {
@@ -51,11 +52,44 @@ pub fn summary(s: &Shelf, id: i64) -> Result<RepoSummary> {
             last_opened_at: r.get(14)?,
             last_fetched_at: r.get(15)?,
             status: status_of(&status, r.get(17)?),
+            about_user: Default::default(),
+            about_github: None,
         };
         let mut t = c.prepare_cached("SELECT topic FROM repo_topics WHERE repo_id = ?1 ORDER BY pos")?;
         out.topics = t.query_map([id], |r| r.get(0))?.collect::<std::result::Result<_, _>>()?;
+        let mut g = c.prepare_cached("SELECT description, homepage, topics_json, html_url, fetched_at FROM gh_repo_info WHERE repo_id = ?1")?;
+        out.about_github = g
+            .query_row([id], |r| {
+                let topics: String = r.get(2)?;
+                Ok(crate::types::GithubAbout {
+                    description: r.get(0)?,
+                    homepage: r.get(1)?,
+                    topics: serde_json::from_str(&topics).unwrap_or_default(),
+                    html_url: r.get(3)?,
+                    fetched_at: r.get(4)?,
+                })
+            })
+            .optional()?;
+        merge_about(&mut out);
         Ok(out)
     })
+}
+
+/// D-102: per field, the user's value wins when set (description / homepage non-empty, topics non-empty);
+/// otherwise the fetched GitHub value. `out.description/homepage/topics` hold the user's values on entry.
+fn merge_about(out: &mut RepoSummary) {
+    let set = |v: &Option<String>| v.as_deref().is_some_and(|s| !s.trim().is_empty());
+    out.about_user = crate::types::AboutValues { description: out.description.clone(), homepage: out.homepage.clone(), topics: out.topics.clone() };
+    let Some(gh) = &out.about_github else { return };
+    if !set(&out.description) {
+        out.description = gh.description.clone().filter(|d| !d.trim().is_empty());
+    }
+    if !set(&out.homepage) {
+        out.homepage = gh.homepage.clone().filter(|h| !h.trim().is_empty());
+    }
+    if out.topics.is_empty() {
+        out.topics = gh.topics.clone();
+    }
 }
 
 /// Opens a repository folder without searching parents. Missing folder → `RepoMissing`; anything that is not a

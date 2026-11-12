@@ -68,13 +68,128 @@ pub fn render(md: &str, base_dir: &GitPath) -> Rendered {
     Rendered { html: sanitize(&html, base_dir), headings, source_path: String::new() }
 }
 
+/// Release notes (F5, D-97): `render` at the repository root, then every contributor avatar (`<img>` from
+/// `avatars.githubusercontent.com` or `github.com/<user>.png`) becomes `@user` — a mention link, or plain text
+/// when it already sits inside a link. Avatars are gone before the UI could ever fetch them.
+pub fn render_release_notes(md: &str) -> String {
+    strip_avatars(&render(md, &GitPath::root()).html)
+}
+
+/// GitHub user names: 1–39 of `[A-Za-z0-9-]`, not starting with `-`; bots end in `[bot]`.
+fn valid_user(u: &str) -> bool {
+    let base = u.strip_suffix("[bot]").unwrap_or(u);
+    !base.is_empty() && base.len() <= 39 && !base.starts_with('-') && base.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+}
+
+fn unescape_attr(v: &str) -> String {
+    v.replace("&quot;", "\"").replace("&lt;", "<").replace("&gt;", ">").replace("&nbsp;", "\u{a0}").replace("&amp;", "&")
+}
+
+/// `name="value"` pairs of one serialised tag (`<img a="b" c="d">`); html5ever always writes double quotes and
+/// escapes `"` inside values, so a quote-aware scan is exact for sanitiser output.
+fn tag_attrs(tag: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let mut rest = tag.trim_start_matches('<');
+    rest = rest.split_once(char::is_whitespace).map(|(_, r)| r).unwrap_or("");
+    while let Some(eq) = rest.find("=\"") {
+        let name = rest[..eq].trim().to_string();
+        let after = &rest[eq + 2..];
+        let Some(end) = after.find('"') else { break };
+        out.push((name, unescape_attr(&after[..end])));
+        rest = &after[end + 1..];
+    }
+    out
+}
+
+/// End (exclusive) of the tag starting at `start` (`<`), skipping `>` inside double-quoted values.
+fn tag_end(html: &str, start: usize) -> Option<usize> {
+    let mut quoted = false;
+    for (i, b) in html.as_bytes()[start..].iter().enumerate() {
+        match b {
+            b'"' => quoted = !quoted,
+            b'>' if !quoted => return Some(start + i + 1),
+            _ => {}
+        }
+    }
+    None
+}
+
+/// `https://github.com/<user>` (optionally with a trailing `/`) → user.
+fn github_profile_user(href: &str) -> Option<String> {
+    let u = url::Url::parse(href).ok()?;
+    if u.scheme() != "https" || u.host_str() != Some("github.com") {
+        return None;
+    }
+    let path = u.path().trim_matches('/');
+    (valid_user(path)).then(|| path.to_string())
+}
+
+/// `Some(user_from_src)` for an avatar URL (`None` inside = avatar host without a user in the URL).
+fn avatar_src(src: &str) -> Option<Option<String>> {
+    let u = url::Url::parse(src).ok()?;
+    match u.host_str()? {
+        "avatars.githubusercontent.com" => Some(None),
+        "github.com" => {
+            let user = u.path().trim_start_matches('/').strip_suffix(".png")?;
+            valid_user(user).then(|| Some(user.to_string()))
+        }
+        _ => None,
+    }
+}
+
+fn strip_avatars(html: &str) -> String {
+    let mut out = String::with_capacity(html.len());
+    let mut i = 0;
+    // href of the `<a>` we are inside (sanitiser output never nests links)
+    let mut open_link: Option<String> = None;
+    while let Some(off) = html[i..].find('<') {
+        let start = i + off;
+        out.push_str(&html[i..start]);
+        let Some(end) = tag_end(html, start) else {
+            out.push_str(&html[start..]);
+            return out;
+        };
+        let tag = &html[start..end];
+        let lower = tag.to_ascii_lowercase();
+        if lower.starts_with("<a ") || lower == "<a>" {
+            open_link = Some(tag_attrs(tag).into_iter().find(|(k, _)| k == "href").map(|(_, v)| v).unwrap_or_default());
+            out.push_str(tag);
+        } else if lower.starts_with("</a") {
+            open_link = None;
+            out.push_str(tag);
+        } else if lower.starts_with("<img") {
+            let attrs = tag_attrs(tag);
+            let get = |k: &str| attrs.iter().find(|(n, _)| n == k).map(|(_, v)| v.as_str());
+            match get("src").and_then(avatar_src) {
+                None => out.push_str(tag),
+                Some(from_src) => {
+                    let alt = get("alt").map(|a| a.trim().trim_start_matches('@').to_string()).filter(|a| valid_user(a));
+                    let from_link = open_link.as_deref().and_then(github_profile_user);
+                    match (open_link.is_some(), from_link.or(from_src).or(alt)) {
+                        (true, Some(user)) => out.push_str(&format!("@{user}")),
+                        (false, Some(user)) => out.push_str(&format!(
+                            "<a href=\"https://github.com/{user}\" rel=\"noopener noreferrer\" class=\"user-mention\">@{user}</a>"
+                        )),
+                        (_, None) => {}
+                    }
+                }
+            }
+        } else {
+            out.push_str(tag);
+        }
+        i = end;
+    }
+    out.push_str(&html[i..]);
+    out
+}
+
 /// The ammonia gate (step 3) with the relative-URL rewrite (step 2).
 pub fn sanitize(html: &str, base_dir: &GitPath) -> String {
     let base = base_dir.as_str().to_string();
     let tags: HashSet<&str> = [
         "h1", "h2", "h3", "h4", "h5", "h6", "p", "a", "img", "ul", "ol", "li", "table", "thead", "tbody", "tr", "th", "td",
         "pre", "code", "blockquote", "em", "strong", "del", "s", "hr", "br", "details", "summary", "sup", "sub", "kbd",
-        "input", "section",
+        "input", "section", "div",
     ]
     .into_iter()
     .collect();
@@ -82,11 +197,15 @@ pub fn sanitize(html: &str, base_dir: &GitPath) -> String {
         ["script", "style", "iframe", "noscript", "template", "textarea", "title", "xmp", "noembed", "noframes"].into_iter().collect();
     let mut attrs: HashMap<&str, HashSet<&str>> = HashMap::new();
     attrs.insert("a", ["href", "title", "id"].into_iter().collect());
-    attrs.insert("img", ["src", "alt", "title", "width", "height"].into_iter().collect());
-    for t in ["th", "td"] {
+    // F3 (D-96): GitHub-style presentational `align` (values checked in `filter_attr`); no inline styles.
+    attrs.insert("img", ["src", "alt", "title", "width", "height", "align"].into_iter().collect());
+    for t in ["th", "td", "div", "p", "table"] {
         attrs.insert(t, ["align"].into_iter().collect());
     }
-    for t in ["h1", "h2", "h3", "h4", "h5", "h6", "li", "sup"] {
+    for t in ["h1", "h2", "h3", "h4", "h5", "h6"] {
+        attrs.insert(t, ["id", "align"].into_iter().collect());
+    }
+    for t in ["li", "sup"] {
         attrs.insert(t, ["id"].into_iter().collect());
     }
     attrs.insert("input", ["type", "checked", "disabled"].into_iter().collect());
@@ -125,6 +244,11 @@ impl<'a> ammonia::UrlRelativeEvaluate<'a> for Rewriter {
 /// `data:` only for raster images in `img[src]`. The scheme is classified exactly as ammonia does (`Url::parse`,
 /// which drops tabs/newlines and leading control characters), and the kept value is the normalised URL.
 fn filter_attr<'a>(element: &str, attribute: &str, value: &'a str) -> Option<Cow<'a, str>> {
+    match attribute {
+        "align" => return align_value(value),
+        "width" | "height" => return size_value(value),
+        _ => {}
+    }
     if !matches!(attribute, "href" | "src") {
         return Some(Cow::Borrowed(value));
     }
@@ -142,6 +266,23 @@ fn filter_attr<'a>(element: &str, attribute: &str, value: &'a str) -> Option<Cow
             .iter()
             .any(|p| lower.strip_prefix(p).is_some_and(|rest| rest.starts_with(';') || rest.starts_with(',')));
     ok.then_some(Cow::Owned(norm))
+}
+
+/// `align` keeps only `left` / `center` / `right` (lower-cased); anything else drops the attribute.
+fn align_value(v: &str) -> Option<Cow<'_, str>> {
+    let l = v.trim().to_ascii_lowercase();
+    matches!(l.as_str(), "left" | "center" | "right").then_some(Cow::Owned(l))
+}
+
+/// `width` / `height`: 1–5 digits with an optional `%` (a trailing `px` is dropped, as browsers read it).
+fn size_value(v: &str) -> Option<Cow<'_, str>> {
+    let t = v.trim();
+    let t = t.strip_suffix("px").unwrap_or(t);
+    let (digits, pct) = match t.strip_suffix('%') {
+        Some(d) => (d, "%"),
+        None => (t, ""),
+    };
+    (!digits.is_empty() && digits.len() <= 5 && digits.bytes().all(|b| b.is_ascii_digit())).then(|| Cow::Owned(format!("{digits}{pct}")))
 }
 
 fn percent_decode(s: &str) -> Option<String> {
@@ -227,7 +368,7 @@ mod tests {
         for bad in [
             "<script", "alert(", "onerror", "onload", "onclick", "javascript:", "<iframe", "style=", "<form", "data:text/html",
             "data:image/svg", "<object", "<embed", "<svg", "evil.example.com", "rsrepo:/a/", "outside.md", "password",
-            "<button", "<div",
+            "<button",
         ] {
             assert!(!lower.contains(bad), "`{bad}` survived:\n{out}");
         }
@@ -245,23 +386,71 @@ mod tests {
         assert!(out.contains("rel=\"noopener noreferrer\""), "{out}");
         assert!(out.contains("href=\"#user-content-security-fixture\""), "{out}");
         assert!(out.contains("id=\"user-content-security-fixture\""), "{out}");
+        // F3: `<div>` survives, but bare (onclick dropped, id prefixed only on headings/a/li/sup)
+        assert!(out.contains("<div>id clash</div>"), "{out}");
     }
 
-    /// F3 (v0.2.0) proof: what the v0.1.0 sanitiser does with GitHub-style `align` / `width` markup.
+    /// F3 (v0.2.0, D-96). The v0.1.0 sanitiser (proved in commit c7f178f) unwrapped `<div>` and kept `align` only
+    /// on td/th, so nothing was centred, and passed `width="100px;evil"` unchecked. Now GitHub's presentational
+    /// attributes survive with checked values (the browser applies them natively; no inline styles).
     #[test]
-    fn align_fixture_current_output() {
+    fn align_fixture_matches_github() {
         let md = include_str!("../../../tests/fixtures/align/README.md");
         let out = render(md, &root()).html;
-        // v0.1.0: `<div>` is unwrapped and `align` survives only on td/th, so nothing is centred.
-        assert!(!out.contains("<div"), "{out}");
-        assert!(out.contains("<h1>Centred title</h1>"), "{out}");
-        assert!(out.contains("<p>Centred paragraph"), "{out}");
-        assert!(out.contains("<h2>Right heading</h2>"), "{out}");
-        assert!(out.contains("<table>"), "{out}");
+        assert!(out.contains("<div align=\"center\">"), "{out}");
+        assert!(out.contains("<img src=\"rsrepo:/logo.png\" width=\"120\" height=\"80\" alt=\"Logo\">"), "{out}");
+        assert!(out.contains("<h1 align=\"center\">Centred title</h1>"), "{out}");
+        assert!(out.contains("<p align=\"center\">Centred paragraph"), "{out}");
+        assert!(out.contains("<h2 align=\"right\">Right heading</h2>"), "{out}");
+        assert!(out.contains("<table align=\"center\">"), "{out}");
         assert!(out.contains("<td align=\"center\">cell</td><th align=\"right\">head</th>"), "{out}");
-        assert!(out.contains("<img width=\"200\" src=\"rsrepo:/side.png\" alt=\"Side\">"), "{out}");
-        // width/height pass unchecked
-        assert!(out.contains("width=\"100px;evil\""), "{out}");
+        assert!(out.contains("<img align=\"right\" width=\"200\" src=\"rsrepo:/side.png\" alt=\"Side\">"), "{out}");
+        // bad values dropped: justify, style, class, `100px;evil`; `50%` kept
+        assert!(out.contains("<div>bad align value</div>"), "{out}");
+        assert!(out.contains("<img alt=\"w\" height=\"50%\" src=\"rsrepo:/a.png\">"), "{out}");
+        for bad in ["style=", "class=\"x\"", "justify", "evil"] {
+            assert!(!out.contains(bad), "`{bad}` survived: {out}");
+        }
+        assert_eq!(size_value("100px").as_deref(), Some("100"));
+        assert_eq!(size_value(" 40% ").as_deref(), Some("40%"));
+        for bad in ["", "%", "-1", "1e3", "123456", "10em", "calc(1)"] {
+            assert_eq!(size_value(bad), None, "{bad}");
+        }
+        assert_eq!(align_value("CENTER").as_deref(), Some("center"));
+        assert_eq!(align_value("middle"), None);
+    }
+
+    /// F5 (D-97): contributor avatars in release notes become `@user`; other images stay.
+    #[test]
+    fn release_notes_strip_avatars() {
+        let md = "## Contributors\n\n\
+            <a href=\"https://github.com/alice\"><img src=\"https://avatars.githubusercontent.com/u/1?v=4\" width=\"32\" alt=\"alice\"></a>\n\
+            <a href=\"https://github.com/bob\">\n  <img src=\"https://avatars.githubusercontent.com/u/2?s=64&v=4\" alt=\"x>y\">\n</a>\n\n\
+            <img src=\"https://avatars.githubusercontent.com/u/3\" alt=\"@carol\"> and \
+            <img src=\"https://github.com/dave.png\" alt=\"\"> and \
+            <img src=\"https://avatars.githubusercontent.com/in/29110\" alt=\"dependabot[bot]\"> and \
+            <img src=\"https://avatars.githubusercontent.com/u/4\" alt=\"not a user!\">\n\n\
+            ![shot](https://example.com/screenshot.png) ![logo](logo.png)\n";
+        let out = render_release_notes(md);
+        assert!(!out.contains("avatars.githubusercontent.com"), "{out}");
+        assert!(!out.contains("dave.png"), "{out}");
+        assert!(out.contains("<a href=\"https://github.com/alice\" rel=\"noopener noreferrer\">@alice</a>"), "{out}");
+        assert!(out.contains("@bob"), "user from the wrapping link wins over a bad alt: {out}");
+        assert!(!out.contains("x&gt;y") && !out.contains("x>y"), "{out}");
+        for u in ["carol", "dave", "dependabot[bot]"] {
+            assert!(
+                out.contains(&format!("<a href=\"https://github.com/{u}\" rel=\"noopener noreferrer\" class=\"user-mention\">@{u}</a>")),
+                "{u}: {out}"
+            );
+        }
+        assert!(!out.contains("not a user"), "no user name → avatar dropped: {out}");
+        assert!(out.contains("src=\"https://example.com/screenshot.png\""), "{out}");
+        assert!(out.contains("src=\"rsrepo:/logo.png\""), "{out}");
+        // READMEs are untouched
+        assert!(render(md, &root()).html.contains("avatars.githubusercontent.com"));
+        assert_eq!(github_profile_user("https://github.com/a/b"), None);
+        assert_eq!(github_profile_user("http://github.com/a"), None);
+        assert!(!valid_user("-x") && !valid_user("a_b") && !valid_user(&"a".repeat(40)) && valid_user("a-1"));
     }
 
     #[test]

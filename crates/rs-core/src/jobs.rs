@@ -18,9 +18,31 @@ pub type JobId = u64;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum JobKind {
-    Clone { url: String },
-    Fetch { repo_id: i64 },
+    /// `auto_download`: the dialog's checkbox (`None` = setting). `#[serde(default)]`: v0.1.0 rows still parse.
+    Clone {
+        url: String,
+        #[serde(default)]
+        auto_download: Option<bool>,
+    },
+    Fetch {
+        repo_id: i64,
+        #[serde(default)]
+        auto_download: Option<bool>,
+    },
     FetchAll,
+    /// v0.2.0: GitHub info / notes (+ auto-download) after an Import.
+    GithubSync { repo_id: i64, auto_download: Option<bool> },
+    /// v0.2.0: one release asset into the release store (`tag` + asset `name` from the cached GitHub answer).
+    ReleaseDownload { repo_id: i64, tag: String, asset: String },
+}
+
+impl JobKind {
+    pub fn clone_url(url: impl Into<String>) -> JobKind {
+        JobKind::Clone { url: url.into(), auto_download: None }
+    }
+    pub fn fetch(repo_id: i64) -> JobKind {
+        JobKind::Fetch { repo_id, auto_download: None }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -65,6 +87,8 @@ pub enum Progress {
     Receiving { received: usize, total: usize, bytes: usize },
     Resolving { done: usize, total: usize },
     Finalizing,
+    /// v0.2.0 release downloads (`total` = announced size, 0 = unknown).
+    Downloading { bytes: u64, total: u64 },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -208,11 +232,20 @@ pub struct JobCtx {
     cancel: Arc<AtomicBool>,
     emit: Emit,
     last: Mutex<Option<(Instant, std::mem::Discriminant<Progress>)>>,
+    follow_ups: Mutex<Vec<(JobKind, String)>>,
 }
 
 impl JobCtx {
     pub fn new(cancel: Arc<AtomicBool>, emit: impl Fn(&Progress) + Send + Sync + 'static) -> JobCtx {
-        JobCtx { cancel, emit: Arc::new(emit), last: Mutex::new(None) }
+        JobCtx { cancel, emit: Arc::new(emit), last: Mutex::new(None), follow_ups: Mutex::new(Vec::new()) }
+    }
+    /// Queues a job to submit once this one finished `Done` (D-103: auto-downloads run as their own job, so
+    /// they are cancellable alone and never turn a finished clone/fetch into a failure).
+    pub fn follow_up(&self, kind: JobKind, title: String) {
+        lock(&self.follow_ups).push((kind, title));
+    }
+    pub fn take_follow_ups(&self) -> Vec<(JobKind, String)> {
+        std::mem::take(&mut *lock(&self.follow_ups))
     }
     /// No progress receiver, fresh cancel flag.
     pub fn noop() -> JobCtx {
@@ -324,12 +357,43 @@ fn run_job(inner: Arc<Inner>, id: JobId, kind: JobKind, cancel: Arc<AtomicBool>)
     drop(permit);
     let was_cancelled = cancel.load(Ordering::SeqCst);
     match outcome {
-        Ok(Ok(r)) => inner.set_state(id, JobState::Done, Some(r), None),
+        Ok(Ok(r)) => {
+            inner.set_state(id, JobState::Done, Some(r), None);
+            for (k, title) in ctx.take_follow_ups() {
+                // a failed submit (DB write) must not touch the finished job
+                let _ = submit(&inner, k, title);
+            }
+        }
         Ok(Err(Error::Cancelled)) => inner.set_state(id, JobState::Cancelled, None, None),
         Ok(Err(_)) if was_cancelled => inner.set_state(id, JobState::Cancelled, None, None),
         Ok(Err(e)) => inner.set_state(id, JobState::Failed, None, Some(e.to_string())),
         Err(_) => inner.set_state(id, JobState::Failed, None, Some("Internal error (the job crashed)".into())),
     }
+}
+
+fn submit(inner: &Arc<Inner>, kind: JobKind, title: String) -> Result<JobId> {
+    let kind_json = serde_json::to_string(&kind).map_err(|e| Error::InvalidInput(e.to_string()))?;
+    let now = crate::now_secs();
+    let id = inner.db.with(|c| {
+        c.execute(
+            "INSERT INTO jobs (kind_json, title, state, created_at) VALUES (?1, ?2, 'waiting', ?3)",
+            rusqlite::params![kind_json, title, now],
+        )?;
+        Ok(c.last_insert_rowid() as JobId)
+    })?;
+    let cancel = Arc::new(AtomicBool::new(false));
+    let info = JobInfo { id, kind: kind.clone(), state: JobState::Waiting, progress: None, title, result: None, error: None, started_at: now };
+    lock(&inner.jobs).push(Entry { info: info.clone(), cancel: cancel.clone() });
+    (inner.sink)(&info);
+    let job_inner = inner.clone();
+    let handle = std::thread::Builder::new()
+        .name(format!("reposhelf-job-{id}"))
+        .spawn(move || run_job(job_inner, id, kind, cancel))
+        .map_err(Error::Io)?;
+    let mut threads = lock(&inner.threads);
+    threads.retain(|h| !h.is_finished());
+    threads.push(handle);
+    Ok(id)
 }
 
 /// Owns all jobs; at most `max_concurrent` run at once, the rest are `Waiting` (cancellable).
@@ -385,28 +449,7 @@ impl JobRunner {
 
     /// INSERTs a `waiting` row (its rowid is the JobId) and starts a thread that waits for a gate slot.
     pub fn submit(&self, kind: JobKind, title: String) -> Result<JobId> {
-        let kind_json = serde_json::to_string(&kind).map_err(|e| Error::InvalidInput(e.to_string()))?;
-        let now = crate::now_secs();
-        let id = self.inner.db.with(|c| {
-            c.execute(
-                "INSERT INTO jobs (kind_json, title, state, created_at) VALUES (?1, ?2, 'waiting', ?3)",
-                rusqlite::params![kind_json, title, now],
-            )?;
-            Ok(c.last_insert_rowid() as JobId)
-        })?;
-        let cancel = Arc::new(AtomicBool::new(false));
-        let info = JobInfo { id, kind: kind.clone(), state: JobState::Waiting, progress: None, title, result: None, error: None, started_at: now };
-        lock(&self.inner.jobs).push(Entry { info: info.clone(), cancel: cancel.clone() });
-        (self.inner.sink)(&info);
-        let inner = self.inner.clone();
-        let handle = std::thread::Builder::new()
-            .name(format!("reposhelf-job-{id}"))
-            .spawn(move || run_job(inner, id, kind, cancel))
-            .map_err(Error::Io)?;
-        let mut threads = lock(&self.inner.threads);
-        threads.retain(|h| !h.is_finished());
-        threads.push(handle);
-        Ok(id)
+        submit(&self.inner, kind, title)
     }
 
     /// Requests cancellation of a waiting or running job. `false` if unknown or already finished.
@@ -464,10 +507,16 @@ impl JobRunner {
     }
 
     /// Waits for every job thread started so far (tests, app shutdown after cancelling).
+    /// Follow-up jobs submitted meanwhile are waited for too.
     pub fn join(&self) {
-        let handles: Vec<JoinHandle<()>> = std::mem::take(&mut *lock(&self.inner.threads));
-        for h in handles {
-            let _ = h.join();
+        loop {
+            let handles: Vec<JoinHandle<()>> = std::mem::take(&mut *lock(&self.inner.threads));
+            if handles.is_empty() {
+                return;
+            }
+            for h in handles {
+                let _ = h.join();
+            }
         }
     }
 
@@ -483,10 +532,36 @@ impl JobRunner {
 /// `FetchAll` → `fetch::fetch_all`.
 pub fn shelf_worker(shelf: Arc<crate::Shelf>) -> Worker {
     Arc::new(move |kind: &JobKind, ctx: &JobCtx| match kind {
-        JobKind::Clone { url } => crate::clone::job(&shelf, url, ctx),
-        JobKind::Fetch { repo_id } => crate::fetch::job(&shelf, *repo_id, ctx),
+        JobKind::Clone { url, auto_download } => {
+            let r = crate::clone::job(&shelf, url, ctx)?;
+            Ok(after_clone(&shelf, r, *auto_download, ctx))
+        }
+        JobKind::Fetch { repo_id, auto_download } => {
+            let r = crate::fetch::job(&shelf, *repo_id, ctx)?;
+            Ok(crate::github::with_notes(r, crate::github::after_action(&shelf, *repo_id, *auto_download, ctx)))
+        }
         JobKind::FetchAll => crate::fetch::fetch_all(&shelf, ctx).map(JobResult::Fetched),
+        other => common_jobs(&shelf, other, ctx),
     })
+}
+
+/// D-103: the GitHub hook after a registered clone (its problems are notes; the clone result always survives).
+fn after_clone(shelf: &crate::Shelf, r: JobResult, auto_download: Option<bool>, ctx: &JobCtx) -> JobResult {
+    let JobResult::Cloned { repo_id, .. } = &r else { return r };
+    let notes = crate::github::after_action(shelf, *repo_id, auto_download, ctx);
+    crate::github::with_notes(r, notes)
+}
+
+/// Jobs that are the same in the production and the test/e2e worker.
+fn common_jobs(shelf: &crate::Shelf, kind: &JobKind, ctx: &JobCtx) -> Result<JobResult> {
+    match kind {
+        JobKind::GithubSync { repo_id, auto_download } => {
+            crate::repo::summary(shelf, *repo_id)?;
+            Ok(JobResult::Synced { repo_id: *repo_id, notes: crate::github::after_action(shelf, *repo_id, *auto_download, ctx) })
+        }
+        JobKind::ReleaseDownload { repo_id, tag, asset } => crate::assets::download(shelf, *repo_id, tag, asset, ctx),
+        _ => Err(Error::InvalidInput("unexpected job kind".into())),
+    }
 }
 
 /// Test/e2e worker (D-14, D-20): `file://` clone inputs and `file://` origins go through the unchecked seam,
@@ -495,17 +570,21 @@ pub fn shelf_worker(shelf: Arc<crate::Shelf>) -> Worker {
 #[cfg(any(test, feature = "testkit"))]
 pub fn shelf_worker_unchecked(shelf: Arc<crate::Shelf>) -> Worker {
     Arc::new(move |kind: &JobKind, ctx: &JobCtx| match kind {
-        JobKind::Clone { url } if url.starts_with("file:") => crate::clone::job_unchecked(&shelf, url, ctx),
-        JobKind::Clone { url } => crate::clone::job(&shelf, url, ctx),
-        JobKind::Fetch { repo_id } => {
+        JobKind::Clone { url, auto_download } => {
+            let r = if url.starts_with("file:") { crate::clone::job_unchecked(&shelf, url, ctx)? } else { crate::clone::job(&shelf, url, ctx)? };
+            Ok(after_clone(&shelf, r, *auto_download, ctx))
+        }
+        JobKind::Fetch { repo_id, auto_download } => {
             let file = crate::repo::summary(&shelf, *repo_id)?.origin_url.is_some_and(|o| o.starts_with("file:"));
-            if file {
-                crate::fetch::fetch_unchecked(&shelf, *repo_id, ctx).map(JobResult::Fetched)
+            let r = if file {
+                crate::fetch::fetch_unchecked(&shelf, *repo_id, ctx).map(JobResult::Fetched)?
             } else {
-                crate::fetch::job(&shelf, *repo_id, ctx)
-            }
+                crate::fetch::job(&shelf, *repo_id, ctx)?
+            };
+            Ok(crate::github::with_notes(r, crate::github::after_action(&shelf, *repo_id, *auto_download, ctx)))
         }
         JobKind::FetchAll => crate::fetch::fetch_all_unchecked(&shelf, ctx).map(JobResult::Fetched),
+        other => common_jobs(&shelf, other, ctx),
     })
 }
 
@@ -513,6 +592,44 @@ pub fn shelf_worker_unchecked(shelf: Arc<crate::Shelf>) -> Worker {
 mod shelf_worker_tests {
     use super::*;
     use crate::testkit::{self, T0};
+
+    /// v0.2.0: an Import's GitHub sync job queues the auto-download as its own follow-up job.
+    #[test]
+    fn github_sync_job_queues_the_download_job() {
+        use crate::net::{Canned, Net};
+        let t = tempfile::tempdir().unwrap();
+        let c = Canned::new();
+        let shelf = Arc::new(testkit::shelf(t.path()).with_net(Net::new(c.clone())));
+        let mut b = testkit::repo(&t.path().join("r"));
+        b.file("a", b"1").commit("one", T0).tag("v1.0.0", false).set_head().origin("https://github.com/o/r.git");
+        let id = testkit::register_raw(&shelf, &t.path().join("r"), crate::types::Source::Imported).unwrap();
+        let (os, arch) = (std::env::consts::OS, std::env::consts::ARCH);
+        let name = format!("r-1.0.0-{arch}-{}.zip", if os == "macos" { "apple-darwin".to_string() } else { os.to_string() });
+        let dl = format!("https://github.com/o/r/releases/download/v1.0.0/{name}");
+        let rel = serde_json::json!([{"tag_name": "v1.0.0", "assets": [{"name": name, "size": 3, "browser_download_url": dl}]}]);
+        c.on("https://api.github.com/repos/o/r", 200, &[], br#"{"topics":["x"]}"#.to_vec())
+            .on("https://api.github.com/repos/o/r/releases?per_page=100", 200, &[], rel.to_string().into_bytes())
+            .on(&dl, 200, &[], b"abc".to_vec());
+        let r = JobRunner::new(shelf.db.clone(), 3, shelf_worker(shelf.clone()), Arc::new(|_: &JobInfo| {}));
+        let sync = r.submit(JobKind::GithubSync { repo_id: id, auto_download: None }, "GitHub info".into()).unwrap();
+        r.join();
+        let info = r.get(sync).unwrap();
+        assert_eq!(info.state, JobState::Done, "{info:?}");
+        assert_eq!(info.result, Some(JobResult::Synced { repo_id: id, notes: vec![] }));
+        let list = r.list();
+        let down = list.iter().find(|j| matches!(j.kind, JobKind::ReleaseDownload { .. })).expect("download job queued");
+        assert_eq!(down.state, JobState::Done, "{down:?}");
+        let Some(JobResult::Downloaded { path, already: false, .. }) = &down.result else { panic!("{down:?}") };
+        assert_eq!(std::fs::read(path).unwrap(), b"abc");
+        assert_eq!(crate::repo::summary(&shelf, id).unwrap().topics, ["x"]);
+        // switched off for this action → no download job, nothing more fetched
+        let n = c.seen().len();
+        let again = r.submit(JobKind::GithubSync { repo_id: id, auto_download: Some(false) }, "GitHub info".into()).unwrap();
+        r.join();
+        assert_eq!(r.get(again).unwrap().state, JobState::Done);
+        assert_eq!(r.list().iter().filter(|j| matches!(j.kind, JobKind::ReleaseDownload { .. })).count(), 1);
+        assert_eq!(c.seen().len(), n + 2, "info + releases only");
+    }
 
     #[test]
     fn clone_then_fetch_through_the_job_runner() {
@@ -522,7 +639,7 @@ mod shelf_worker_tests {
         let seen = Arc::new(Mutex::new(Vec::<JobInfo>::new()));
         let s2 = seen.clone();
         let runner = JobRunner::new(shelf.db.clone(), 3, shelf_worker_unchecked(shelf.clone()), Arc::new(move |i: &JobInfo| s2.lock().unwrap().push(i.clone())));
-        let id = runner.submit(JobKind::Clone { url: url.clone() }, "Clone".into()).unwrap();
+        let id = runner.submit(JobKind::clone_url(url.clone()), "Clone".into()).unwrap();
         runner.join();
         let info = runner.get(id).unwrap();
         assert_eq!(info.state, JobState::Done, "{:?}", info.error);
@@ -530,7 +647,7 @@ mod shelf_worker_tests {
         assert!(seen.lock().unwrap().iter().any(|i| matches!(i.progress, Some(Progress::Connecting))));
 
         up.file("new", b"1").commit("new", T0 + 3000);
-        let id = runner.submit(JobKind::Fetch { repo_id }, "Fetch".into()).unwrap();
+        let id = runner.submit(JobKind::fetch(repo_id), "Fetch".into()).unwrap();
         runner.join();
         let info = runner.get(id).unwrap();
         assert_eq!(info.state, JobState::Done, "{:?}", info.error);
@@ -539,12 +656,12 @@ mod shelf_worker_tests {
 
         // the production worker refuses a file:// clone input before any work (InvalidUrl → Failed)
         let prod = JobRunner::new(shelf.db.clone(), 3, shelf_worker(shelf.clone()), Arc::new(|_: &JobInfo| {}));
-        let id = prod.submit(JobKind::Clone { url }, "Clone".into()).unwrap();
+        let id = prod.submit(JobKind::clone_url(url), "Clone".into()).unwrap();
         prod.join();
         let info = prod.get(id).unwrap();
         assert_eq!(info.state, JobState::Failed);
         assert!(info.error.unwrap().contains("Import folder"));
-        let id = prod.submit(JobKind::Fetch { repo_id }, "Fetch".into()).unwrap();
+        let id = prod.submit(JobKind::fetch(repo_id), "Fetch".into()).unwrap();
         prod.join();
         assert_eq!(prod.get(id).unwrap().error.as_deref(), Some(crate::fetch::NEEDS_HTTPS));
     }
@@ -579,7 +696,7 @@ mod tests {
     fn blocking_worker(p: Arc<Probe>) -> Worker {
         Arc::new(move |kind: &JobKind, ctx: &JobCtx| {
             lock(&p.started).push(kind.clone());
-            if *kind == (JobKind::Fetch { repo_id: -1 }) {
+            if *kind == JobKind::fetch(-1) {
                 return Err(Error::Refused("boom".into()));
             }
             let now = p.running.fetch_add(1, Ordering::SeqCst) + 1;
@@ -630,7 +747,7 @@ mod tests {
         let db = Db::open_in_memory().unwrap();
         let p = probe();
         let (r, _) = runner(db.clone(), 3, p.clone());
-        let ids: Vec<JobId> = (0..6).map(|i| r.submit(JobKind::Fetch { repo_id: i }, format!("job {i}")).unwrap()).collect();
+        let ids: Vec<JobId> = (0..6).map(|i| r.submit(JobKind::fetch(i), format!("job {i}")).unwrap()).collect();
         wait_until("3 running", || p.running.load(Ordering::SeqCst) == 3);
         std::thread::sleep(Duration::from_millis(150)); // give extra threads a chance to (wrongly) start
         let states: Vec<JobState> = ids.iter().map(|&id| state_of(&r, id)).collect();
@@ -651,7 +768,7 @@ mod tests {
         let db = Db::open_in_memory().unwrap();
         let p = probe();
         let (r, events) = runner(db.clone(), 1, p.clone());
-        let a = r.submit(JobKind::Clone { url: "https://example.com/a/b.git".into() }, "a".into()).unwrap();
+        let a = r.submit(JobKind::clone_url("https://example.com/a/b.git"), "a".into()).unwrap();
         wait_until("a running", || state_of(&r, a) == JobState::Running);
         let b = r.submit(JobKind::FetchAll, "b".into()).unwrap();
         assert_eq!(state_of(&r, b), JobState::Waiting);
@@ -662,7 +779,7 @@ mod tests {
         assert!(r.cancel(a));
         wait_until("a cancelled", || state_of(&r, a) == JobState::Cancelled);
         r.join();
-        assert_eq!(*lock(&p.started), vec![JobKind::Clone { url: "https://example.com/a/b.git".into() }], "b must never start");
+        assert_eq!(*lock(&p.started), vec![JobKind::clone_url("https://example.com/a/b.git")], "b must never start");
         assert!(!r.cancel(b), "already finished");
         assert!(!r.cancel(999));
         // every transition reached the sink; b went Waiting -> Cancelled only
@@ -727,7 +844,7 @@ mod tests {
         let db = Db::open_in_memory().unwrap();
         let p = probe();
         let (r, _) = runner(db.clone(), 3, p.clone());
-        let old = r.submit(JobKind::Fetch { repo_id: -1 }, "fails".into()).unwrap();
+        let old = r.submit(JobKind::fetch(-1), "fails".into()).unwrap();
         wait_until("failed", || state_of(&r, old) == JobState::Failed);
         assert_eq!(r.get(old).unwrap().error.as_deref(), Some("boom"));
         assert_eq!(db_state(&db, old).as_deref(), Some("failed"));
@@ -735,7 +852,7 @@ mod tests {
         assert_ne!(new, old);
         assert!(r.get(old).is_none());
         assert_eq!(db_state(&db, old), None, "old row deleted");
-        assert_eq!(r.get(new).unwrap().kind, JobKind::Fetch { repo_id: -1 });
+        assert_eq!(r.get(new).unwrap().kind, JobKind::fetch(-1));
         assert_eq!(r.get(new).unwrap().title, "fails");
         wait_until("failed again", || state_of(&r, new) == JobState::Failed);
         // a done job cannot be retried
@@ -781,7 +898,7 @@ mod tests {
             assert_eq!(i.error.as_deref(), Some(INTERRUPTED));
             assert_eq!(db_state(&db, id).as_deref(), Some("failed"));
         }
-        assert_eq!(r.get(1).unwrap().kind, JobKind::Clone { url: "https://github.com/o/r.git".into() });
+        assert_eq!(r.get(1).unwrap().kind, JobKind::clone_url("https://github.com/o/r.git"));
         assert_eq!(r.get(2).unwrap().started_at, 11);
         assert_eq!(state_of(&r, 3), JobState::Done);
         // loading twice does not duplicate
@@ -791,7 +908,7 @@ mod tests {
         p.release.store(true, Ordering::SeqCst);
         let new = r.retry(2).unwrap();
         wait_until("retried done", || state_of(&r, new) == JobState::Done);
-        assert_eq!(*lock(&p.started), vec![JobKind::Fetch { repo_id: 7 }]);
+        assert_eq!(*lock(&p.started), vec![JobKind::fetch(7)]);
         r.join();
     }
 
@@ -851,8 +968,19 @@ mod tests {
     #[test]
     fn job_types_wire_shape() {
         use serde_json::json;
-        assert_eq!(serde_json::to_value(JobKind::Fetch { repo_id: 3 }).unwrap(), json!({"type": "fetch", "repoId": 3}));
+        assert_eq!(serde_json::to_value(JobKind::fetch(3)).unwrap(), json!({"type": "fetch", "repoId": 3, "autoDownload": null}));
         assert_eq!(serde_json::to_value(JobKind::FetchAll).unwrap(), json!({"type": "fetchAll"}));
+        assert_eq!(
+            serde_json::to_value(JobKind::ReleaseDownload { repo_id: 1, tag: "v1".into(), asset: "a.zip".into() }).unwrap(),
+            json!({"type": "releaseDownload", "repoId": 1, "tag": "v1", "asset": "a.zip"})
+        );
+        // v0.1.0 rows (no autoDownload) still parse
+        let old: JobKind = serde_json::from_value(json!({"type": "clone", "url": "u"})).unwrap();
+        assert_eq!(old, JobKind::clone_url("u"));
+        assert_eq!(
+            serde_json::to_value(Progress::Downloading { bytes: 5, total: 9 }).unwrap(),
+            json!({"type": "downloading", "bytes": 5, "total": 9})
+        );
         assert_eq!(serde_json::to_value(JobState::Cancelled).unwrap(), json!("cancelled"));
         assert_eq!(
             serde_json::to_value(Progress::Receiving { received: 1, total: 2, bytes: 3 }).unwrap(),
@@ -860,7 +988,7 @@ mod tests {
         );
         let info = JobInfo {
             id: 1,
-            kind: JobKind::Clone { url: "u".into() },
+            kind: JobKind::clone_url("u"),
             state: JobState::Running,
             progress: Some(Progress::Finalizing),
             title: "t".into(),

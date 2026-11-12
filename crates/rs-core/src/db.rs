@@ -10,7 +10,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
-const MIGRATIONS: &[&str] = &[include_str!("migrations/0001_init.sql")];
+const MIGRATIONS: &[&str] = &[include_str!("migrations/0001_init.sql"), include_str!("migrations/0002_github.sql")];
 
 /// Number of migrations this build knows.
 pub const SCHEMA_VERSION: i64 = MIGRATIONS.len() as i64;
@@ -166,6 +166,56 @@ mod tests {
         assert_eq!(fk, 1);
         // cloned_at column exists (D-19)
         db.with(|c| Ok(c.execute("UPDATE repos SET cloned_at = 1", [])?)).unwrap();
+    }
+
+    /// v0.2.0 (D-99): a DB written by v0.1.0 (0001 only, rows in every table) migrates in place and keeps them.
+    #[test]
+    fn v010_db_with_rows_migrates_and_keeps_everything() {
+        let t = tempfile::tempdir().unwrap();
+        let f = t.path().join("reposhelf.db");
+        {
+            let c = Connection::open(&f).unwrap();
+            c.execute_batch(include_str!("migrations/0001_init.sql")).unwrap();
+            c.pragma_update(None, "user_version", 1).unwrap();
+            c.execute_batch(
+                "INSERT INTO repos (id, slug_owner, slug_name, source, path, is_bare, origin_url, origin_host, added_at)
+                   VALUES (1, 'o', 'r', 'cloned', 'C:\\a\\r.git', 1, 'https://github.com/o/r.git', 'github.com', 5);
+                 INSERT INTO repo_meta (repo_id, description, homepage, updated_at) VALUES (1, NULL, 'https://h.example', 6);
+                 INSERT INTO repo_topics (repo_id, topic, pos) VALUES (1, 'mine', 0);
+                 INSERT INTO settings (key, value) VALUES ('theme', '\"dark\"');
+                 INSERT INTO cache_commit_count (repo_id, tip, count) VALUES (1, 't', 3);
+                 INSERT INTO cache_last_commit (repo_id, tip, dir, json, created_at) VALUES (1, 't', '', '{}', 7);
+                 INSERT INTO cache_languages (repo_id, tree, json) VALUES (1, 'tr', '{}');
+                 INSERT INTO cache_gh_releases (repo_id, fetched_at, json) VALUES (1, 8, '[]');
+                 INSERT INTO jobs (kind_json, title, state, created_at) VALUES ('{\"type\":\"fetch\",\"repoId\":1}', 'Fetch o/r', 'done', 9);",
+            )
+            .unwrap();
+        }
+        let db = Db::open(&f).unwrap();
+        assert!(!db.read_only());
+        assert_eq!(db.with(user_version).unwrap(), SCHEMA_VERSION);
+        assert_eq!(SCHEMA_VERSION, 2);
+        let counts: Vec<i64> = db
+            .with(|c| {
+                let mut v = Vec::new();
+                for t in ["repos", "repo_meta", "repo_topics", "settings", "cache_commit_count", "cache_last_commit", "cache_languages", "cache_gh_releases", "jobs"] {
+                    v.push(c.query_row(&format!("SELECT COUNT(*) FROM {t}"), [], |r| r.get(0))?);
+                }
+                Ok(v)
+            })
+            .unwrap();
+        assert_eq!(counts, vec![1; 9]);
+        let (etag, json): (Option<String>, String) =
+            db.with(|c| Ok(c.query_row("SELECT etag, json FROM cache_gh_releases", [], |r| Ok((r.get(0)?, r.get(1)?)))?)).unwrap();
+        assert_eq!((etag, json.as_str()), (None, "[]"));
+        assert!(tables(&db).iter().any(|n| n == "gh_repo_info"));
+        // the new table cascades with its repo
+        db.with(|c| Ok(c.execute("INSERT INTO gh_repo_info (repo_id, fetched_at) VALUES (1, 1)", [])?)).unwrap();
+        db.with(|c| Ok(c.execute("DELETE FROM repos", [])?)).unwrap();
+        let left: i64 = db.with(|c| Ok(c.query_row("SELECT COUNT(*) FROM gh_repo_info", [], |r| r.get(0))?)).unwrap();
+        assert_eq!(left, 0);
+        drop(db);
+        assert_eq!(Db::open(&f).unwrap().with(user_version).unwrap(), 2, "reopen is a no-op");
     }
 
     #[test]

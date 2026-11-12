@@ -243,7 +243,8 @@ pub fn cleanup_partials(archive: &Path) -> Result<u32> {
     let mut n = 0;
     let Ok(hosts) = std::fs::read_dir(paths::long(archive)) else { return Ok(0) };
     for h in hosts.flatten() {
-        if !h.file_type().is_ok_and(|t| t.is_dir()) {
+        // the release store (D-104) has its own cleanup (`assets::cleanup_partials`)
+        if !h.file_type().is_ok_and(|t| t.is_dir()) || h.file_name() == crate::assets::STORE_DIR {
             continue;
         }
         let Ok(owners) = std::fs::read_dir(h.path()) else { continue };
@@ -354,7 +355,7 @@ fn clone_into(partial: &Path, url: &str, ctx: &JobCtx) -> Result<Vec<String>> {
     Ok(hskip.iter().map(|n| format!("{HEADS}{n}")).chain(tskip.iter().map(|n| format!("{TAGS}{n}"))).collect())
 }
 
-/// Job entry for `JobKind::Clone { url }`: validate (pure; no network on rejection, M3.4) → clone → register.
+/// Job entry for `JobKind::Clone`: validate (pure; no network on rejection, M3.4) → clone → register.
 pub fn job(s: &Shelf, input: &str, ctx: &JobCtx) -> Result<JobResult> {
     let u = validate::clone_url(input)?;
     let (path, skipped) = clone(s, &u, ctx)?;
@@ -363,7 +364,7 @@ pub fn job(s: &Shelf, input: &str, ctx: &JobCtx) -> Result<JobResult> {
 
 fn register(s: &Shelf, path: &Path, u: &CloneUrl, skipped: Vec<String>) -> Result<JobResult> {
     match crate::library::register_clone(s, path, u) {
-        Ok(sum) => Ok(JobResult::Cloned { repo_id: sum.id, skipped_refs: skipped }),
+        Ok(sum) => Ok(JobResult::Cloned { repo_id: sum.id, skipped_refs: skipped, notes: Vec::new() }),
         Err(e) => {
             let _ = remove_tree(path);
             Err(e)
@@ -444,7 +445,7 @@ mod tests {
         let ev = events.clone();
         let ctx = JobCtx::new(Arc::new(AtomicBool::new(false)), move |p| ev.lock().unwrap().push(p.clone()));
         let res = job_unchecked(&s, &url, &ctx).unwrap();
-        let JobResult::Cloned { repo_id, skipped_refs } = res else { panic!("{res:?}") };
+        let JobResult::Cloned { repo_id, skipped_refs, .. } = res else { panic!("{res:?}") };
         assert!(skipped_refs.is_empty());
         let sum = crate::repo::summary(&s, repo_id).unwrap();
         assert_eq!(sum.source, Source::Cloned);

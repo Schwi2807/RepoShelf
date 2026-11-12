@@ -52,6 +52,30 @@ pub struct RepoSummary {
     pub last_opened_at: Option<i64>,
     pub last_fetched_at: Option<i64>,
     pub status: RepoStatus,
+    /// v0.2.0 (D-102): `description` / `homepage` / `topics` above are the effective values (the user's own
+    /// when set, else GitHub's). These two carry the sources apart, so Edit About shows only the user's.
+    pub about_user: AboutValues,
+    pub about_github: Option<GithubAbout>,
+}
+
+/// The user's own About values (`repo_meta` / `repo_topics`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AboutValues {
+    pub description: Option<String>,
+    pub homepage: Option<String>,
+    pub topics: Vec<String>,
+}
+
+/// About values fetched from the GitHub API (`gh_repo_info`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GithubAbout {
+    pub description: Option<String>,
+    pub homepage: Option<String>,
+    pub topics: Vec<String>,
+    pub html_url: Option<String>,
+    pub fetched_at: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -400,6 +424,42 @@ pub struct Release {
     pub latest: bool,
     pub previous_tag: Option<String>,
     pub gh_notes: bool,
+    /// v0.2.0 (F4): GitHub release page (cached API answer), else `None`.
+    pub html_url: Option<String>,
+    /// GitHub "Source code" archive links (github.com origins only).
+    pub source_zip_url: Option<String>,
+    pub source_tar_url: Option<String>,
+    /// Release assets from the cached GitHub answer (empty without one).
+    pub assets: Vec<ReleaseAsset>,
+}
+
+/// One GitHub release asset (F4).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReleaseAsset {
+    pub name: String,
+    pub size: u64,
+    pub download_count: Option<u64>,
+    /// `browser_download_url` (opened externally; downloads go through `release_download`, never this string).
+    pub url: String,
+    pub content_type: Option<String>,
+    /// Lower-case hex when GitHub publishes a `sha256:` digest.
+    pub sha256: Option<String>,
+    /// The asset picker's choice for this PC (at most one per release).
+    pub for_this_pc: bool,
+    /// Local path in the release store when downloaded.
+    pub downloaded: Option<String>,
+}
+
+/// `image_fetch` answer (F2): the bytes are then read with `image_bytes(key)`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteImage {
+    /// sha-256 hex of the URL (cache key).
+    pub key: String,
+    /// From the image allow-list (never the server's header verbatim).
+    pub mime: String,
+    pub size: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -427,8 +487,18 @@ pub struct ClonePreview {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum JobResult {
-    Cloned { repo_id: i64, skipped_refs: Vec<String> },
+    /// `notes`: GitHub metadata / auto-download remarks (never a failure of the clone itself, D-103).
+    Cloned {
+        repo_id: i64,
+        skipped_refs: Vec<String>,
+        #[serde(default)]
+        notes: Vec<String>,
+    },
     Fetched(FetchOutcome),
+    /// GitHub info / notes after an Import (follow-up job).
+    Synced { repo_id: i64, notes: Vec<String> },
+    /// A release asset in the release store (`already`: it was there before, nothing downloaded).
+    Downloaded { repo_id: i64, tag: String, file: String, path: String, size: u64, sha256_checked: bool, already: bool },
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -439,6 +509,9 @@ pub struct FetchOutcome {
     pub kept_local_tags: Vec<String>,
     pub skipped_refs: Vec<String>,
     pub updated_branches: Vec<String>,
+    /// v0.2.0: GitHub metadata / auto-download remarks (D-103).
+    #[serde(default)]
+    pub notes: Vec<String>,
 }
 
 /// src-tauri trashes managed clones.
@@ -552,6 +625,26 @@ pub mod samples {
             last_opened_at: Some(3),
             last_fetched_at: None,
             status: RepoStatus::Corrupt { message: "bad".into() },
+            about_user: AboutValues { description: Some("d".into()), homepage: None, topics: vec!["rust".into()] },
+            about_github: Some(GithubAbout {
+                description: Some("gh".into()),
+                homepage: Some("https://o.example".into()),
+                topics: vec!["cli".into()],
+                html_url: Some("https://github.com/o/demo".into()),
+                fetched_at: 4,
+            }),
+        }
+    }
+    pub fn asset() -> ReleaseAsset {
+        ReleaseAsset {
+            name: "demo-1.0.0-x86_64-pc-windows-msvc.zip".into(),
+            size: 1024,
+            download_count: Some(7),
+            url: "https://github.com/o/demo/releases/download/v1.0.0/demo-1.0.0-x86_64-pc-windows-msvc.zip".into(),
+            content_type: Some("application/zip".into()),
+            sha256: Some("0".repeat(64)),
+            for_this_pc: true,
+            downloaded: Some("C:\\a\\_releases\\github.com\\o\\demo\\v1.0.0\\demo.zip".into()),
         }
     }
     pub fn ref_item() -> RefItem {
@@ -607,6 +700,7 @@ pub mod samples {
             kept_local_tags: vec![],
             skipped_refs: vec!["LLM/x".into()],
             updated_branches: vec!["main".into()],
+            notes: vec!["o/r: No release download: no stable release on GitHub".into()],
         };
         let mut out = vec![
             ("RepoSummary", v(summary()).unwrap()),
@@ -701,9 +795,14 @@ pub mod samples {
                     latest: true,
                     previous_tag: None,
                     gh_notes: false,
+                    html_url: Some("https://github.com/o/demo/releases/tag/v1.0.0".into()),
+                    source_zip_url: Some("https://github.com/o/demo/archive/refs/tags/v1.0.0.zip".into()),
+                    source_tar_url: Some("https://github.com/o/demo/archive/refs/tags/v1.0.0.tar.gz".into()),
+                    assets: vec![asset()],
                 })
                 .unwrap(),
             ),
+            ("RemoteImage", v(RemoteImage { key: "f".repeat(64), mime: "image/png".into(), size: 3 }).unwrap()),
             (
                 "ImportPreview",
                 v(ImportPreview { path: "C:\\r".into(), name: "r".into(), is_bare: false, origin_url: None, duplicate_of: Some(1), token: "t".into() }).unwrap(),
@@ -713,8 +812,22 @@ pub mod samples {
                 v(ClonePreview { url: "https://github.com/o/r.git".into(), host: "github.com".into(), owner: "o".into(), name: "r".into(), target_dir: "x".into() })
                     .unwrap(),
             ),
-            ("JobResult.cloned", v(JobResult::Cloned { repo_id: 4, skipped_refs: vec![] }).unwrap()),
+            ("JobResult.cloned", v(JobResult::Cloned { repo_id: 4, skipped_refs: vec![], notes: vec!["GitHub info: rate limit reached".into()] }).unwrap()),
             ("JobResult.fetched", v(JobResult::Fetched(outcome)).unwrap()),
+            ("JobResult.synced", v(JobResult::Synced { repo_id: 4, notes: vec![] }).unwrap()),
+            (
+                "JobResult.downloaded",
+                v(JobResult::Downloaded {
+                    repo_id: 4,
+                    tag: "v1.0.0".into(),
+                    file: "demo.zip".into(),
+                    path: "C:\\a\\demo.zip".into(),
+                    size: 1024,
+                    sha256_checked: true,
+                    already: false,
+                })
+                .unwrap(),
+            ),
             ("Removed", v(Removed { path: "p".into(), source: Source::Cloned }).unwrap()),
             ("SortSpec", v(SortSpec { key: SortKey::Added, desc: false }).unwrap()),
             ("Version", v(Version { major: 1, minor: 2, patch: 3, extra: 0, pre: Some("rc1".into()) }).unwrap()),
@@ -801,9 +914,14 @@ mod tests {
             json!({"type": "lfsPointer", "size": 3})
         );
         assert_eq!(
-            serde_json::to_value(JobResult::Cloned { repo_id: 4, skipped_refs: vec![] }).unwrap(),
-            json!({"type": "cloned", "repoId": 4, "skippedRefs": []})
+            serde_json::to_value(JobResult::Cloned { repo_id: 4, skipped_refs: vec![], notes: vec![] }).unwrap(),
+            json!({"type": "cloned", "repoId": 4, "skippedRefs": [], "notes": []})
         );
+        // v0.1.0 job rows (no `notes`) still parse (D-103)
+        let old: JobResult = serde_json::from_value(json!({"type": "cloned", "repoId": 4, "skippedRefs": ["x"]})).unwrap();
+        assert_eq!(old, JobResult::Cloned { repo_id: 4, skipped_refs: vec!["x".into()], notes: vec![] });
+        let old: JobResult = serde_json::from_value(json!({"type": "fetched", "newCommits": 1, "newTags": [], "keptLocalTags": [], "skippedRefs": [], "updatedBranches": []})).unwrap();
+        assert_eq!(old, JobResult::Fetched(FetchOutcome { new_commits: 1, ..Default::default() }));
         let f = serde_json::to_value(JobResult::Fetched(FetchOutcome { new_commits: 2, ..Default::default() })).unwrap();
         assert_eq!(f["type"], json!("fetched"));
         assert_eq!(f["newCommits"], json!(2));

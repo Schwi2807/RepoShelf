@@ -2,7 +2,6 @@
 
 use crate::error::Result;
 use crate::types::{Release, Version};
-use crate::validate::GitPath;
 use git2::Repository;
 use std::cmp::Ordering;
 
@@ -84,7 +83,7 @@ pub fn list(repo: &Repository) -> Result<Vec<Release>> {
             let first = parts.next().unwrap_or("").trim().to_string();
             let body = parts.next().unwrap_or("").trim();
             let title = if first.is_empty() || first == t.item.name { t.item.name.clone() } else { first };
-            let notes = (!body.is_empty()).then(|| crate::markdown::render(body, &GitPath::root()).html);
+            let notes = (!body.is_empty()).then(|| crate::markdown::render_release_notes(body));
             (title, notes)
         } else {
             (t.item.name.clone(), None)
@@ -100,6 +99,10 @@ pub fn list(repo: &Repository) -> Result<Vec<Release>> {
                 latest: false,
                 previous_tag: None,
                 gh_notes: false,
+                html_url: None,
+                source_zip_url: None,
+                source_tar_url: None,
+                assets: Vec::new(),
             },
             v,
         ));
