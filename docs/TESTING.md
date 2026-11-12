@@ -20,7 +20,7 @@ $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Env
 | UI build + bundle size | `npm run build`, then the initial-JS check of TASKS Gate M5 (< 1.5 MB, NFR-P8) | |
 | Read-model performance | `cargo run -p rs-cli --release -- fixtures target\scratch\bench` then `cargo run -p rs-cli --release -- bench target\scratch\bench` | Exit 1 on a missed target (NFR-P2/P3/P5/P6, 400-file diff). Delete the scratch folder afterwards. |
 
-The full gate per milestone is in `docs/TASKS.md` (Gate M0 … Gate M9); each later gate repeats the earlier commands.
+The full gate per milestone is in `docs/TASKS.md` (Gate M0 … Gate M9, Gate M13 for v0.2.0); each later gate repeats the earlier commands.
 
 ## 2. Mock UI in a browser (no backend)
 
