@@ -675,7 +675,8 @@ origin_tip, force=true, "fast-forward")`; equal → no-op; otherwise `Refused("B
 
 ### 5.5 Background work, progress and cancel
 
-- **Jobs** (clone, fetch, fetch-all) live in `JobRunner` inside app state, independent of any dialog (L-6). A
+- **Jobs** (clone, fetch, fetch-all; v0.2.0 also `githubSync` after an import and `releaseDownload`, queued as
+  follow-up jobs once a job is `Done` and not cancelled, D-103) live in `JobRunner` inside app state, independent of any dialog (L-6). A
   `Gate` caps running network jobs at 3; extra jobs are `Waiting` and cancellable while waiting.
 - **Progress transport**: on startup the frontend jobs store calls `jobs_subscribe(channel)` once (and again after
   a webview reload); the backend keeps the live `Channel<JobInfo>` list and pushes every state change and throttled
@@ -786,12 +787,16 @@ Rendering pipeline (`markdown.rs`):
    never collide with app ids (comrak's heading ids already carry the prefix); URL schemes `http`, `https`, `mailto`, `rsrepo`; `data:image/(png|gif|jpeg|webp)`
    only in `img` (ammonia attribute filter); everything else (script, style, iframe, object, embed, form, `on*`,
    `style=`, `javascript:`) stripped. `rel="noopener noreferrer"` set on links.
+   v0.2.0 (D-96): also `div`, and `align` (left/center/right only) on div/p/h1–h6/table/td/th/img; `width`/`height`
+   values checked (digits, optional `%`). Release notes (D-97) additionally replace contributor avatars with
+   `@user` mention links (`markdown::render_release_notes`).
 4. Headings collected for the outline button.
 
 Frontend (`MarkdownBody.tsx`): HTML is parsed into an **inert** `<template>` (images don't load, nothing runs);
 then `rsrepo:` anchors → in-app `blob` routes (Blob view redirects to tree view when the path is a directory);
 `rsrepo:` images → `blob_bytes` → `blob:` URL (revoked on unmount); remote `http(s)` images → replaced by a link
-chip "Remote image: <host>" (NFR-S2, offline); `code.language-*` → highlighter worker; then the fragment is
+chip "Remote image: <host>" (NFR-S2, offline) — from v0.2.0 (F2, D-105, M12) with `loadRemoteImages` on they are
+loaded lazily through `image_fetch` + `image_bytes` → `blob:` (Rust fetches and caches; the chip stays the fallback); `code.language-*` → highlighter worker; then the fragment is
 mounted. All link clicks are intercepted (NFR-S3).
 
 ### 6.7 Releases (FR-31)

@@ -379,6 +379,9 @@ mod real {
                 .timeout_connect(Some(Duration::from_secs(15)))
                 .timeout_global(Some(timeout))
                 .user_agent(USER_AGENT)
+                // D-107: direct connections only. ureq's default reads ALL_PROXY/HTTPS_PROXY, which would hide the
+                // real target from `PublicOnly` and could send proxy credentials.
+                .proxy(None)
                 .build();
             let agent = ureq::Agent::with_parts(config, DefaultConnector::default(), PublicOnly::default());
             crate::clone::note_net_call();

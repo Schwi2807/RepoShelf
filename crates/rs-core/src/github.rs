@@ -194,6 +194,10 @@ pub fn sync(s: &Shelf, repo_id: i64, opts: SyncOpts, ctx: &JobCtx) -> SyncReport
             }
         };
         if opts.download {
+            if ctx.cancelled() {
+                rep.notes.push("Release download skipped (cancelled)".into());
+                return rep;
+            }
             match crate::assets::latest_for_this_pc(s, repo_id, &gh) {
                 Ok(crate::assets::Latest::Download { tag, asset }) => rep.download = Some(DownloadReq { repo_id, tag, asset }),
                 Ok(crate::assets::Latest::Already { tag, asset }) => rep.notes.push(format!("Latest release {tag}: {asset} is already downloaded")),
@@ -334,6 +338,24 @@ mod tests {
         assert!(rep.notes[0].contains("renamed or moved"), "{:?}", rep.notes);
         assert!(rep.notes[1].contains("request limit"), "{:?}", rep.notes);
         assert_eq!(c2.seen().len(), 2, "the 301 was not followed");
+    }
+
+    /// D-103: a cancelled job's hook makes no request and queues nothing; it only leaves a note.
+    #[test]
+    fn cancelled_ctx_makes_no_request() {
+        let t = tempfile::tempdir().unwrap();
+        let c = Canned::new();
+        let (s, id) = gh_repo(t.path(), &c);
+        let ctx = JobCtx::new(std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)), |_| {});
+        for opts in [SyncOpts { info: true, notes: true, download: true }, SyncOpts { info: false, notes: false, download: true }] {
+            let rep = sync(&s, id, opts, &ctx);
+            assert_eq!(rep.download, None);
+            assert_eq!(rep.notes.len(), 1, "{:?}", rep.notes);
+            assert!(rep.notes[0].contains("cancelled"), "{:?}", rep.notes);
+        }
+        assert!(finish(sync(&s, id, SyncOpts { info: true, notes: true, download: true }, &ctx), &ctx).len() == 1);
+        assert!(ctx.take_follow_ups().is_empty());
+        assert!(c.seen().is_empty());
     }
 
     #[test]

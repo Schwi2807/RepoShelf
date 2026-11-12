@@ -359,9 +359,13 @@ fn run_job(inner: Arc<Inner>, id: JobId, kind: JobKind, cancel: Arc<AtomicBool>)
     match outcome {
         Ok(Ok(r)) => {
             inner.set_state(id, JobState::Done, Some(r), None);
-            for (k, title) in ctx.take_follow_ups() {
-                // a failed submit (DB write) must not touch the finished job
-                let _ = submit(&inner, k, title);
+            // a job cancelled during its hook queues nothing (no surprise download after Cancel)
+            let follow = ctx.take_follow_ups();
+            if !was_cancelled {
+                for (k, title) in follow {
+                    // a failed submit (DB write) must not touch the finished job
+                    let _ = submit(&inner, k, title);
+                }
             }
         }
         Ok(Err(Error::Cancelled)) => inner.set_state(id, JobState::Cancelled, None, None),

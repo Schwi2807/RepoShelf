@@ -113,11 +113,17 @@ pub fn fetch(s: &Shelf, url: &str) -> Result<RemoteImage> {
     let ext = sniff(&bytes).ok_or_else(|| Error::Refused("The server sent something that is not a supported image.".into()))?;
     std::fs::create_dir_all(paths::long(&dir))?;
     let file = dir.join(format!("{k}.{ext}"));
-    let tmp = dir.join(format!(".{k}.part-{}", std::process::id()));
+    // unique per call: the same badge is often fetched by several lazy `<img>` at once
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = dir.join(format!(".{k}.part-{}-{seq}", std::process::id()));
     std::fs::write(paths::long(&tmp), &bytes)?;
     if let Err(e) = std::fs::rename(paths::long(&tmp), paths::long(&file)) {
         let _ = std::fs::remove_file(paths::long(&tmp));
-        return Err(e.into());
+        // a concurrent call stored the same image first (Windows refuses to replace a file that is open)
+        if !paths::long(&file).is_file() {
+            return Err(e.into());
+        }
     }
     prune(&dir, CACHE_CAP, Some(&file))?;
     Ok(RemoteImage { key: k, mime: mime_of(ext).into(), size: bytes.len() as u64 })
@@ -255,6 +261,29 @@ mod tests {
         let n = c.seen().len();
         assert_eq!(fetch(&s, "https://example.com/a.png").unwrap_err().code(), "refused");
         assert_eq!(c.seen().len(), n);
+    }
+
+    #[test]
+    fn concurrent_fetches_of_one_url_all_succeed() {
+        let t = tempfile::tempdir().unwrap();
+        let c = Canned::new();
+        c.on("https://img.example.com/badge.png", 200, &[("content-type", "image/png")], PNG.to_vec());
+        let s = std::sync::Arc::new(shelf(t.path(), &c));
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let s = s.clone();
+                std::thread::spawn(move || {
+                    let img = fetch(&s, "https://img.example.com/badge.png").unwrap();
+                    assert_eq!(bytes(&s, &img.key).unwrap(), PNG);
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().unwrap();
+        }
+        let left: Vec<String> =
+            std::fs::read_dir(cache_dir(&s)).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+        assert_eq!(left.len(), 1, "one cached file, no temp leftovers: {left:?}");
     }
 
     #[test]

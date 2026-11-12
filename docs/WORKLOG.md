@@ -797,7 +797,7 @@ Open items / handoff (v0.1.0 done):
 
 ## M11 — v0.2.0 backend: network client, images, GitHub info, release assets (2026-11-12)
 
-One subagent; lead decisions of TASKS "v0.2.0" taken as fixed. Decisions D-96..D-106. Commits c7f178f (F3 proof),
+One subagent; lead decisions of TASKS "v0.2.0" taken as fixed. Decisions D-96..D-107. Commits c7f178f (F3 proof),
 7ea94a4 (rs-core wip), final M11 commit (tag `m11-done`).
 
 Built:
@@ -825,13 +825,27 @@ Built:
   `cacheBytes` counts it. ARCH §4/§5.1/§8, golden (`UPDATE_SAMPLES=1`), `types.ts`, `commands.ts`, `types.test.ts`,
   mock updated together.
 
-Tests: Rust `cargo test --workspace` 181 → 213 (+1 ignored live smoke: `ghreleases::live_github_smoke`, now also
-fetches repo info): rs-core 135 → 164 lib (net 7, imgcache 4, github 4, assets 7, markdown +2, db +1, ghreleases +1,
-fetch +1, jobs +2, settings changed), reposhelf 43 → 46 (+3 M11 command tests; hostile/notFound tables extended) and
-`--features e2e` 53, `--no-default-features` 46; TS 579 → 588 (mock +3: assets/download/reveal, import sync + About,
-images). All network in tests is canned (`Net::offline()` / `net::Canned`); no test made a real request.
+Tests: Rust `cargo test --workspace` 181 → 215 (+1 ignored live smoke: `ghreleases::live_github_smoke`, now also
+fetches repo info): rs-core 135 → 166 lib (net 7, imgcache 5, github 5, assets 8, markdown +2, db +1, ghreleases +1,
+fetch +1, jobs +1, settings/wire tests changed), reposhelf 43 → 46 (+3 M11 command tests; hostile/notFound tables
+extended) and `--features e2e` 53, `--no-default-features` 46; TS 579 → 588 (mock +3: assets/download/reveal,
+import sync + About, images; +6 golden-driven shape tests). All network in tests is canned (`Net::offline()` /
+`net::Canned`); no test made a real request.
 
-Gate M11 (all exit 0): `cargo test --workspace` · `cargo test -p reposhelf --features e2e` / `--no-default-features` ·
+Review fixes before the tag (same milestone): image-cache temp names unique per call + "rename lost the race but the
+file exists" = hit (8-thread test); no follow-up jobs after a cancelled job and a cancel check before queuing the
+download (test: a cancelled ctx makes zero requests); ureq proxy off (D-107).
+
+Not verified (say so in M12/M13): the production `Ureq` transport and its checking resolver are compile-checked and
+clippy-clean only — no test executes them (the one live test is `#[ignore]`, not run). `run-e2e.ps1` was not part of
+this gate. **It will now reach the network**: the e2e imports `example/basic` through the UI, whose origin is
+`https://github.com/example/basic.git` (testkit `basic`), so `import_confirm` queues a `githubSync` job and the e2e
+exe (real `Net`, defaults on) calls api.github.com (404 → a note) and adds a job row. M13 must add an e2e transport
+seam (e.g. `Net::offline()` or canned answers under `cfg(feature = "e2e")` + an `RS_E2E_` env) before the next e2e run,
+and extend the "no foreign requests" check to the Rust side.
+
+Gate M11 (final tree, after the review fixes; `target\m11-gate-summary.log` + `target\m11-gate-*.log`, every rc=0):
+`cargo test --workspace` · `cargo test -p reposhelf --features e2e` / `--no-default-features` ·
 `cargo test -p rs-core --no-default-features` · `cargo clippy --workspace --all-targets -D warnings` ·
 `cargo clippy -p reposhelf --all-targets --features e2e -D warnings` · `cargo clippy -p reposhelf -p rs-core
 --all-targets --no-default-features -D warnings` · `npm run typecheck` · `npm test` 588 · `npm run build` (initial JS
@@ -882,3 +896,8 @@ Handoff for M12 (frontend):
   containing `fail` answer `network`; https + public-looking hosts only; `cache_clear` forgets images; settings off →
   `refused`. Settings defaults as above (mock persists to localStorage key `reposhelf-mock-settings`: an old stored
   object is merged over the new defaults).
+- **Gaps M12 should know**: a GitHub release whose tag is not a local version tag gets no card (D-80 "GitHub never
+  adds cards"), so a file auto-downloaded for it is reachable only from its job result (`path`) — consider a
+  "Show in folder" on the job row. `image_fetch` has no concurrency limit in Rust: lazy-load and cap parallel fetches
+  in the UI (e.g. 4). `src/ipc/api.ts` has no wrappers yet for the 4 new commands (only `commands.ts` types + mock).
+  The UI was not browser-checked in M11 (only the jobs popover text changed, covered by its unit test).
