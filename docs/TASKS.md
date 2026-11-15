@@ -920,4 +920,6 @@ canned Explore data, tests. Gate as M10a + browser check light/dark. Tag `m10b-d
 
 ### M10c — real-app run + release v0.3.0
 Extend run-e2e (offline via canned HTTP seam) for Explore flows incl. rate-limit and token-never-shown checks;
-README/TESTING/DECISIONS/WORKLOG; version 0.3.0; NSIS installer + portable into `_REVIVEeleases0.3.0\`m10c-done`, `v0.3.0` on the final commit only.
+README/TESTING/DECISIONS/WORKLOG; version 0.3.0; NSIS installer + portable into `_REVIVEeleases0.3.0\` (never run
+the installer); shipped-exe string check; no leftover processes. Tags `m10c-done`, `v0.3.0` on the final commit only.
+eleases0.3.0\`m10c-done`, `v0.3.0` on the final commit only.
