@@ -70,7 +70,9 @@ export function ExploreHeader({ repo }: { repo: ExploreRepo }) {
 
 /** `/explore/<owner>/<repo>/…`: off → the "Explore is turned off" page, else the frame below. */
 export function ExploreLayout({ route, children }: { route: Route; children: ReactNode }) {
-  const { settings } = useSettings();
+  const { settings, loaded } = useSettings();
+  // a reload on an Explore URL must not ask GitHub before the switch is known
+  if (!loaded) return <main className="container page" />;
   if (!settings.exploreEnabled) return <ExploreOff />;
   return <ExploreRepoLayout route={route}>{children}</ExploreRepoLayout>;
 }

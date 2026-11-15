@@ -1151,9 +1151,9 @@ rs-core 204 + 2 integration, 2 ignored). Final commit tagged `m10b-done`.
 - New: `components/explore/` (ExploreLayout + header, QuotaBar, SaveToShelf, ExploreAbout, ExploreCodeMenu, OnlineRefs = Branches /
   Tags, ExploreErrors), `screens/ExploreSearch`, `screens/Settings/ExploreSettings`, `state/explore.ts`, `styles/explore.css`,
   nav entry "Explore" (hidden when off), `query.purge`. Mock: 1 MB rule, stale, search quota, tags / big file on generated repos.
-- Tests: `src/explore.test.tsx` (12): routes, nav + off switch (no `explore_*` besides status), cold page = 55 of 60 left, link /
+- Tests: `src/explore.test.tsx` (13): routes, nav + off switch (no `explore_*` besides status), cold page = 55 of 60 left, link /
   repoId sweeps on every Explore tab, too-large placeholder, Save → Open in shelf, search on submit only + direct open, rate limit,
-  token never in DOM / URL / history / storage / other IPC args, Clear Explore cache. `npm test` 633 (30 files); typecheck, build,
+  token never in DOM / URL / history / storage / other IPC args, Clear Explore cache. `npm test` 634 (30 files); typecheck, build,
   `cargo test --workspace`, clippy -D warnings (default, `--features e2e`, `--no-default-features`) all rc 0.
 - Browser check (hidden `npm run dev` via preview_start "reposhelf-ui", headless Edge, scratch profile, 1280 px, light + dark):
   `docs/screenshots/m10b-{search,code,file,toolarge,ratelimit,settings}-{light,dark}.png`; pane console: no errors. Server and Edge
@@ -1162,8 +1162,11 @@ rs-core 204 + 2 integration, 2 ignored). Final commit tagged `m10b-done`.
 **Deviations / notes**
 - `.claude/launch.json` gained a `reposhelf-ui` entry (same command as `reposhelf-mock`).
 - Online Branches / Tags rows have no last commit or ahead/behind (D-128); the code tab has no per-file last commit (a hint says so).
-- Not verified against real GitHub: a tag route ref `refs/tags/<name>` passed as the `sha=` of `commits?…` (the shelf's routing
-  convention is kept online); an empty online repository surfaces as the resolve error of the Code tab.
+- Tags: shelf routes carry `refs/tags/<name>`; `exploreSource` strips `refs/tags/` / `refs/heads/` before every request (the backend
+  and GitHub know short names) and restores kind / fullName on the resolved rev (tested: the backend only sees `v2.0.0-beta.1`).
+  Not verified against real GitHub: an empty online repository (surfaces as the resolve error of the Code tab).
+- Review fixes before tagging: Explore pages wait for the loaded settings (a reload with Explore off makes no request), the Save
+  control also matches its job by the id the backend returned, the general "Clear cache" also purges / refreshes the Explore cache.
 
 **Handoff for M10c (real-app run)** — selectors (all `data-testid`): `nav-explore`; `explore-search-form`, `explore-search-input`,
 `explore-results`, `explore-result` (`data-repo`), `explore-open`, `explore-direct`; `explore-quota`, `explore-quota-remaining`

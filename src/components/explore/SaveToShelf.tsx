@@ -1,4 +1,4 @@
-// Save to shelf / Open in shelf (v0.3.0 M10b, D-125, D-128): the button of every Explore repository page. Save starts the
+// Save to shelf / Open in shelf (v0.3.0 M10b, D-125, D-130): the button of every Explore repository page. Save starts the
 // existing bare-clone job for `https://github.com/<owner>/<name>.git` in the background (progress from the jobs
 // store, cancellable, the jobs tray shows it too); when the job is done — or the backend says the repository is already
 // on the shelf — the same place offers "Open in shelf". The link comes from the library entry with the id the
@@ -6,6 +6,7 @@
 
 import { Archive, ChevronDown, CircleCheck, Download, FolderOpen, X } from 'lucide-react';
 import { useState } from 'react';
+import type { JobId } from '../../ipc/types';
 import { exploreSave } from '../../source';
 import { errorText, toIpcError } from '../../ipc/errors';
 import { invalidate } from '../../ipc/query';
@@ -32,11 +33,11 @@ export interface SaveState {
   start: (autoDownload: boolean | null) => void;
 }
 
-/** The clone job for this repository (the newest one), whichever page started it. */
-function cloneJobFor(jobs: JobInfo[], cloneUrl: string): JobInfo | undefined {
+/** The clone job for this repository (the newest one), whichever page started it: the id this page got, or the URL. */
+function cloneJobFor(jobs: JobInfo[], cloneUrl: string, id: JobId | null): JobInfo | undefined {
   const url = cloneUrl.toLowerCase();
   let found: JobInfo | undefined;
-  for (const j of jobs) if (j.kind.type === 'clone' && j.kind.url.toLowerCase() === url) found = j;
+  for (const j of jobs) if (j.id === id || (j.kind.type === 'clone' && j.kind.url.toLowerCase() === url)) found = j;
   return found;
 }
 
@@ -44,14 +45,18 @@ export function useSaveToShelf(repo: SaveRepo): SaveState {
   const jobs = useJobs();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const job = cloneJobFor(jobs, repo.cloneUrl);
+  const [jobId, setJobId] = useState<JobId | null>(null);
+  const job = cloneJobFor(jobs, repo.cloneUrl, jobId);
   const doneId = job?.state === 'done' && job.result?.type === 'cloned' ? job.result.repoId : null;
 
   const start = (autoDownload: boolean | null) => {
     setBusy(true);
     setError(null);
     exploreSave(repo.owner, repo.name, autoDownload).then(
-      () => setBusy(false),
+      (id) => {
+        setJobId(id);
+        setBusy(false);
+      },
       (e: unknown) => {
         setBusy(false);
         if (toIpcError(e).code === 'duplicate') {

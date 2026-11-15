@@ -140,6 +140,17 @@ describe('Explore repo pages', () => {
     for (const c of calls) expect(c.args).not.toHaveProperty('repoId');
   });
 
+  it('a tag route reaches the backend as the short tag name', async () => {
+    const { host, backend } = await boot('', '#/');
+    const calls = spy(backend);
+    await go('#/explore/lumen-ui/lumen/tree/refs%2Ftags%2Fv2.0.0-beta.1', 900);
+    const revs = calls.filter((c) => ['explore_resolve', 'explore_tree', 'explore_commit_latest'].includes(c.cmd)).map((c) => c.args.rev);
+    expect(revs.length).toBeGreaterThan(2);
+    expect(new Set(revs)).toEqual(new Set(['v2.0.0-beta.1']));
+    expect(host.querySelector('.refswitch')?.textContent).toContain('v2.0.0-beta.1');
+    expect(host.querySelector('[data-testid="file-table"] [data-kind]')).not.toBeNull();
+  });
+
   it('files over 1 MB show the placeholder with Save to shelf and no content request', async () => {
     const { host, backend } = await boot('', '#/');
     const calls = spy(backend);

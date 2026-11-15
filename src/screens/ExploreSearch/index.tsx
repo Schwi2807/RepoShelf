@@ -48,7 +48,8 @@ function sortOf(v: string | undefined): ExploreSort | null {
 }
 
 export default function ExploreSearch({ route }: { route: Route }) {
-  const { settings } = useSettings();
+  const { settings, loaded } = useSettings();
+  if (!loaded) return <main className="container page" />;
   if (!settings.exploreEnabled) return <ExploreOff />;
   return <SearchPage route={route} />;
 }

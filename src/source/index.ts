@@ -144,11 +144,25 @@ export const exploreSave = (owner: string, name: string, autoDownload: boolean |
  * link) goes through as given.
  */
 export function exploreSource(owner: string, name: string, resolved: ResolvedRev | null): RepoSource {
-  const at = (rev: string): string => (resolved !== null && rev === resolved.commit && resolved.input !== 'HEAD' ? resolved.input : rev);
+  // GitHub (and the backend written for it) knows short names: the shelf's routes carry tags as `refs/tags/<name>`
+  // (so a tag never loses to a same-named branch), online that prefix is dropped before any request.
+  const short = (rev: string): string => rev.replace(/^refs\/(?:tags|heads)\//, '');
+  const at = (rev: string): string =>
+    short(resolved !== null && rev === resolved.commit && resolved.input !== 'HEAD' ? resolved.input : rev);
   return {
     explore: true,
     key: `x:${owner}/${name}`.toLowerCase(),
-    resolve: (rev) => track(exploreResolve(owner, name, rev)),
+    resolve: (rev) =>
+      track(
+        exploreResolve(owner, name, short(rev)).then((r) =>
+          // the backend only sees the short name; the route said which kind it is
+          rev.startsWith('refs/tags/')
+            ? { ...r, input: rev, kind: 'tag' as const, fullName: rev }
+            : rev.startsWith('refs/heads/')
+              ? { ...r, input: rev, kind: 'branch' as const, fullName: rev }
+              : r,
+        ),
+      ),
     tree: (c, p) => track(exploreTree(owner, name, at(c), p)),
     treeLastCommits: null,
     commitLatest: (c) => track(exploreCommitLatest(owner, name, at(c))),

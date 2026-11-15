@@ -79,9 +79,9 @@ export function HistoryButtons() {
 
 /** Explore entry (v0.3.0): hidden while Explore is switched off in Settings. */
 export function ExploreNav() {
-  const { settings } = useSettings();
+  const { settings, loaded } = useSettings();
   const route = useRoute();
-  if (!settings.exploreEnabled) return null;
+  if (!loaded || !settings.exploreEnabled) return null;
   return (
     <nav className="gh__nav" aria-label="Sections">
       <Link

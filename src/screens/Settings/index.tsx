@@ -11,9 +11,10 @@ import { Button } from '../../components/ui/Button';
 import { CopyButton } from '../../components/ui/CopyButton';
 import { appInfo, appOpenDir, cacheClear } from '../../ipc/api';
 import { errorText } from '../../ipc/errors';
-import { invalidate, prime, qk, useQuery } from '../../ipc/query';
+import { invalidate, isExploreKey, prime, purge, qk, useQuery } from '../../ipc/query';
 import type { AppDir, Settings as SettingsT, Theme } from '../../ipc/types';
 import { resetRemoteImages } from '../../markdown/remoteImages';
+import { refreshExploreStatus } from '../../state/explore';
 import { updateSettings, useSettings } from '../../state/settings';
 import { setTheme } from '../../state/theme';
 import { formatBytes, formatCount } from '../../util/format';
@@ -174,6 +175,9 @@ export default function Settings() {
       const before = info.data?.cacheBytes ?? 0;
       const next = await cacheClear();
       resetRemoteImages();
+      // the general cache includes the saved GitHub answers (D-118)
+      purge(isExploreKey);
+      void refreshExploreStatus();
       prime(qk('app_info'), next);
       setClearMsg(`Cleared ${formatBytes(before)}. Counts and last-commit columns are computed again when needed.`);
     } catch (e) {
