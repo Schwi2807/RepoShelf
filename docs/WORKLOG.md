@@ -1079,10 +1079,10 @@ One implementer; TASKS "v0.3.0 — M10a". Decisions D-117..D-125. Final commit t
   tested for every command; hostile owner / name / rev / path / oid / skip tables; parity test (same assertions on
   `LocalSource` and `GithubSource`).
 
-**Test counts** (all gates rc 0): `cargo test --workspace`: reposhelf 56 + rs-core lib 200 + 2 integration (+2 ignored: live
-GitHub smoke, real Credential Manager hand test); `--features e2e` 65; `--no-default-features` (reposhelf 56, rs-core 200);
+**Test counts** (all gates rc 0): `cargo test --workspace`: reposhelf 56 + rs-core lib 204 + 2 integration (+2 ignored: live
+GitHub smoke, real Credential Manager hand test); `--features e2e` 65; `--no-default-features` (reposhelf 56, rs-core 204);
 clippy `-D warnings` default / `--features e2e` / `--no-default-features` (reposhelf + rs-core) / `-p reposhelf` alone (compiles
-the real keyring store); `npm run typecheck`; `npm test` 621 (30 files); `npm run build` (index chunk 451.9 kB, mock chunk 74.9 kB).
+the real keyring store); `npm run typecheck`; `npm test` 621 (29 files); `npm run build` (index chunk 451.9 kB, mock chunk 74.9 kB).
 
 **IPC commands (exact names; TS in `src/ipc/types.ts`, `commands.ts`, `api.ts`)** — all take `owner, name` (strings), never an id or path:
 `explore_status` → `ExploreStatus`; `explore_token_set(token)` / `explore_token_remove` / `explore_cache_clear` → `ExploreStatus`;
@@ -1111,7 +1111,7 @@ New TS types: `ExploreRepo`, `ExploreRefs`, `ExploreSearch`, `ExploreSort`, `Quo
 - Quota header: call `exploreStatus()` after Explore calls (status is not pushed). `limitedUntil` / `searchLimitedUntil` (Unix s)
   set = show "rate limit reached, resets at HH:MM" (the failing call rejects with code `rateLimited`); `stale` set = saved data
   was shown (`reason` `rateLimited` | `offline`, `fetchedAt`) until the next fresh answer. Anonymous `core` = 60/h, `search` = 10/min.
-- The same request within 60 s is answered from the saved copy (no quota); sha-addressed ones are never re-asked. After Save to
+- The same request within 15 min (60 s with a saved token; a 304 is free only with `Authorization`) is answered from the saved copy (no quota); sha-addressed ones are never re-asked. After Save to
   shelf finishes, re-call `explore_repo`: `onShelf` is computed per call, not cached.
 - Relative links / images in a rendered README are `rsrepo:/…` as for local READMEs: resolve images through `exploreBlobBytes`
   (≤ 1 MB) for an Explore page, local `blobBytes` otherwise. Remote images still go through `imageFetch` (setting `loadRemoteImages`).
@@ -1130,3 +1130,10 @@ New TS types: `ExploreRepo`, `ExploreRefs`, `ExploreSearch`, `ExploreSort`, `Quo
   checks must learn the two new keys. `run-e2e.ps1` was not run in M10a.
 - Nothing in v0.2.0 changed for the user: local screens, hooks and the 52 local commands are as before; the hooks keep their own
   one-slot limit state (D-101).
+- Review fixes (D-126): anonymous freshness window 15 min (304 free only with `Authorization`); files over 1 MB answered from the
+  parent listing when GitHub refuses the contents call (403 `too_large`); cache writes best effort (read-only library browses);
+  hostile README / release body tests on the network path. Unverified against real GitHub: a submodule in a directory listing
+  may be typed `file` (opening it would show a file view with no content) — check in the hand test.
+- M10c shipped-exe check: a build with `testkit` unified in silently gets the in-memory token store (token shows as saved, gone
+  after a restart). Assert that the shipped exe has the real store (e.g. the string `Windows Credential Manager failed` and the
+  `windows-native-keyring-store` symbols present, `MemoryStore` absent) — the e2e build is expected to have the fake.

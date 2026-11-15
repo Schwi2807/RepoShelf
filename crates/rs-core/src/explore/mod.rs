@@ -29,8 +29,11 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use url::Url;
 
-/// An unchanged-looking answer younger than this is served without asking GitHub again.
+/// A name-addressed answer younger than this is served without asking GitHub again when a token is saved. A 304
+/// is free only for a request sent with `Authorization` (GitHub's REST best practices), so without a token every
+/// revalidation costs one of the 60 requests an hour and the window is `FRESH_SECS_ANON`.
 pub const FRESH_SECS: i64 = 60;
+pub const FRESH_SECS_ANON: i64 = 15 * 60;
 /// Without reset headers, back off this long after a rate-limit answer.
 pub const RATE_LIMIT_BACKOFF_SECS: i64 = 15 * 60;
 pub const API_BASE: &str = "https://api.github.com";
@@ -140,7 +143,7 @@ impl Explore {
 pub enum Freshness {
     /// Addressed by a commit / blob sha: the answer can never change.
     Immutable,
-    /// Re-ask (conditionally) after `FRESH_SECS`.
+    /// Re-ask (conditionally) after `FRESH_SECS` (`FRESH_SECS_ANON` without a token).
     Revalidate,
     /// Never cached (`/rate_limit`).
     Never,
@@ -249,7 +252,7 @@ pub fn get(s: &Shelf, url: &Url, fresh: Freshness) -> Result<Answer> {
     let now = crate::now_secs();
     let answer_of = |e: &cache::Entry| Answer { body: e.body.clone(), link: json::Link::parse(e.link.as_deref()), fetched_at: e.fetched_at };
     if let Some(e) = &cached
-        && (fresh == Freshness::Immutable || now - e.fetched_at < FRESH_SECS)
+        && (fresh == Freshness::Immutable || now - e.fetched_at < if s.explore.token_saved() { FRESH_SECS } else { FRESH_SECS_ANON })
     {
         return Ok(answer_of(e));
     }
@@ -284,14 +287,15 @@ pub fn get(s: &Shelf, url: &Url, fresh: Freshness) -> Result<Answer> {
         200 => {
             let entry = cache::Entry { body: raw.body, etag: raw.etag, link: raw.link, fetched_at: crate::now_secs() };
             if fresh != Freshness::Never {
-                cache::put(&s.db, key, &entry, cache::CACHE_CAP_BYTES)?;
+                // best effort: a read-only library (written by a newer app) still browses, it just saves nothing
+                let _ = cache::put(&s.db, key, &entry, cache::CACHE_CAP_BYTES);
             }
             s.explore.clear_stale();
             Ok(Answer { body: entry.body, link: json::Link::parse(entry.link.as_deref()), fetched_at: entry.fetched_at })
         }
         304 => match &cached {
             Some(e) => {
-                cache::touch(&s.db, key)?;
+                let _ = cache::touch(&s.db, key);
                 s.explore.clear_stale();
                 Ok(answer_of(e))
             }

@@ -1013,7 +1013,7 @@ test asserts no git2 remote or ureq call happens outside those commands (a count
 nothing runs until one is called (setting `exploreEnabled`, default on, enforced in Rust). All requests go through
 `explore::get` → `net.rs` with `Profile::API`: api.github.com only, https, no redirects (GitHub's 301 for a renamed repo
 is followed once by hand to `/repositories/…` on the same host), 16 MB cap, answers cached on disk (`cache_gh_api`, ETag,
-sha-addressed answers kept for good, others re-asked after 60 s with `If-None-Match`), `X-RateLimit-*` tracked per bucket,
+sha-addressed answers kept for good, others re-asked with `If-None-Match` after 60 s with a token, 15 min without), `X-RateLimit-*` tracked per bucket,
 saved data served when the limit is used up. The one optional credential is a GitHub token in Windows Credential Manager
 (`explore::cred`, behind a trait; tests use an in-memory fake): sent only as `Authorization: Bearer` to api.github.com,
 never written to SQLite, logs, job text, error messages or IPC (`githubTokenSaved` / `tokenSaved` are booleans derived

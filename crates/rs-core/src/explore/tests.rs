@@ -167,6 +167,9 @@ fn cache_etag_and_freshness() {
     assert_eq!(c.seen().len(), 1);
     // older than 60 s: conditional request, 304 serves the saved body and renews it
     age_cache(&s, 120);
+    get(&s, &url, Freshness::Revalidate).unwrap();
+    assert_eq!(c.seen().len(), 1, "anonymous: a 304 would cost a request, so the saved copy is used for 15 minutes");
+    age_cache(&s, 1000);
     let a = get(&s, &url, Freshness::Revalidate).unwrap();
     assert_eq!(a.body, b"{\"a\":1}");
     assert_eq!(c.seen().len(), 2);
@@ -201,7 +204,7 @@ fn rate_limit_blocks_calls_serves_saved_data_and_search_is_its_own_bucket() {
     c.on(a.as_str(), 200, &[], b"{}".to_vec());
     c.on(a.as_str(), 403, &[("x-ratelimit-limit", "60"), ("x-ratelimit-remaining", "0"), ("x-ratelimit-reset", reset.as_str()), ("x-ratelimit-resource", "core")], b"{\"message\":\"API rate limit exceeded\"}".to_vec());
     get(&s, &a, Freshness::Revalidate).unwrap();
-    age_cache(&s, 120);
+    age_cache(&s, 1000);
     // limited while a saved copy exists: the copy is served, marked stale
     let got = get(&s, &a, Freshness::Revalidate).unwrap();
     assert_eq!(got.body, b"{}");
@@ -757,4 +760,87 @@ fn local_and_github_sources_agree() {
     demo(&c);
     let s2 = shelf(t.path(), &c);
     parity(&GithubSource::new(&s2, "octo", "demo").unwrap(), "Mona Octocat");
+}
+
+#[test]
+fn a_saved_token_revalidates_names_after_a_minute_anonymous_after_fifteen() {
+    let t = tempfile::tempdir().unwrap();
+    let c = Canned::new();
+    let s = shelf(t.path(), &c).with_creds(MemoryStore::with_token(TOKEN));
+    let u = api_url(&["repos", "octo", "demo"], &[]);
+    c.on(u.as_str(), 200, &[("etag", "\"e\"")], b"{}".to_vec()).on(u.as_str(), 304, &[], Vec::new());
+    get(&s, &u, Freshness::Revalidate).unwrap();
+    age_cache(&s, 30);
+    get(&s, &u, Freshness::Revalidate).unwrap();
+    assert_eq!(c.seen().len(), 1);
+    age_cache(&s, 90);
+    get(&s, &u, Freshness::Revalidate).unwrap();
+    assert_eq!(c.seen().len(), 2, "a 304 is free with Authorization, so 60 s is enough");
+}
+
+/// GitHub refuses files over 1 MB for the plain JSON type (403 `too_large`): the answer is built from the listing.
+#[test]
+fn a_file_over_one_megabyte_is_metadata_only_even_when_github_refuses_the_contents_call() {
+    let t = tempfile::tempdir().unwrap();
+    let c = Canned::new();
+    let s = shelf(t.path(), &c);
+    put(&c, &format!("/contents?ref={C2}"), 200, &[], &json!([file_entry("big.bin", "big.bin", B_MAIN, 5_000_000, "file"), file_entry("small.txt", "small.txt", B_MAIN, 5, "file")]));
+    let too_large = json!({"message": "This API returns blobs up to 1 MB in size. The requested blob is too large to fetch via the API.", "errors": [{"resource": "Blob", "field": "data", "code": "too_large"}]});
+    put(&c, &format!("/contents/big.bin?ref={C2}"), 403, &[], &too_large);
+    put(&c, &format!("/contents/small.txt?ref={C2}"), 403, &[], &too_large);
+    put(&c, &format!("/contents/gone.bin?ref={C2}"), 403, &[], &too_large);
+    let src = GithubSource::new(&s, "octo", "demo").unwrap();
+    let r = crate::types::ResolvedRev { input: C2.into(), kind: RefKind::Commit, full_name: None, commit: C2.into(), tree: T2.into() };
+    let m = src.blob_text(&r, &git_path("big.bin").unwrap()).unwrap();
+    assert!(!m.meta.displayable && m.text.is_none() && m.meta.size == 5_000_000 && m.meta.oid == B_MAIN, "{m:?}");
+    assert_eq!(src.blob_bytes(&r, &git_path("big.bin").unwrap(), u64::MAX).unwrap_err().code(), "refused");
+    // a small file GitHub refuses for another reason, and an unlisted one, keep the original refusal
+    assert_eq!(src.blob_meta(&r, &git_path("small.txt").unwrap()).unwrap_err().code(), "refused");
+    assert_eq!(src.blob_meta(&r, &git_path("gone.bin").unwrap()).unwrap_err().code(), "refused");
+}
+
+#[test]
+fn hostile_markdown_is_sanitised_on_the_network_path_too() {
+    let t = tempfile::tempdir().unwrap();
+    let c = Canned::new();
+    let s = shelf(t.path(), &c);
+    let md = include_str!("../../../../tests/fixtures/security/README.md");
+    put(&c, &format!("/contents?ref={C2}"), 200, &[], &json!([file_entry("README.md", "README.md", B_README, md.len(), "file")]));
+    put(&c, &format!("/contents/README.md?ref={C2}"), 200, &[], &file_json("README.md", "README.md", B_README, md));
+    let src = GithubSource::new(&s, "octo", "demo").unwrap();
+    let r = crate::types::ResolvedRev { input: C2.into(), kind: RefKind::Commit, full_name: None, commit: C2.into(), tree: T2.into() };
+    let rd = src.readme(&r, &git_path("").unwrap()).unwrap().unwrap();
+    let local = crate::markdown::render(md, &git_path("").unwrap());
+    assert_eq!(rd.html, local.html, "the same sanitiser output as a local README");
+    let lower = rd.html.to_lowercase();
+    for bad in ["<script", "onerror", "onclick", "javascript:", "<iframe", "<object", "<embed", "style="] {
+        assert!(!lower.contains(bad), "{bad} survived: {}", rd.html);
+    }
+    // release bodies (and avatars) too
+    let hostile = "<script>alert(1)</script><img src=x onerror=alert(2)> [x](javascript:alert(3)) <img src=\"https://avatars.githubusercontent.com/u/1\">";
+    put(&c, "/releases?per_page=100", 200, &[], &json!([{"tag_name": "v1", "body": hostile, "draft": false, "prerelease": false, "assets": []}]));
+    let rel = src.releases().unwrap();
+    let html = rel[0].notes_html.clone().unwrap().to_lowercase();
+    for bad in ["<script", "onerror", "href=\"javascript", "avatars.githubusercontent.com"] {
+        assert!(!html.contains(bad), "{bad} survived: {html}");
+    }
+}
+
+#[test]
+fn a_read_only_library_still_browses_without_saving() {
+    let t = tempfile::tempdir().unwrap();
+    let dirs = crate::paths::Dirs { data: t.path().join("d"), archive: t.path().join("a") };
+    {
+        let s = Shelf::open(dirs.clone()).unwrap();
+        s.db.with(|c| Ok(c.pragma_update(None, "user_version", crate::db::SCHEMA_VERSION + 1)?)).unwrap();
+    }
+    let c = Canned::new();
+    demo(&c);
+    let s = Shelf::open(dirs).unwrap().with_net(Net::new(c.clone()));
+    assert!(s.db.read_only());
+    let src = GithubSource::new(&s, "octo", "demo").unwrap();
+    assert_eq!(src.repo().unwrap().stars, 120);
+    src.repo().unwrap();
+    assert_eq!(c.seen().len(), 2, "nothing could be saved, so the second call asked again");
+    assert_eq!(s.explore.status(&s).unwrap().cache_entries, 0);
 }

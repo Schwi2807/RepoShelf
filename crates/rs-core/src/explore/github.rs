@@ -195,16 +195,30 @@ impl<'a> GithubSource<'a> {
         })
     }
 
-    /// One file / symlink / submodule entry (the contents API answers an array for a directory).
+    /// One file / symlink / submodule entry (the contents API answers an array for a directory). Files over 1 MB are
+    /// refused by the plain JSON media type (GitHub: "Only the raw or object custom media types are supported", 403
+    /// `too_large`); the parent listing, which carries every file's size and sha, then gives the metadata-only answer.
     fn fetch_file(&self, rev: &ResolvedRev, path: &GitPath) -> Result<GhContent> {
         if path.is_root() {
             return Err(not_a("file"));
         }
-        let v: serde_json::Value = get_json(self.shelf, &self.contents_url(path, &rev.commit), Freshness::Immutable)?;
+        let v: serde_json::Value = match get_json(self.shelf, &self.contents_url(path, &rev.commit), Freshness::Immutable) {
+            Ok(v) => v,
+            Err(e @ Error::Refused(_)) => return self.large_from_listing(rev, path).ok_or(e),
+            Err(e) => return Err(e),
+        };
         if v.is_array() {
             return Err(not_a("file"));
         }
         serde_json::from_value(v).map_err(|e| Error::InvalidInput(format!("Unexpected GitHub answer: {e}")))
+    }
+
+    fn large_from_listing(&self, rev: &ResolvedRev, path: &GitPath) -> Option<GhContent> {
+        let (dir, name) = path.as_str().rsplit_once('/').unwrap_or(("", path.as_str()));
+        let listing = self.tree(rev, &validate::git_path(dir).ok()?).ok()?;
+        let e = listing.entries.iter().find(|e| e.name == name && e.kind == EntryKind::File)?;
+        let size = e.size.filter(|n| *n > ONLINE_MAX_BYTES)?;
+        Some(GhContent { kind: "file".into(), name: e.name.clone(), sha: e.oid.clone(), size, content: None, encoding: None, target: None, submodule_git_url: None })
     }
 
     /// The decoded bytes, or `None` when GitHub sent no content (the file is over 1 MB).

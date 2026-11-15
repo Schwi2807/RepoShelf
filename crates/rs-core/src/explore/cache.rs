@@ -27,7 +27,8 @@ pub fn get(db: &Db, url: &str) -> Result<Option<Entry>> {
             })
             .optional()?;
         if e.is_some() {
-            c.execute("UPDATE cache_gh_api SET last_used_at = ?2 WHERE url = ?1", params![url, crate::now_secs()])?;
+            // best effort (a read-only library cannot be written)
+            let _ = c.execute("UPDATE cache_gh_api SET last_used_at = ?2 WHERE url = ?1", params![url, crate::now_secs()]);
         }
         Ok(e)
     })
