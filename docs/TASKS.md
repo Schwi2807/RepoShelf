@@ -747,7 +747,7 @@ docs final; tags `m9-done` and `v0.1.0` (local only, never pushed).
 
 ---
 
-## M10 — Explore mode (PLAN ONLY — do not implement until the user says so)
+## M10 — Explore mode (GO given by the user 2026-11-15 after hand-testing v0.2.0; built as M10a/M10b/M10c → v0.3.0)
 
 Added 2026-11-11 at the user's request as plan-only. Not part of v0.1.0; implementers of M5–M9 must not build it.
 Keep M6/M7 screens reading through the swappable data-source layer so this fits without redoing them.
@@ -868,3 +868,57 @@ on the final commit only.
 | NFR-S1..S7 | M1.5, M2.10, M4.7, M4.10, M4.11 | M5.8, M6.7, M8.6 |
 | NFR-W1..W3 | M1.3, M1.7, M2.4, M3.3 | M6.6 |
 | NFR-O1..O4, NFR-A1 | M1.3, M2.1, M2.12, M3.6, M3.9 | M5.10, M8.2, M8.9 |
+
+---
+
+## v0.3.0 — Explore mode (M10a–M10c), go given 2026-11-15
+
+The user hand-tested v0.2.0 and said "Continue M10". Same hard rules as v0.2.0 (installed app + real data untouched,
+migrations only, never run installers, never push, no real Recycle Bin, tag only on the final commit).
+
+### Lead decisions (defaults) — not open for re-analysis
+- **Offline by default.** Explore is a separate nav entry "Explore". The webview stays offline: all HTTP in Rust through
+  `net.rs` (same seam, offline tests). Allow-list for Explore: `api.github.com` (JSON, no redirects except GitHub's
+  documented 301 for renamed repos, re-checked) and `raw.githubusercontent.com` only if the API's contents endpoint is
+  not enough. CSP unchanged. A setting `exploreEnabled` (default ON) hides the entry and blocks the calls when off.
+- **Same screens, swappable source.** Code tab, file view, README, commits, commit detail, branches, tags, releases
+  render from a `RepoSource` abstraction (local git DB vs GitHub API). Local screens must not regress (all existing tests
+  stay green). Read-only. Addressing: `explore/<owner>/<repo>[/...]` routes; never sends filesystem paths.
+- **Rate limit**: unauthenticated 60/h. Cache every response on disk (SQLite table via a new migration, keyed by URL,
+  ETag + body + fetched_at; conditional requests with If-None-Match; 304 does not count against the limit). Show remaining
+  quota (X-RateLimit-Remaining/Reset) in the Explore header; at 403/429 show a clear "rate limit reached, resets at HH:MM"
+  state, serve cached data when present. Cache cap 100 MB LRU, "Clear Explore cache" in Settings.
+- **Token (optional)**: Settings → Network → "GitHub token" field. Stored in Windows Credential Manager (use the
+  `keyring` crate, or `windows` crate credential APIs if keyring pulls in too much); never written to the SQLite DB,
+  logs, jobs, error messages or the UI after saving (show only "saved ✓" + Remove). Sent only to api.github.com as
+  `Authorization: Bearer`. Tests use an in-memory fake credential store behind a trait. A token is optional; no sign-in flow
+  and no OAuth.
+- **Save to shelf**: button on every Explore repo page starts the EXISTING bare-clone job for
+  `https://github.com/<owner>/<repo>.git` (Windows-safe names, background progress, auto-download option as in Clone dialog
+  defaults). After finishing, the Explore page offers "Open in shelf".
+- **Search page**: `explore/search?q=` using `GET /search/repositories` (counts against the 30/min search limit);
+  results list in GitHub style (name, description, stars, language, updated); each result: Open (explore) or Save to shelf.
+- **Content size**: files > 1 MB in Explore show "Too large to preview online — Save to shelf" (the contents API limit);
+  binary files show the same placeholder as local ones.
+- **Security**: owner/repo/path validated (the same rules as for local refs, no leading `-`, no `..`, no backslashes);
+  responses size-capped; Markdown from the network goes through the same comrak + ammonia sanitizer as local READMEs and
+  the same remote-image rules; avatars from the API are never fetched in Explore (use initials/placeholder) unless the user
+  turns on `loadRemoteImages` — then through the existing image cache.
+
+### M10a — backend (rs-core + src-tauri)
+`RepoSource` abstraction + GitHub API client (repo info, tree/contents, blob, README, commits, commit detail incl. diff
+stats from the API, branches, tags, releases, search) + response cache table (migration, tested from a v0.2.0-shaped DB
+with rows) + rate-limit tracking + credential store trait + keyring impl + Save-to-shelf command + settings keys
+(`exploreEnabled`, token presence flag) + IPC commands (golden files, mock, ARCHITECTURE §5.1 table updated together) +
+tests with canned GitHub JSON fixtures (no real HTTP). Gate: cargo test --workspace, clippy -D warnings
+(default/e2e/no-default), npm typecheck/test/build. Tag `m10a-done`.
+
+### M10b — frontend
+Explore nav + routes, search page, repo pages reusing the existing components through the source abstraction, quota
+header, Save to shelf / Open in shelf, Settings "Explore" section (enable, token field, clear cache), mock backend with
+canned Explore data, tests. Gate as M10a + browser check light/dark. Tag `m10b-done`.
+
+### M10c — real-app run + release v0.3.0
+Extend run-e2e (offline via canned HTTP seam) for Explore flows incl. rate-limit and token-never-shown checks;
+README/TESTING/DECISIONS/WORKLOG; version 0.3.0; NSIS installer + portable into `_REVIVEeleases0.3.0\` (never run
+the installer); shipped-exe string check; no leftover processes. Tags `m10c-done`, `v0.3.0` on the final commit only.
