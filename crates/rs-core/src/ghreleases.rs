@@ -29,6 +29,13 @@ pub struct GhRelease {
     pub html_url: Option<String>,
     #[serde(default)]
     pub assets: Vec<GhAsset>,
+    /// Explore (D-124): when it was published / created, and the branch or sha it was cut from.
+    #[serde(default)]
+    pub published_at: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub target_commitish: Option<String>,
 }
 
 /// One entry of a release's `assets`.
@@ -67,6 +74,28 @@ pub fn latest(gh: &[GhRelease]) -> Option<&GhRelease> {
     gh.iter().find(|r| !r.draft && !r.prerelease)
 }
 
+/// The assets of one GitHub release as cards, the asset picker's choice for this PC marked (shared with Explore).
+pub fn release_assets(g: &GhRelease) -> Vec<ReleaseAsset> {
+    let mut v: Vec<ReleaseAsset> = g
+        .assets
+        .iter()
+        .map(|a| ReleaseAsset {
+            name: a.name.clone(),
+            size: a.size,
+            download_count: a.download_count,
+            url: a.browser_download_url.clone(),
+            content_type: a.content_type.clone(),
+            sha256: a.sha256(),
+            for_this_pc: false,
+            downloaded: None,
+        })
+        .collect();
+    if let crate::assets::Pick::One(i) = crate::assets::pick(&g.assets, std::env::consts::OS, std::env::consts::ARCH) {
+        v[i].for_this_pc = true;
+    }
+    v
+}
+
 /// Merges GitHub notes into the tag-based release cards by tag name: a non-empty body replaces the notes
 /// (sanitised, avatars stripped, `gh_notes = true`); a non-empty release name replaces the title; the release
 /// page link and assets are added. Tags GitHub does not know stay; GitHub-only releases are not added.
@@ -81,23 +110,7 @@ pub fn merge_into(mut releases: Vec<Release>, gh: &[GhRelease]) -> Vec<Release> 
             r.gh_notes = true;
         }
         r.html_url = g.html_url.clone().filter(|u| u.starts_with("https://github.com/"));
-        r.assets = g
-            .assets
-            .iter()
-            .map(|a| ReleaseAsset {
-                name: a.name.clone(),
-                size: a.size,
-                download_count: a.download_count,
-                url: a.browser_download_url.clone(),
-                content_type: a.content_type.clone(),
-                sha256: a.sha256(),
-                for_this_pc: false,
-                downloaded: None,
-            })
-            .collect();
-        if let crate::assets::Pick::One(i) = crate::assets::pick(&g.assets, std::env::consts::OS, std::env::consts::ARCH) {
-            r.assets[i].for_this_pc = true;
-        }
+        r.assets = release_assets(g);
     }
     releases
 }

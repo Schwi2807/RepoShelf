@@ -10,7 +10,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
-const MIGRATIONS: &[&str] = &[include_str!("migrations/0001_init.sql"), include_str!("migrations/0002_github.sql")];
+const MIGRATIONS: &[&str] = &[include_str!("migrations/0001_init.sql"), include_str!("migrations/0002_github.sql"), include_str!("migrations/0003_explore.sql")];
 
 /// Number of migrations this build knows.
 pub const SCHEMA_VERSION: i64 = MIGRATIONS.len() as i64;
@@ -194,7 +194,7 @@ mod tests {
         let db = Db::open(&f).unwrap();
         assert!(!db.read_only());
         assert_eq!(db.with(user_version).unwrap(), SCHEMA_VERSION);
-        assert_eq!(SCHEMA_VERSION, 2);
+        assert_eq!(SCHEMA_VERSION, 3);
         let counts: Vec<i64> = db
             .with(|c| {
                 let mut v = Vec::new();
@@ -215,7 +215,80 @@ mod tests {
         let left: i64 = db.with(|c| Ok(c.query_row("SELECT COUNT(*) FROM gh_repo_info", [], |r| r.get(0))?)).unwrap();
         assert_eq!(left, 0);
         drop(db);
-        assert_eq!(Db::open(&f).unwrap().with(user_version).unwrap(), 2, "reopen is a no-op");
+        assert_eq!(Db::open(&f).unwrap().with(user_version).unwrap(), SCHEMA_VERSION, "reopen is a no-op");
+    }
+
+    /// v0.3.0 (D-118): a DB written by v0.2.0 (0001 + 0002, rows in every table incl. `gh_repo_info`) migrates in
+    /// place, keeps every row and gets the empty Explore tables.
+    #[test]
+    fn v020_db_with_rows_migrates_and_keeps_everything() {
+        let t = tempfile::tempdir().unwrap();
+        let f = t.path().join("reposhelf.db");
+        {
+            let c = Connection::open(&f).unwrap();
+            c.execute_batch(include_str!("migrations/0001_init.sql")).unwrap();
+            c.execute_batch(include_str!("migrations/0002_github.sql")).unwrap();
+            c.pragma_update(None, "user_version", 2).unwrap();
+            c.execute_batch(
+                "INSERT INTO repos (id, slug_owner, slug_name, source, path, is_bare, origin_url, origin_host, added_at)
+                   VALUES (1, 'o', 'r', 'cloned', 'C:\\a\\r.git', 1, 'https://github.com/o/r.git', 'github.com', 5);
+                 INSERT INTO repo_meta (repo_id, description, homepage, updated_at) VALUES (1, 'mine', 'https://h.example', 6);
+                 INSERT INTO repo_topics (repo_id, topic, pos) VALUES (1, 'mine', 0);
+                 INSERT INTO settings (key, value) VALUES ('theme', '\"dark\"'), ('loadRemoteImages', 'false');
+                 INSERT INTO cache_commit_count (repo_id, tip, count) VALUES (1, 't', 3);
+                 INSERT INTO cache_last_commit (repo_id, tip, dir, json, created_at) VALUES (1, 't', '', '{}', 7);
+                 INSERT INTO cache_languages (repo_id, tree, json) VALUES (1, 'tr', '{}');
+                 INSERT INTO cache_gh_releases (repo_id, fetched_at, json, etag) VALUES (1, 8, '[]', '\"e\"');
+                 INSERT INTO gh_repo_info (repo_id, etag, fetched_at, description, topics_json, html_url)
+                   VALUES (1, '\"i\"', 9, 'from github', '[\"cli\"]', 'https://github.com/o/r');
+                 INSERT INTO jobs (kind_json, title, state, created_at) VALUES ('{\"type\":\"fetch\",\"repoId\":1}', 'Fetch o/r', 'done', 9);",
+            )
+            .unwrap();
+        }
+        let db = Db::open(&f).unwrap();
+        assert!(!db.read_only());
+        assert_eq!(db.with(user_version).unwrap(), 3);
+        let counts: Vec<i64> = db
+            .with(|c| {
+                let mut v = Vec::new();
+                for t in [
+                    "repos", "repo_meta", "repo_topics", "cache_commit_count", "cache_last_commit", "cache_languages", "cache_gh_releases",
+                    "gh_repo_info", "jobs",
+                ] {
+                    v.push(c.query_row(&format!("SELECT COUNT(*) FROM {t}"), [], |r| r.get(0))?);
+                }
+                v.push(c.query_row("SELECT COUNT(*) FROM settings", [], |r| r.get(0))?);
+                Ok(v)
+            })
+            .unwrap();
+        assert_eq!(counts, vec![1, 1, 1, 1, 1, 1, 1, 1, 1, 2]);
+        let (desc, etag): (String, String) = db
+            .with(|c| Ok(c.query_row("SELECT description, etag FROM gh_repo_info", [], |r| Ok((r.get(0)?, r.get(1)?)))?))
+            .unwrap();
+        assert_eq!((desc.as_str(), etag.as_str()), ("from github", "\"i\""));
+        // the v0.2.0 settings still load, the new keys take their defaults
+        let s = crate::settings::load(&db).unwrap();
+        assert_eq!(s.theme, crate::types::Theme::Dark);
+        assert!(!s.load_remote_images);
+        assert!(s.explore_enabled);
+        // the Explore tables are new and empty, and work
+        for t in ["cache_gh_api", "gh_quota"] {
+            assert!(tables(&db).iter().any(|n| n == t), "{t}");
+            let n: i64 = db.with(|c| Ok(c.query_row(&format!("SELECT COUNT(*) FROM {t}"), [], |r| r.get(0))?)).unwrap();
+            assert_eq!(n, 0, "{t}");
+        }
+        db.with(|c| {
+            c.execute("INSERT INTO cache_gh_api (url, body, size, fetched_at, last_used_at) VALUES ('https://api.github.com/x', x'7b7d', 2, 1, 1)", [])?;
+            c.execute("INSERT INTO gh_quota (resource, quota, remaining, reset_at, seen_at) VALUES ('core', 60, 59, 2, 1)", [])?;
+            Ok(())
+        })
+        .unwrap();
+        // existing data is not touched by "Clear cache" tables of the Explore side and vice versa
+        db.with(|c| Ok(c.execute("DELETE FROM cache_gh_api", [])?)).unwrap();
+        let left: i64 = db.with(|c| Ok(c.query_row("SELECT COUNT(*) FROM gh_repo_info", [], |r| r.get(0))?)).unwrap();
+        assert_eq!(left, 1);
+        drop(db);
+        assert_eq!(Db::open(&f).unwrap().with(user_version).unwrap(), 3, "reopen is a no-op");
     }
 
     #[test]

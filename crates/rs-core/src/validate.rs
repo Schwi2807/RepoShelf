@@ -375,11 +375,47 @@ fn truncate(s: &str, n: usize) -> String {
     s.chars().take(n).collect()
 }
 
+/// GitHub user / organisation name in an Explore address (D-123): 1–39 of `A-Za-z0-9-`, no leading `-`.
+pub fn github_owner(s: &str) -> Result<&str> {
+    let ok = !s.is_empty() && s.len() <= 39 && !s.starts_with('-') && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-');
+    if ok { Ok(s) } else { Err(Error::InvalidInput(format!("Not a GitHub user or organisation name: {:?}", truncate(s, 60)))) }
+}
+
+/// GitHub repository name in an Explore address (D-123): 1–100 of `A-Za-z0-9._-`, no leading `-`, not `.` / `..`,
+/// no `.git` suffix (the clone address adds it).
+pub fn github_repo(s: &str) -> Result<&str> {
+    let ok = !s.is_empty()
+        && s.len() <= 100
+        && !s.starts_with('-')
+        && s != "."
+        && s != ".."
+        && !s.to_ascii_lowercase().ends_with(".git")
+        && s.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'));
+    if ok { Ok(s) } else { Err(Error::InvalidInput(format!("Not a GitHub repository name: {:?}", truncate(s, 60)))) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     const HOSTILE: &[&str] = &["..", "a/../b", "/etc", "C:\\x", "c:/x", "a\\b", "a\0b", "refs/../x", "HEAD~1", "a..b", "@{-1}"];
+
+
+    #[test]
+    fn github_owner_and_repo_names() {
+        for ok in ["octo", "Octo-Cat", "a", "a1-b2", &"x".repeat(39)] {
+            assert_eq!(github_owner(ok).unwrap(), ok);
+        }
+        for bad in ["", "-x", "a b", "a/b", "a\\b", "a.b", "a_b", "..", "%2e%2e", "a\0b", "über", &"x".repeat(40), "a\nb", "C:"] {
+            assert!(matches!(github_owner(bad), Err(Error::InvalidInput(_))), "owner {bad:?} accepted");
+        }
+        for ok in ["repo", ".github", "a.b_c-d", "x.git.y", &"x".repeat(100)] {
+            assert_eq!(github_repo(ok).unwrap(), ok);
+        }
+        for bad in ["", "-x", ".", "..", "a/b", "a\\b", "a b", "a.git", "A.GIT", "%2e%2e", "a\0b", "a:b", "a?b", "a#b", &"x".repeat(101)] {
+            assert!(matches!(github_repo(bad), Err(Error::InvalidInput(_))), "repo {bad:?} accepted");
+        }
+    }
 
     #[test]
     fn hostile_table_refused_as_path() {

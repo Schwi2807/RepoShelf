@@ -6,6 +6,7 @@ pub mod app;
 pub mod blob;
 pub mod commits;
 pub mod dialogs;
+pub mod explore;
 pub mod images;
 pub mod jobs;
 pub mod library;

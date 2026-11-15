@@ -462,6 +462,113 @@ pub struct RemoteImage {
     pub size: u64,
 }
 
+/// A repository seen online through the GitHub API (v0.3.0 Explore, D-122). All text is cleaned (control characters
+/// dropped, lengths capped); URLs are checked (`htmlUrl` github.com, `homepage` http(s), `ownerAvatarUrl`
+/// avatars.githubusercontent.com — never fetched by Explore itself).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExploreRepo {
+    pub owner: String,
+    pub name: String,
+    pub full_name: String,
+    pub description: Option<String>,
+    pub homepage: Option<String>,
+    pub topics: Vec<String>,
+    pub html_url: String,
+    /// `https://github.com/<owner>/<name>.git` — what Save to shelf clones.
+    pub clone_url: String,
+    pub default_branch: Option<String>,
+    pub stars: u64,
+    pub forks: u64,
+    pub open_issues: u64,
+    pub language: Option<String>,
+    /// SPDX id (or the license name when GitHub has no id).
+    pub license: Option<String>,
+    pub size_kb: u64,
+    pub created_at: Option<i64>,
+    pub updated_at: Option<i64>,
+    pub pushed_at: Option<i64>,
+    pub archived: bool,
+    pub fork: bool,
+    pub is_private: bool,
+    pub owner_avatar_url: Option<String>,
+    /// The id of the same repository on the shelf (github.com origin), if saved.
+    pub on_shelf: Option<i64>,
+}
+
+/// Branches and tags of an online repository (`RefsList` shape; `remoteBranches` stays empty). GitHub lists are
+/// paged; at most 300 of each are read (`*Truncated` says more exist).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExploreRefs {
+    pub refs: RefsList,
+    pub branches_truncated: bool,
+    pub tags_truncated: bool,
+}
+
+/// `GET /search/repositories`, one page of 30.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExploreSearch {
+    pub query: String,
+    pub total_count: u64,
+    /// GitHub timed out part-way: the list may be incomplete.
+    pub incomplete: bool,
+    pub page: u32,
+    pub has_more: bool,
+    pub items: Vec<ExploreRepo>,
+}
+
+/// GitHub's rate-limit headers of one bucket (`core` = 60/h anonymous, 5,000/h with a token; `search` = 10/min,
+/// 30/min with a token).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Quota {
+    pub resource: String,
+    pub limit: u32,
+    pub remaining: u32,
+    /// Unix seconds.
+    pub reset_at: i64,
+    /// Unix seconds of the answer that carried these numbers.
+    pub seen_at: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum StaleReason {
+    RateLimited,
+    Offline,
+}
+
+/// Saved data was shown instead of a fresh answer (rate limit reached or GitHub unreachable). Cleared by the next
+/// answer that came from GitHub.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Stale {
+    /// Unix seconds of the oldest saved answer served since the last fresh one.
+    pub fetched_at: i64,
+    pub reason: StaleReason,
+}
+
+/// What the Explore header and the Settings section show (D-121). Never contains the token.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExploreStatus {
+    /// Setting `exploreEnabled`.
+    pub enabled: bool,
+    /// `false` in a build without the HTTP client.
+    pub available: bool,
+    pub token_saved: bool,
+    pub core: Option<Quota>,
+    pub search: Option<Quota>,
+    /// Unix seconds: no `core` call is made before this (limit used up).
+    pub limited_until: Option<i64>,
+    pub search_limited_until: Option<i64>,
+    pub stale: Option<Stale>,
+    pub cache_bytes: u64,
+    pub cache_entries: u32,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportPreview {
@@ -665,6 +772,36 @@ pub mod samples {
             tree: "d".repeat(40),
         }
     }
+    pub fn explore_repo() -> ExploreRepo {
+        ExploreRepo {
+            owner: "octo".into(),
+            name: "demo".into(),
+            full_name: "octo/demo".into(),
+            description: Some("A demo".into()),
+            homepage: Some("https://demo.example".into()),
+            topics: vec!["cli".into()],
+            html_url: "https://github.com/octo/demo".into(),
+            clone_url: "https://github.com/octo/demo.git".into(),
+            default_branch: Some("main".into()),
+            stars: 120,
+            forks: 7,
+            open_issues: 3,
+            language: Some("Rust".into()),
+            license: Some("MIT".into()),
+            size_kb: 2048,
+            created_at: Some(1_600_000_000),
+            updated_at: Some(1_700_000_000),
+            pushed_at: Some(1_700_000_100),
+            archived: false,
+            fork: false,
+            is_private: false,
+            owner_avatar_url: Some("https://avatars.githubusercontent.com/u/1?v=4".into()),
+            on_shelf: Some(3),
+        }
+    }
+    pub fn quota() -> Quota {
+        Quota { resource: "core".into(), limit: 60, remaining: 42, reset_at: 1_700_003_600, seen_at: 1_700_000_000 }
+    }
     pub fn blob_meta(kind: BlobKind) -> BlobMeta {
         BlobMeta {
             path: "a.rs".into(),
@@ -803,6 +940,39 @@ pub mod samples {
                 .unwrap(),
             ),
             ("RemoteImage", v(RemoteImage { key: "f".repeat(64), mime: "image/png".into(), size: 3 }).unwrap()),
+            ("ExploreRepo", v(explore_repo()).unwrap()),
+            (
+                "ExploreRefs",
+                v(ExploreRefs {
+                    refs: RefsList { default_branch: Some("main".into()), branches: vec![ref_item()], remote_branches: vec![], tags: vec![] },
+                    branches_truncated: false,
+                    tags_truncated: true,
+                })
+                .unwrap(),
+            ),
+            (
+                "ExploreSearch",
+                v(ExploreSearch { query: "demo language:rust".into(), total_count: 1, incomplete: false, page: 1, has_more: false, items: vec![explore_repo()] })
+                    .unwrap(),
+            ),
+            ("Quota", v(quota()).unwrap()),
+            ("Stale", v(Stale { fetched_at: 1_700_000_000, reason: StaleReason::RateLimited }).unwrap()),
+            (
+                "ExploreStatus",
+                v(ExploreStatus {
+                    enabled: true,
+                    available: true,
+                    token_saved: false,
+                    core: Some(quota()),
+                    search: Some(Quota { resource: "search".into(), limit: 10, remaining: 10, reset_at: 1_700_000_060, seen_at: 1_700_000_000 }),
+                    limited_until: None,
+                    search_limited_until: Some(1_700_000_060),
+                    stale: Some(Stale { fetched_at: 1_700_000_000, reason: StaleReason::Offline }),
+                    cache_bytes: 4096,
+                    cache_entries: 12,
+                })
+                .unwrap(),
+            ),
             (
                 "ImportPreview",
                 v(ImportPreview { path: "C:\\r".into(), name: "r".into(), is_bare: false, origin_url: None, duplicate_of: Some(1), token: "t".into() }).unwrap(),
@@ -853,6 +1023,9 @@ pub mod samples {
         }
         for k in [RefKind::Tag, RefKind::Commit] {
             out.push(("RefKind", v(k).unwrap()));
+        }
+        for k in [StaleReason::RateLimited, StaleReason::Offline] {
+            out.push(("StaleReason", v(k).unwrap()));
         }
         out
     }

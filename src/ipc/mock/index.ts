@@ -6,8 +6,9 @@
 import type { Backend } from '../bridge';
 import type { ArgsOf, CommandName, Commands, Events, RetOf } from '../commands';
 import { ipcError, isIpcError } from '../errors';
-import type { AppInfo, ImportPreview, JobKind, JobResult, RepoSummary, Settings } from '../types';
+import type { AppInfo, ImportPreview, JobId, JobKind, JobResult, RepoSummary, Settings } from '../types';
 import { mockClonePreview } from './cloneUrl';
+import { MockExplore } from './explore';
 import { buildFixtures, genericRepo } from './fixtures';
 import { MockJobs } from './mockJobs';
 import { effectiveAbout, MockRepo } from './repoModel';
@@ -42,6 +43,8 @@ const DEFAULT_SETTINGS: Settings = {
   autoDownloadLatestRelease: true,
   autoDownloadOnFetchAll: false,
   downloadSizeCapMb: 1024,
+  exploreEnabled: true,
+  githubTokenSaved: false,
 };
 
 /** Mock `image_fetch` (F2): an SVG placeholder naming the host, so nothing ever leaves the page. */
@@ -225,21 +228,27 @@ export function createMockBackend(search: string, opts: { tickMs?: number } = {}
   });
 
   const jobs = new MockJobs({ tickMs: opts.tickMs ?? (sw.slow ? 500 : 280), planner });
+  const explore = new MockExplore(
+    { repos, settings: () => settings, cloneStart: (url, autoDownload) => h.clone_start({ input: url, autoDownload }) as JobId, now },
+    sw.ratelimit,
+  );
 
   const h: Handlers = {
     app_info: () => appInfo(),
-    settings_get: () => settings,
+    settings_get: () => ({ ...settings, githubTokenSaved: explore.tokenSaved }),
     settings_set: ({ settings: s }) => {
-      settings = { ...s };
+      // githubTokenSaved is output only (D-120): what the UI sends is ignored
+      settings = { ...s, githubTokenSaved: false };
       try {
         globalThis.localStorage?.setItem(SETTINGS_KEY, JSON.stringify(settings));
       } catch {
         // ignore
       }
-      return settings;
+      return { ...settings, githubTokenSaved: explore.tokenSaved };
     },
     cache_clear: () => {
       cacheBytes = 0;
+      explore.handlers().explore_cache_clear({});
       images.clear();
       return appInfo();
     },
@@ -463,6 +472,7 @@ export function createMockBackend(search: string, opts: { tickMs?: number } = {}
       cancelled.set(requestId, Date.now());
       return true;
     },
+    ...explore.handlers(),
     open_external: ({ url }) => {
       let u: URL;
       try {

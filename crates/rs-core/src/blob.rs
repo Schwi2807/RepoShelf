@@ -59,7 +59,7 @@ pub fn lang_hint(path: &str, head: &[u8]) -> Option<String> {
 }
 
 /// (lines, sloc): a final line without newline counts; sloc = lines with non-whitespace.
-fn count_lines(text: &str) -> (u32, u32) {
+pub(crate) fn count_lines(text: &str) -> (u32, u32) {
     if text.is_empty() {
         return (0, 0);
     }

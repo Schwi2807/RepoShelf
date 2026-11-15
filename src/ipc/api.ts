@@ -15,6 +15,11 @@ import type {
   CommitDetail,
   CommitSummary,
   CommitsPage,
+  ExploreRefs,
+  ExploreRepo,
+  ExploreSearch,
+  ExploreSort,
+  ExploreStatus,
   FileDiff,
   ImportPreview,
   JobId,
@@ -164,3 +169,51 @@ export function jobsSubscribe(onUpdate: (job: JobInfo) => void): Promise<JobInfo
   const channel: ChannelLike<JobInfo> = createChannel<JobInfo>(onUpdate);
   return call('jobs_subscribe', { channel });
 }
+
+// Explore (v0.3.0 M10a): GitHub repositories online, read-only. Every call is addressed by owner + name; the
+// webview stays offline (Rust makes the requests). Answers reuse the local wire types (`TreeListing`, `BlobText`,
+// `Rendered`, `CommitsPage`, `CommitDetail`, `Release`).
+export const exploreStatus = (): Promise<ExploreStatus> => call('explore_status', {});
+/** Saves the token in Windows Credential Manager (never stored elsewhere, never returned). */
+export const exploreTokenSet = (token: string): Promise<ExploreStatus> => call('explore_token_set', { token });
+export const exploreTokenRemove = (): Promise<ExploreStatus> => call('explore_token_remove', {});
+export const exploreCacheClear = (): Promise<ExploreStatus> => call('explore_cache_clear', {});
+export const exploreRepo = (owner: string, name: string): Promise<ExploreRepo> => call('explore_repo', { owner, name });
+export const exploreRefs = (owner: string, name: string): Promise<ExploreRefs> => call('explore_refs', { owner, name });
+export const exploreLanguages = (owner: string, name: string): Promise<Languages> =>
+  call('explore_languages', { owner, name });
+export const exploreResolve = (owner: string, name: string, rev: string): Promise<ResolvedRev> =>
+  call('explore_resolve', { owner, name, rev });
+export const exploreCommitLatest = (owner: string, name: string, rev: string): Promise<LatestCommit> =>
+  call('explore_commit_latest', { owner, name, rev });
+export const exploreTree = (owner: string, name: string, rev: string, path: string): Promise<TreeListing> =>
+  call('explore_tree', { owner, name, rev, path });
+export const exploreReadme = (owner: string, name: string, rev: string, path: string): Promise<Rendered | null> =>
+  call('explore_readme', { owner, name, rev, path });
+export const exploreRenderFile = (owner: string, name: string, rev: string, path: string): Promise<Rendered> =>
+  call('explore_render_file', { owner, name, rev, path });
+export const exploreBlobMeta = (owner: string, name: string, rev: string, path: string): Promise<BlobMeta> =>
+  call('explore_blob_meta', { owner, name, rev, path });
+export const exploreBlobText = (owner: string, name: string, rev: string, path: string): Promise<BlobText> =>
+  call('explore_blob_text', { owner, name, rev, path });
+export const exploreBlobBytes = (owner: string, name: string, rev: string, path: string): Promise<ArrayBuffer> =>
+  call('explore_blob_bytes', { owner, name, rev, path });
+/** First page: no `tip`, `skip` 0. "Older": the first page's `tip` and the returned `skip` (a multiple of 35 online). */
+export const exploreCommits = (owner: string, name: string, rev: string, a: CommitsPageArgs = {}): Promise<CommitsPage> =>
+  call('explore_commits', { owner, name, rev, path: a.path ? a.path : null, skip: a.skip ?? 0, tip: a.tip ?? null });
+export const exploreCommit = (owner: string, name: string, oid: string): Promise<CommitDetail> =>
+  call('explore_commit', { owner, name, oid });
+export const exploreCommitFileDiff = (
+  owner: string,
+  name: string,
+  oid: string,
+  index: number,
+  force: boolean,
+): Promise<FileDiff> => call('explore_commit_file_diff', { owner, name, oid, index, force });
+export const exploreReleases = (owner: string, name: string): Promise<Release[]> =>
+  call('explore_releases', { owner, name });
+export const exploreSearch = (query: string, sort: ExploreSort | null = null, page = 1): Promise<ExploreSearch> =>
+  call('explore_search', { query, sort, page });
+/** Save to shelf = the existing clone job; `autoDownload` as in `cloneStart`. */
+export const exploreSaveToShelf = (owner: string, name: string, autoDownload: boolean | null = null): Promise<JobId> =>
+  call('explore_save_to_shelf', { owner, name, autoDownload });

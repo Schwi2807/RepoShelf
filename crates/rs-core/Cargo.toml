@@ -9,7 +9,7 @@ license.workspace = true
 default = []
 testkit = ["dep:tempfile"]
 # The real HTTP transport (net.rs) and every GitHub call (notes, repo info, asset downloads). Off → `unsupported`.
-ghreleases = ["dep:ureq"]
+ghreleases = ["dep:ureq", "dep:keyring-core", "dep:windows-native-keyring-store"]
 
 [dependencies]
 git2 = { workspace = true }
@@ -24,6 +24,11 @@ ammonia = { workspace = true }
 tempfile = { workspace = true, optional = true }
 ureq = { workspace = true, optional = true }
 sha2 = { workspace = true }
+base64 = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+keyring-core = { workspace = true, optional = true }
+windows-native-keyring-store = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

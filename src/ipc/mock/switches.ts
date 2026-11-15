@@ -13,6 +13,8 @@ export interface Switches {
   huge: boolean;
   /** v0.2.0: GitHub release lists already cached for github.com repos (assets visible without "Load"). */
   gh: boolean;
+  /** v0.3.0: Explore starts with 2 requests left (rate-limit state without 60 clicks). */
+  ratelimit: boolean;
 }
 
 export const SLOW_MS = 600;
@@ -27,5 +29,6 @@ export function readSwitches(search: string): Switches {
     fetchfail: on('fetchfail'),
     huge: on('huge'),
     gh: on('gh'),
+    ratelimit: on('ratelimit'),
   };
 }

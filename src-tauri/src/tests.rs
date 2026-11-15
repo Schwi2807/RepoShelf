@@ -1,6 +1,7 @@
 //! Command-layer tests (M4.11): the `_impl` functions over a test `AppState` (in-memory shelf, scratch dirs,
 //! fake picker/trash/opener, fake job worker), no runtime and no window. PoC criterion 4, NFR-S4.
 
+mod explore;
 mod ipc_samples;
 
 use crate::cmd::{app, blob, commits, dialogs, images, jobs, library, refs, releases, tree};
@@ -986,7 +987,7 @@ fn every_arch_command_is_registered() {
         .collect();
     want.sort();
     got.sort();
-    assert_eq!(want.len(), 52, "{want:?}");
+    assert_eq!(want.len(), 73, "{want:?}");
     assert_eq!(got, want);
 }
 

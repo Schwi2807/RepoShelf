@@ -22,6 +22,10 @@ comrak = { version = "0.59", default-features = false }
 ammonia = "4.2"
 ureq = "3.4"
 sha2 = "0.10"
+base64 = "0.23"
+# Windows Credential Manager for the optional Explore token (M10a, D-117): no global default store, no regex.
+keyring-core = "1"
+windows-native-keyring-store = { version = "1.1", default-features = false }
 tauri = { version = "2", features = [] }
 tauri-build = { version = "2", features = [] }
 tauri-plugin-dialog = "2"

@@ -911,7 +911,7 @@ stats from the API, branches, tags, releases, search) + response cache table (mi
 with rows) + rate-limit tracking + credential store trait + keyring impl + Save-to-shelf command + settings keys
 (`exploreEnabled`, token presence flag) + IPC commands (golden files, mock, ARCHITECTURE §5.1 table updated together) +
 tests with canned GitHub JSON fixtures (no real HTTP). Gate: cargo test --workspace, clippy -D warnings
-(default/e2e/no-default), npm typecheck/test/build. Tag `m10a-done`.
+(default/e2e/no-default), npm typecheck/test/build. Tag `m10a-done`. **Done 2026-11-15** (WORKLOG M10a, D-117..D-125).
 
 ### M10b — frontend
 Explore nav + routes, search page, repo pages reusing the existing components through the source abstraction, quota

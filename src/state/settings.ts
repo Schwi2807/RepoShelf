@@ -17,6 +17,8 @@ export const DEFAULT_SETTINGS: Settings = {
   autoDownloadLatestRelease: true,
   autoDownloadOnFetchAll: false,
   downloadSizeCapMb: 1024,
+  exploreEnabled: true,
+  githubTokenSaved: false,
 };
 
 export interface SettingsState {

@@ -18,7 +18,7 @@ async function until(cond: () => boolean, ms = 8000): Promise<void> {
 describe('switches', () => {
   it('parses the search string', () => {
     expect(readSwitches('?slow&huge')).toMatchObject({ slow: true, huge: true, empty: false });
-    expect(readSwitches('')).toEqual({ empty: false, slow: false, clonefail: false, fetchfail: false, huge: false, gh: false });
+    expect(readSwitches('')).toEqual({ empty: false, slow: false, clonefail: false, fetchfail: false, huge: false, gh: false, ratelimit: false });
     expect(readSwitches('?gh').gh).toBe(true);
     expect(readSwitches('?empty=0').empty).toBe(false);
   });
@@ -82,7 +82,7 @@ describe('switches', () => {
 
 describe('backend behaviour the UI relies on', () => {
   it('implements every command', () => {
-    expect(COMMAND_NAMES).toHaveLength(52);
+    expect(COMMAND_NAMES).toHaveLength(73);
   });
 
   it('v0.2.0: release assets, download job, reveal, and the auto-download options', async () => {

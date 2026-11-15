@@ -16,6 +16,7 @@ const CODES: ReadonlySet<string> = new Set<IpcErrorCode>([
   'cancelled',
   'refused',
   'network',
+  'rateLimited',
   'unsupported',
   'git',
   'db',

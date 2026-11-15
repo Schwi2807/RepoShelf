@@ -23,7 +23,7 @@ fn cache_bytes(st: &AppState) -> Result<u64> {
         total += c.query_row("SELECT COUNT(*) * 56 FROM cache_commit_count", [], |r| r.get::<_, i64>(0))?;
         Ok(total.max(0) as u64)
     })
-    .map(|db| db + rs_core::imgcache::size(&st.shelf))
+    .map(|db| db + rs_core::imgcache::size(&st.shelf) + rs_core::explore::cache::stats(&st.shelf.db).map(|x| x.0).unwrap_or(0))
 }
 
 /// Bytes under `root` (iterative, no symlink following); `None` past `cap` entries or on an unreadable root.
@@ -66,8 +66,14 @@ pub fn app_info_impl(st: &AppState) -> Result<AppInfo> {
     })
 }
 
+/// D-120: `githubTokenSaved` is read from the credential store, never from the DB (it cannot drift).
+fn with_token_flag(st: &AppState, mut s: Settings) -> Result<Settings> {
+    s.github_token_saved = st.shelf.explore.token_saved();
+    Ok(s)
+}
+
 pub fn settings_get_impl(st: &AppState) -> Result<Settings> {
-    settings::load(&st.shelf.db)
+    with_token_flag(st, settings::load(&st.shelf.db)?)
 }
 
 pub fn settings_set_impl(st: &AppState, s: Settings) -> Result<Settings> {
@@ -75,10 +81,10 @@ pub fn settings_set_impl(st: &AppState, s: Settings) -> Result<Settings> {
         return Err(Error::Refused("The library was written by a newer RepoShelf and is read-only here.".into()));
     }
     settings::save(&st.shelf.db, &s)?;
-    settings::load(&st.shelf.db)
+    with_token_flag(st, settings::load(&st.shelf.db)?)
 }
 
-/// S10 "Clear caches": every cache table (counts, last commits, languages, GitHub notes) and the README image
+/// S10 "Clear caches": every cache table (counts, last commits, languages, GitHub notes), the Explore answers and the README image
 /// cache (v0.2.0). Repos, settings, fetched About values (`gh_repo_info`) and downloaded releases stay.
 pub fn cache_clear_impl(st: &AppState) -> Result<AppInfo> {
     st.shelf.db.tx(|tx| {
@@ -88,6 +94,7 @@ pub fn cache_clear_impl(st: &AppState) -> Result<AppInfo> {
         Ok(())
     })?;
     rs_core::imgcache::clear(&st.shelf)?;
+    rs_core::explore::cache::clear(&st.shelf.db)?;
     app_info_impl(st)
 }
 

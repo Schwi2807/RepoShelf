@@ -213,6 +213,114 @@
   "EntryKind.file": "file",
   "EntryKind.submodule": "submodule",
   "EntryKind.symlink": "symlink",
+  "ExploreRefs": {
+    "branchesTruncated": false,
+    "refs": {
+      "branches": [
+        {
+          "fullName": "refs/heads/main",
+          "isDefault": true,
+          "kind": "remoteBranch",
+          "name": "main",
+          "target": "cccccccccccccccccccccccccccccccccccccccc"
+        }
+      ],
+      "defaultBranch": "main",
+      "remoteBranches": [],
+      "tags": []
+    },
+    "tagsTruncated": true
+  },
+  "ExploreRepo": {
+    "archived": false,
+    "cloneUrl": "https://github.com/octo/demo.git",
+    "createdAt": 1600000000,
+    "defaultBranch": "main",
+    "description": "A demo",
+    "fork": false,
+    "forks": 7,
+    "fullName": "octo/demo",
+    "homepage": "https://demo.example",
+    "htmlUrl": "https://github.com/octo/demo",
+    "isPrivate": false,
+    "language": "Rust",
+    "license": "MIT",
+    "name": "demo",
+    "onShelf": 3,
+    "openIssues": 3,
+    "owner": "octo",
+    "ownerAvatarUrl": "https://avatars.githubusercontent.com/u/1?v=4",
+    "pushedAt": 1700000100,
+    "sizeKb": 2048,
+    "stars": 120,
+    "topics": [
+      "cli"
+    ],
+    "updatedAt": 1700000000
+  },
+  "ExploreSearch": {
+    "hasMore": false,
+    "incomplete": false,
+    "items": [
+      {
+        "archived": false,
+        "cloneUrl": "https://github.com/octo/demo.git",
+        "createdAt": 1600000000,
+        "defaultBranch": "main",
+        "description": "A demo",
+        "fork": false,
+        "forks": 7,
+        "fullName": "octo/demo",
+        "homepage": "https://demo.example",
+        "htmlUrl": "https://github.com/octo/demo",
+        "isPrivate": false,
+        "language": "Rust",
+        "license": "MIT",
+        "name": "demo",
+        "onShelf": 3,
+        "openIssues": 3,
+        "owner": "octo",
+        "ownerAvatarUrl": "https://avatars.githubusercontent.com/u/1?v=4",
+        "pushedAt": 1700000100,
+        "sizeKb": 2048,
+        "stars": 120,
+        "topics": [
+          "cli"
+        ],
+        "updatedAt": 1700000000
+      }
+    ],
+    "page": 1,
+    "query": "demo language:rust",
+    "totalCount": 1
+  },
+  "ExploreStatus": {
+    "available": true,
+    "cacheBytes": 4096,
+    "cacheEntries": 12,
+    "core": {
+      "limit": 60,
+      "remaining": 42,
+      "resetAt": 1700003600,
+      "resource": "core",
+      "seenAt": 1700000000
+    },
+    "enabled": true,
+    "limitedUntil": null,
+    "search": {
+      "limit": 10,
+      "remaining": 10,
+      "resetAt": 1700000060,
+      "resource": "search",
+      "seenAt": 1700000000
+    },
+    "searchLimitedUntil": 1700000060,
+    "stale": {
+      "fetchedAt": 1700000000,
+      "reason": "offline"
+    },
+    "tokenSaved": false
+  },
   "FileChange": {
     "additions": 1,
     "binary": false,
@@ -482,6 +590,13 @@
     "total": 4,
     "type": "resolving"
   },
+  "Quota": {
+    "limit": 60,
+    "remaining": 42,
+    "resetAt": 1700003600,
+    "resource": "core",
+    "seenAt": 1700000000
+  },
   "RefKind.branch": "branch",
   "RefKind.commit": "commit",
   "RefKind.remoteBranch": "remoteBranch",
@@ -669,8 +784,10 @@
     "autoDownloadLatestRelease": true,
     "autoDownloadOnFetchAll": false,
     "downloadSizeCapMb": 1024,
+    "exploreEnabled": true,
     "fetchReleaseNotes": true,
     "fetchRepoInfo": true,
+    "githubTokenSaved": false,
     "loadRemoteImages": true,
     "showDirtyNote": true,
     "sort": {
@@ -692,6 +809,12 @@
   "SourceFilter.all": "all",
   "SourceFilter.cloned": "cloned",
   "SourceFilter.imported": "imported",
+  "Stale": {
+    "fetchedAt": 1700000000,
+    "reason": "rateLimited"
+  },
+  "StaleReason.offline": "offline",
+  "StaleReason.rateLimited": "rateLimited",
   "TagRow": {
     "annotated": true,
     "commit": {

@@ -26,6 +26,9 @@ pub enum Error {
     Refused(String),
     #[error("network: {0}")]
     Network(String),
+    /// GitHub answered 403/429 with the quota used up (v0.3.0 Explore, D-121); `reset_at` = Unix time.
+    #[error("{message}")]
+    RateLimited { reset_at: i64, message: String },
     #[error("{0}")]
     Unsupported(String),
     #[error("git: {0}")]
@@ -54,6 +57,7 @@ impl Error {
             Error::Cancelled => "cancelled",
             Error::Refused(_) => "refused",
             Error::Network(_) => "network",
+            Error::RateLimited { .. } => "rateLimited",
             Error::Unsupported(_) => "unsupported",
             Error::Git(_) => "git",
             Error::Db(_) => "db",
@@ -63,6 +67,12 @@ impl Error {
 
     pub fn not_found(what: impl Into<String>) -> Self {
         Error::NotFound { what: what.into() }
+    }
+
+    /// The request limit is used up until Unix time `reset_at`.
+    pub fn rate_limited(reset_at: i64) -> Self {
+        let mins = ((reset_at - crate::now_secs()).max(60) + 59) / 60;
+        Error::RateLimited { reset_at, message: format!("GitHub's request limit is used up; it resets in about {mins} min") }
     }
 }
 
@@ -85,6 +95,7 @@ mod tests {
             Error::Cancelled,
             Error::Refused("x".into()),
             Error::Network("x".into()),
+            Error::RateLimited { reset_at: 1, message: "x".into() },
             Error::Unsupported("x".into()),
             Error::Git(git2::Error::from_str("x")),
             Error::Db(rusqlite::Error::InvalidQuery),

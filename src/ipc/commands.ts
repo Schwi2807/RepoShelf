@@ -12,6 +12,11 @@ import type {
   CommitDetail,
   CommitSummary,
   CommitsPage,
+  ExploreRefs,
+  ExploreRepo,
+  ExploreSearch,
+  ExploreSort,
+  ExploreStatus,
   FileDiff,
   ImportPreview,
   JobId,
@@ -49,6 +54,17 @@ interface RepoRevPath extends RepoRev {
 }
 interface Req {
   requestId: string;
+}
+/** Explore address (D-123): GitHub `owner` + repository `name`. */
+interface Addr {
+  owner: string;
+  name: string;
+}
+interface AddrRev extends Addr {
+  rev: string;
+}
+interface AddrRevPath extends AddrRev {
+  path: string;
 }
 
 export interface Commands {
@@ -111,13 +127,35 @@ export interface Commands {
   jobs_dismiss: { args: { jobId: JobId }; ret: null };
   request_cancel: { args: Req; ret: boolean };
   open_external: { args: { url: string }; ret: null };
+  // v0.3.0 Explore (M10a): GitHub repositories online, read-only. Addressed by owner + name (never a path or id).
+  explore_status: { args: NoArgs; ret: ExploreStatus };
+  explore_token_set: { args: { token: string }; ret: ExploreStatus };
+  explore_token_remove: { args: NoArgs; ret: ExploreStatus };
+  explore_cache_clear: { args: NoArgs; ret: ExploreStatus };
+  explore_repo: { args: Addr; ret: ExploreRepo };
+  explore_refs: { args: Addr; ret: ExploreRefs };
+  explore_languages: { args: Addr; ret: Languages };
+  explore_resolve: { args: AddrRev; ret: ResolvedRev };
+  explore_commit_latest: { args: AddrRev; ret: LatestCommit };
+  explore_tree: { args: AddrRevPath; ret: TreeListing };
+  explore_readme: { args: AddrRevPath; ret: Rendered | null };
+  explore_render_file: { args: AddrRevPath; ret: Rendered };
+  explore_blob_meta: { args: AddrRevPath; ret: BlobMeta };
+  explore_blob_text: { args: AddrRevPath; ret: BlobText };
+  explore_blob_bytes: { args: AddrRevPath; ret: ArrayBuffer };
+  explore_commits: { args: AddrRev & { path: string | null; skip: number; tip: string | null }; ret: CommitsPage };
+  explore_commit: { args: Addr & { oid: string }; ret: CommitDetail };
+  explore_commit_file_diff: { args: Addr & { oid: string; index: number; force: boolean }; ret: FileDiff };
+  explore_releases: { args: Addr; ret: Release[] };
+  explore_search: { args: { query: string; sort: ExploreSort | null; page: number }; ret: ExploreSearch };
+  explore_save_to_shelf: { args: Addr & { autoDownload?: boolean | null }; ret: JobId };
 }
 
 export type CommandName = keyof Commands;
 export type ArgsOf<K extends CommandName> = Commands[K]['args'];
 export type RetOf<K extends CommandName> = Commands[K]['ret'];
 
-/** Every command name, in ARCH §5.1 order (52). */
+/** Every command name, in ARCH §5.1 order (73). */
 export const COMMAND_NAMES = [
   'app_info',
   'settings_get',
@@ -171,6 +209,27 @@ export const COMMAND_NAMES = [
   'jobs_dismiss',
   'request_cancel',
   'open_external',
+  'explore_status',
+  'explore_token_set',
+  'explore_token_remove',
+  'explore_cache_clear',
+  'explore_repo',
+  'explore_refs',
+  'explore_languages',
+  'explore_resolve',
+  'explore_commit_latest',
+  'explore_tree',
+  'explore_readme',
+  'explore_render_file',
+  'explore_blob_meta',
+  'explore_blob_text',
+  'explore_blob_bytes',
+  'explore_commits',
+  'explore_commit',
+  'explore_commit_file_diff',
+  'explore_releases',
+  'explore_search',
+  'explore_save_to_shelf',
 ] as const satisfies readonly CommandName[];
 
 /** Compile-time check that COMMAND_NAMES lists every command. */

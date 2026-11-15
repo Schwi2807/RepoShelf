@@ -39,6 +39,9 @@ pub mod github;
 pub mod imgcache;
 pub mod net;
 
+// v0.3.0 Explore mode (M10a): GitHub API source, response cache, token store
+pub mod explore;
+
 #[cfg(any(test, feature = "testkit"))]
 pub mod testkit;
 
@@ -53,6 +56,8 @@ pub struct Shelf {
     pub dirs: Dirs,
     /// Every HTTP request goes through this (D-98). Real on `open`, refusing on `in_memory` (tests).
     pub net: net::Net,
+    /// Explore state: credential store, quota / limit tracking (v0.3.0, D-117).
+    pub explore: explore::Explore,
 }
 
 impl Shelf {
@@ -61,17 +66,23 @@ impl Shelf {
     pub fn open(dirs: Dirs) -> Result<Shelf> {
         std::fs::create_dir_all(paths::long(&dirs.data))?;
         let db = Db::open(&paths::db_file(&dirs))?;
-        Ok(Shelf { db, dirs, net: net::Net::real() })
+        Ok(Shelf { db, dirs, net: net::Net::real(), explore: explore::Explore::new(explore::cred::default_store()) })
     }
 
     /// In-memory DB (tests); `dirs` are only recorded, nothing is created. The network is `Net::offline()`.
     pub fn in_memory(dirs: Dirs) -> Result<Shelf> {
-        Ok(Shelf { db: Db::open_in_memory()?, dirs, net: net::Net::offline() })
+        Ok(Shelf { db: Db::open_in_memory()?, dirs, net: net::Net::offline(), explore: explore::Explore::new(explore::cred::default_store()) })
     }
 
     /// Replaces the HTTP client (tests: `net::Canned`; later e2e seams).
     pub fn with_net(mut self, net: net::Net) -> Shelf {
         self.net = net;
+        self
+    }
+
+    /// Replaces the credential store (tests: `explore::cred::MemoryStore`).
+    pub fn with_creds(mut self, creds: std::sync::Arc<dyn explore::cred::CredentialStore>) -> Shelf {
+        self.explore = explore::Explore::new(creds);
         self
     }
 }

@@ -1056,3 +1056,77 @@ Deviations / notes:
 Handoff (v0.2.0 done): the user's hand tests in `docs/TESTING.md` §5 — install 0.2.0 over the installed 0.1.0 (data
 kept, DB migrated in place), real GitHub images / info / release downloads (antivirus may scan downloaded `.exe`
 files), network adapter off, `-Network`. M10 Explore stays plan only.
+
+## M10a — v0.3.0 Explore backend (2026-11-15)
+
+One implementer; TASKS "v0.3.0 — M10a". Decisions D-117..D-125. Final commit tagged `m10a-done`. No UI (M10b).
+
+**Done**
+- `rs-core::explore` (new): `mod.rs` = `Explore` state on `Shelf` (credential store, token cache, per-bucket limit state, stale
+  marker) + the one choke point `get` (Profile::API, token header, disk cache with ETag / 60 s / immutable-by-sha, quota
+  headers, stale-when-limited-or-offline, one hand-followed 301 to `/repositories/…`); `cache.rs` (`cache_gh_api`, `gh_quota`,
+  100 MB LRU); `cred.rs` (`CredentialStore` trait, `Token`, `MemoryStore`, `UnavailableStore`, `WindowsStore`); `json.rs`
+  (GitHub JSON → our types, ISO dates, `Link`, patch → hunks); `source.rs` (`RepoSource` + `LocalSource`); `github.rs`
+  (`GithubSource`, `release_cards`, `search`). Migration `0003_explore.sql`, tested on a 0001+0002 DB with rows.
+- Settings: `exploreEnabled` (default true, persisted) and `githubTokenSaved` (output only, filled from the store, never
+  persisted). `Error::RateLimited` (code `rateLimited`, also in the TS code list + a Rust test that every code is known to TS).
+  `validate::github_owner` / `github_repo`. `readme::render_bytes` and `ghreleases::release_assets` extracted for sharing.
+- 21 IPC commands (ARCH §5.1 rows, `generate_handler!`, golden, TS `Commands` / `COMMAND_NAMES` / `api.ts`, mock handlers —
+  73 commands now): list below. General "Clear cache" and `app_info.cacheBytes` include the Explore cache.
+- Tests: no real HTTP and no real Credential Manager anywhere (canned `Transport`, `MemoryStore`). Leak test greps every file
+  under the data / archive dirs (SQLite + WAL), a dump of every table, every job row and every returned / error string for the
+  token, and asserts `Authorization` went only to api.github.com requests (never to an image request); the off switch is
+  tested for every command; hostile owner / name / rev / path / oid / skip tables; parity test (same assertions on
+  `LocalSource` and `GithubSource`).
+
+**Test counts** (all gates rc 0): `cargo test --workspace`: reposhelf 56 + rs-core lib 200 + 2 integration (+2 ignored: live
+GitHub smoke, real Credential Manager hand test); `--features e2e` 65; `--no-default-features` (reposhelf 56, rs-core 200);
+clippy `-D warnings` default / `--features e2e` / `--no-default-features` (reposhelf + rs-core) / `-p reposhelf` alone (compiles
+the real keyring store); `npm run typecheck`; `npm test` 621 (30 files); `npm run build` (index chunk 451.9 kB, mock chunk 74.9 kB).
+
+**IPC commands (exact names; TS in `src/ipc/types.ts`, `commands.ts`, `api.ts`)** — all take `owner, name` (strings), never an id or path:
+`explore_status` → `ExploreStatus`; `explore_token_set(token)` / `explore_token_remove` / `explore_cache_clear` → `ExploreStatus`;
+`explore_repo` → `ExploreRepo` (`onShelf: number | null`); `explore_refs` → `ExploreRefs` (`refs: RefsList` + `branchesTruncated` /
+`tagsTruncated`); `explore_languages` → `Languages`; `explore_resolve(rev)` → `ResolvedRev`; `explore_commit_latest(rev)` →
+`LatestCommit` (count from the Link header); `explore_tree(rev, path)` → `TreeListing`; `explore_readme(rev, path)` →
+`Rendered | null`; `explore_render_file` → `Rendered`; `explore_blob_meta` / `explore_blob_text` → `BlobMeta` / `BlobText`;
+`explore_blob_bytes` → `ArrayBuffer`; `explore_commits(rev, path|null, skip, tip|null)` → `CommitsPage`; `explore_commit(oid)` →
+`CommitDetail`; `explore_commit_file_diff(oid, index, force)` → `FileDiff`; `explore_releases` → `Release[]`;
+`explore_search(query, sort|null, page)` → `ExploreSearch`; `explore_save_to_shelf(autoDownload?)` → `JobId` (the clone job).
+New TS types: `ExploreRepo`, `ExploreRefs`, `ExploreSearch`, `ExploreSort`, `Quota`, `Stale`, `StaleReason`, `ExploreStatus`;
+`Settings` gained `exploreEnabled`, `githubTokenSaved`; `IpcErrorCode` gained `'rateLimited'`.
+
+**Deviations from the plan**
+- Token store = `keyring-core` + `windows-native-keyring-store` (not the `keyring` crate: v4 is a split crate whose default
+  features pull other platforms' stores). Both were already in the local cargo cache; the real store is compile-checked only
+  (+ an `#[ignore]`d hand test with a throw-away target, never the app's own entry).
+- `githubTokenSaved` is derived, not a persisted settings key (a stored flag drifts).
+- `RepoSource` is implemented for both sources and tested for parity, but the 52 local commands still call rs-core directly
+  (no regression risk); the Explore commands call `GithubSource`.
+- Things the API cannot give cheaply are absent, not faked (D-122): last commit per tree entry, ahead/behind, `since`, exec
+  bit, tag annotations, a branch row's last commit (use `explore_commit_latest` per visible row), diffs without a `patch`.
+- GitHub's docs pages give response schemas only (no example JSON), so the canned fixtures follow those schemas field by field.
+
+**Gotchas for M10b**
+- Quota header: call `exploreStatus()` after Explore calls (status is not pushed). `limitedUntil` / `searchLimitedUntil` (Unix s)
+  set = show "rate limit reached, resets at HH:MM" (the failing call rejects with code `rateLimited`); `stale` set = saved data
+  was shown (`reason` `rateLimited` | `offline`, `fetchedAt`) until the next fresh answer. Anonymous `core` = 60/h, `search` = 10/min.
+- The same request within 60 s is answered from the saved copy (no quota); sha-addressed ones are never re-asked. After Save to
+  shelf finishes, re-call `explore_repo`: `onShelf` is computed per call, not cached.
+- Relative links / images in a rendered README are `rsrepo:/…` as for local READMEs: resolve images through `exploreBlobBytes`
+  (≤ 1 MB) for an Explore page, local `blobBytes` otherwise. Remote images still go through `imageFetch` (setting `loadRemoteImages`).
+  `ownerAvatarUrl` is only a URL: show initials, fetch via `imageFetch` only when `loadRemoteImages` is on.
+- `commits`: `skip` must be a multiple of 35; pass the first page's `tip` for later pages. `TreeListing.rev.kind` for a branch /
+  tag name is best-effort (`branch` unless the refs list was loaded first). Files over 1 MB: `meta.displayable === false`, no text.
+- Mock: `explore_*` served by `src/ipc/mock/explore.ts` from the shelf model (repos on the mock shelf with a github.com origin
+  show `onShelf`); switch `?ratelimit` starts with 2 requests left; names `missing` / `private` / `deleted` are 404; token
+  `ghp_rejected` is refused; search over the shelf's github repos + six fixed ones.
+- e2e (M10c): the e2e build uses the in-memory credential store (testkit), so the real Credential Manager can only be
+  hand-tested (`cargo test -p rs-core --features ghreleases -- --ignored real_credential_manager_round_trip`, or save a token in
+  the installed app). Canned routes must match the exact URLs: `…/repos/o/n`, `…/commits?sha=<name>&per_page=1`,
+  `…/contents?ref=<sha>` (root) and `…/contents/<path>?ref=<sha>`, `…/commits?sha=<sha>&per_page=35&page=1[&path=…]`,
+  `…/commits/<sha>`, `…/branches?per_page=100`, `…/tags?per_page=100`, `…/releases?per_page=100`, `…/languages`,
+  `…/search/repositories?q=…&per_page=30&page=1[&sort=…&order=desc]`, `…/rate_limit` (after a token save). The wd-e2e Settings
+  checks must learn the two new keys. `run-e2e.ps1` was not run in M10a.
+- Nothing in v0.2.0 changed for the user: local screens, hooks and the 52 local commands are as before; the hooks keep their own
+  one-slot limit state (D-101).

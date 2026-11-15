@@ -327,6 +327,90 @@ export interface RemoteImage {
   size: number;
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// v0.3.0 Explore (M10a): GitHub repositories browsed online through api.github.com (read-only)
+
+/** A repository seen online. Text is cleaned by the backend; `ownerAvatarUrl` is never fetched by Explore itself. */
+export interface ExploreRepo {
+  owner: string;
+  name: string;
+  fullName: string;
+  description: string | null;
+  homepage: string | null;
+  topics: string[];
+  htmlUrl: string;
+  /** `https://github.com/<owner>/<name>.git` — what Save to shelf clones. */
+  cloneUrl: string;
+  defaultBranch: string | null;
+  stars: number;
+  forks: number;
+  openIssues: number;
+  language: string | null;
+  license: string | null;
+  sizeKb: number;
+  createdAt: number | null;
+  updatedAt: number | null;
+  pushedAt: number | null;
+  archived: boolean;
+  fork: boolean;
+  isPrivate: boolean;
+  ownerAvatarUrl: string | null;
+  /** Repo id of the same repository on the shelf (github.com origin), if saved. */
+  onShelf: number | null;
+}
+
+/** `refs.remoteBranches` is always empty online; at most 300 branches / tags are read. */
+export interface ExploreRefs {
+  refs: RefsList;
+  branchesTruncated: boolean;
+  tagsTruncated: boolean;
+}
+
+export interface ExploreSearch {
+  query: string;
+  totalCount: number;
+  incomplete: boolean;
+  page: number;
+  hasMore: boolean;
+  items: ExploreRepo[];
+}
+
+/** GitHub's rate-limit headers of one bucket (`core`, `search`). Unix seconds. */
+export interface Quota {
+  resource: string;
+  limit: number;
+  remaining: number;
+  resetAt: number;
+  seenAt: number;
+}
+
+export type StaleReason = 'rateLimited' | 'offline';
+
+/** `explore_search` sort order (`null` = best match). */
+export type ExploreSort = 'stars' | 'forks' | 'updated' | 'help-wanted-issues';
+
+/** Saved data was shown instead of a fresh answer; cleared by the next answer that came from GitHub. */
+export interface Stale {
+  fetchedAt: number;
+  reason: StaleReason;
+}
+
+/** Header / Settings state of Explore. Never contains the token. */
+export interface ExploreStatus {
+  enabled: boolean;
+  /** false in a build without the HTTP client */
+  available: boolean;
+  tokenSaved: boolean;
+  core: Quota | null;
+  search: Quota | null;
+  /** no `core` call before this Unix time (limit used up) */
+  limitedUntil: number | null;
+  searchLimitedUntil: number | null;
+  stale: Stale | null;
+  cacheBytes: number;
+  cacheEntries: number;
+}
+
 export interface ImportPreview {
   path: string;
   name: string;
@@ -403,6 +487,10 @@ export interface Settings {
   autoDownloadOnFetchAll: boolean;
   /** 1 … 16384 (clamped by the backend). */
   downloadSizeCapMb: number;
+  /** v0.3.0 (D-119): the Explore entry and every Explore call. */
+  exploreEnabled: boolean;
+  /** OUTPUT ONLY (D-120): a GitHub token is saved in Windows Credential Manager. The backend ignores what the UI sends. */
+  githubTokenSaved: boolean;
 }
 
 export interface Version {
@@ -477,6 +565,7 @@ export type IpcErrorCode =
   | 'cancelled'
   | 'refused'
   | 'network'
+  | 'rateLimited'
   | 'unsupported'
   | 'git'
   | 'db'

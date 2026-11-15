@@ -56,10 +56,15 @@ fn parent_dir(path: &str) -> &str {
 
 fn render_blob(repo: &Repository, oid: git2::Oid, path: &str) -> Result<Rendered> {
     let blob = repo.find_blob(oid)?;
-    if blob.size() > MAX_RENDER_BYTES {
+    render_bytes(blob.content(), path)
+}
+
+/// Renders README / markdown bytes found at `path` (Markdown → sanitised HTML, anything else → escaped plain
+/// text); shared by the git DB and Explore (GitHub API) so both pass through the same sanitiser.
+pub fn render_bytes(content: &[u8], path: &str) -> Result<Rendered> {
+    if content.len() > MAX_RENDER_BYTES {
         return Err(Error::Refused(format!("{path} is too large to render")));
     }
-    let content = blob.content();
     let content = content.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(content);
     let text = String::from_utf8_lossy(content);
     if is_markdown(path) {

@@ -152,6 +152,7 @@ repo-shelf/
 │  │           winpath.rs library.rs repo.rs refs.rs tree.rs blob.rs commits.rs diff.rs lastcommit.rs
 │  │           langs.rs langs_table.rs readme.rs markdown.rs license.rs releases.rs clone.rs fetch.rs
 │  │           ghreleases.rs (feature) types.rs testkit.rs (feature/test)
+│  │           explore/ (v0.3.0): mod.rs (client, cache, quota) cache.rs cred.rs json.rs github.rs source.rs tests.rs
 │  └─ rs-cli/                 bin `rs`: `rs fixtures <dir>`, `rs bench <dir>`, `rs inspect <repo-path> <cmd>`
 ├─ src-tauri/
 │  ├─ Cargo.toml  build.rs  tauri.conf.json  tauri.windows.conf.json (if needed)
@@ -545,6 +546,12 @@ etag, fetched_at, description, homepage, topics_json, html_url) — fetched Abou
 v0.1.0-shaped DB with rows in every table. README images are cached on disk (`<data>\img-cache\`, 200 MB LRU), release
 assets live in `<archive>\_releases\<host>\<owner>\<name>\<tag>\<file>`.
 
+v0.3.0 (M10a, D-118) `0003_explore.sql`: `cache_gh_api` (url PK, etag, link, body BLOB, size, fetched_at, last_used_at;
+index on `last_used_at`; LRU trim to 100 MB) = the Explore response cache keyed by the GitHub API URL (never holds the
+token), and `gh_quota` (resource PK `core`/`search`, quota, remaining, reset_at, seen_at) = the last rate-limit headers.
+Additive only; tested against a v0.2.0-shaped DB (0001 + 0002) with rows in every table. Emptied by "Clear cache",
+`explore_cache_clear` and every token change.
+
 Cache pruning: on start, keep at most 2,000 `cache_last_commit` rows (oldest deleted) and drop cache rows whose
 `tip` is neither a current ref tip nor used in the last 30 days (cheap: `created_at`). Rows in `jobs` with
 state `running`/`waiting` at startup become `failed` with "Interrupted (app closed)" — Retry available.
@@ -610,6 +617,26 @@ camelCase; Rust command names snake_case.
 | `jobs_cancel` / `jobs_retry` / `jobs_dismiss` | `jobId` | `bool` / `JobId` / `()` | 7 |
 | `request_cancel` | `requestId` | `bool` | 16, NFR-P3 |
 | `open_external` | `url` | `()` (http/https only; frontend confirmed first) | 12, NFR-S3 |
+| `explore_status` | – | `ExploreStatus` (enabled, token saved ✓/✗, quota per bucket, `limitedUntil`, `stale`, cache size; never the token) | M10 |
+| `explore_token_set` | `token` (letters/digits/`_`/`-`, ≤ 255; stored in Windows Credential Manager only) | `ExploreStatus` (a token GitHub answers 401 to is removed again → `refused`) | M10 |
+| `explore_token_remove` | – | `ExploreStatus` (also empties the Explore cache) | M10 |
+| `explore_cache_clear` | – | `ExploreStatus` | M10 |
+| `explore_repo` | `owner, name` | `ExploreRepo` (`onShelf` = repo id when saved) | M10 |
+| `explore_refs` | `owner, name` | `ExploreRefs` (`RefsList` + truncation flags; ≤ 300 branches / tags) | M10 |
+| `explore_languages` | `owner, name` | `Languages` | M10 |
+| `explore_resolve` | `owner, name, rev` | `ResolvedRev` (`HEAD` = default branch; `kind` best-effort) | M10 |
+| `explore_commit_latest` | `owner, name, rev` | `LatestCommit` (`count` from GitHub's page count) | M10 |
+| `explore_tree` | `owner, name, rev, path` | `TreeListing` (no exec bit; no per-entry last commit online) | M10 |
+| `explore_readme` | `owner, name, rev, path(dir)` | `Rendered \| null` (same sanitiser) | M10 |
+| `explore_render_file` | `owner, name, rev, path` | `Rendered` | M10 |
+| `explore_blob_meta` / `explore_blob_text` | `owner, name, rev, path` | `BlobMeta` / `BlobText` (over 1 MB: metadata only, `displayable: false`) | M10 |
+| `explore_blob_bytes` | `owner, name, rev, path` | raw `ArrayBuffer`, ≤ 1 MB | M10 |
+| `explore_commits` | `owner, name, rev, path?, skip, tip?` | `CommitsPage` (35 per page, `skip` a multiple of 35, no `since`) | M10 |
+| `explore_commit` | `owner, name, oid` | `CommitDetail` (file list + diffs from the API's `patch`) | M10 |
+| `explore_commit_file_diff` | `owner, name, oid, index, force` | `FileDiff` | M10 |
+| `explore_releases` | `owner, name` | `Release[]` (GitHub's list, assets, notes; no downloads) | M10 |
+| `explore_search` | `query, sort?, page` | `ExploreSearch` (30 per page, search bucket) | M10 |
+| `explore_save_to_shelf` | `owner, name, autoDownload?` | `JobId` (the existing clone job; `duplicate` when on the shelf) | M10 |
 
 ### 5.2 Validation rules (enforced in the command layer before rs-core does anything)
 
@@ -969,18 +996,30 @@ opener plugin). Everything else ignored. `window.open` is never used; Tauri's de
 denied via `on_navigation` returning false for any non-app URL (defence in depth; *verify in M4* that the hook applies to the
 config-defined window, otherwise create the window in `lib.rs` with the builder).
 
-**Network**: only `clone_start`, `fetch_start`/`fetch_all_start`, `releases_fetch_github`, and since v0.2.0 (M11,
+**Network**: only `clone_start`, `fetch_start`/`fetch_all_start`, `releases_fetch_github`, since v0.3.0 the `explore_*` commands (below), and since v0.2.0 (M11,
 D-98..D-106) `import_confirm`'s GitHub follow-up job, the GitHub hook after Clone / Fetch / Fetch all, `image_fetch`
 and `release_download`, each behind a setting (`settings.rs` "Network" keys). Every HTTP request goes through
 rs-core `net.rs` (`Shelf.net`): https only, default port, no userinfo, DNS names only (no IP literals, no
 `localhost`/`.local`/`.internal`/single-label hosts), every resolved address public (checked again by the ureq
 resolver on the addresses actually connected), redirects followed by hand and re-checked per hop (API: none, D-49;
 images: ≤ 5 to any public host; release assets: ≤ 5 within `github.com` + its download CDN hosts), size and time caps
-per profile, no cookies, no credentials, `User-Agent: RepoShelf/<version>`. The webview itself stays offline: images
+per profile, no cookies, no credentials (except the optional Explore token, below), `User-Agent: RepoShelf/<version>`. The webview itself stays offline: images
 reach it as bytes → `blob:` (CSP unchanged). Downloads are never run or unpacked. No credentials callback,
 no ssh transport compiled in, no submodule recursion, no LFS. `GIT_TERMINAL_PROMPT` irrelevant (libgit2). A
 test asserts no git2 remote or ureq call happens outside those commands (a counting hook in rs-core under
 `testkit`), plus the M8 browse-only run with the network adapter disabled (NFR-O1).
+
+**Explore (v0.3.0, M10a, D-117..D-125)**: `explore_*` commands (§5.1) browse GitHub repositories online, read-only, and
+nothing runs until one is called (setting `exploreEnabled`, default on, enforced in Rust). All requests go through
+`explore::get` → `net.rs` with `Profile::API`: api.github.com only, https, no redirects (GitHub's 301 for a renamed repo
+is followed once by hand to `/repositories/…` on the same host), 16 MB cap, answers cached on disk (`cache_gh_api`, ETag,
+sha-addressed answers kept for good, others re-asked after 60 s with `If-None-Match`), `X-RateLimit-*` tracked per bucket,
+saved data served when the limit is used up. The one optional credential is a GitHub token in Windows Credential Manager
+(`explore::cred`, behind a trait; tests use an in-memory fake): sent only as `Authorization: Bearer` to api.github.com,
+never written to SQLite, logs, job text, error messages or IPC (`githubTokenSaved` / `tokenSaved` are booleans derived
+from the store; a test greps every DB file, job row and returned value for it). The webview stays offline and the CSP is
+unchanged; Explore markdown goes through the same comrak + ammonia sanitiser, avatars are never fetched by Explore, files over
+1 MB are metadata only. Save to shelf is the existing clone job.
 
 **Imported repos**: opened read-only by convention (no index, lock or config writes; `statuses()` only behind D-16).
 `.git` hash test before/after the browse-only e2e (NFR-O2).

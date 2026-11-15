@@ -31,6 +31,12 @@ pub struct Settings {
     pub auto_download_on_fetch_all: bool,
     /// F4: largest release asset downloaded, in MB (1 GB).
     pub download_size_cap_mb: u32,
+    /// v0.3.0 (D-119): the Explore entry and every Explore call (on).
+    pub explore_enabled: bool,
+    /// v0.3.0 (D-120): OUTPUT ONLY — whether a GitHub token is saved in Windows Credential Manager. Never stored
+    /// in the DB (`load` always yields `false`, `save` ignores it); the command layer fills it from the credential
+    /// store, so it cannot drift from the real state. The token itself never crosses IPC.
+    pub github_token_saved: bool,
 }
 
 impl Default for Settings {
@@ -46,6 +52,8 @@ impl Default for Settings {
             auto_download_latest_release: true,
             auto_download_on_fetch_all: false,
             download_size_cap_mb: DEFAULT_CAP_MB,
+            explore_enabled: true,
+            github_token_saved: false,
         }
     }
 }
@@ -66,6 +74,7 @@ const K_FETCH_REPO_INFO: &str = "fetchRepoInfo";
 const K_AUTO_DOWNLOAD: &str = "autoDownloadLatestRelease";
 const K_AUTO_DOWNLOAD_FETCH_ALL: &str = "autoDownloadOnFetchAll";
 const K_CAP_MB: &str = "downloadSizeCapMb";
+const K_EXPLORE: &str = "exploreEnabled";
 
 fn parse_or<T: serde::de::DeserializeOwned>(v: &str, default: T) -> T {
     serde_json::from_str(v).unwrap_or(default)
@@ -90,6 +99,7 @@ pub fn load(db: &Db) -> Result<Settings> {
             K_AUTO_DOWNLOAD => s.auto_download_latest_release = parse_or(&v, s.auto_download_latest_release),
             K_AUTO_DOWNLOAD_FETCH_ALL => s.auto_download_on_fetch_all = parse_or(&v, s.auto_download_on_fetch_all),
             K_CAP_MB => s.download_size_cap_mb = parse_or::<u32>(&v, s.download_size_cap_mb).clamp(MIN_CAP_MB, MAX_CAP_MB),
+            K_EXPLORE => s.explore_enabled = parse_or(&v, s.explore_enabled),
             _ => {}
         }
     }
@@ -111,6 +121,7 @@ pub fn save(db: &Db, s: &Settings) -> Result<()> {
         (K_AUTO_DOWNLOAD, j(&s.auto_download_latest_release)),
         (K_AUTO_DOWNLOAD_FETCH_ALL, j(&s.auto_download_on_fetch_all)),
         (K_CAP_MB, j(&cap)),
+        (K_EXPLORE, j(&s.explore_enabled)),
     ];
     db.tx(|tx| {
         let mut st = tx.prepare("INSERT INTO settings (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value")?;
@@ -152,6 +163,7 @@ mod tests {
         assert!(!s.auto_download_on_fetch_all);
         assert_eq!(s.download_size_cap_mb, 1024);
         assert_eq!(s.download_cap_bytes(), 1 << 30);
+        assert!(s.explore_enabled && !s.github_token_saved);
     }
 
     #[test]
@@ -169,6 +181,8 @@ mod tests {
             auto_download_latest_release: false,
             auto_download_on_fetch_all: true,
             download_size_cap_mb: 50,
+            explore_enabled: false,
+            github_token_saved: false,
         };
         save(&Db::open(&f).unwrap(), &want).unwrap();
         assert_eq!(load(&Db::open(&f).unwrap()).unwrap(), want);
@@ -182,6 +196,25 @@ mod tests {
         assert_eq!(load(&db).unwrap().download_size_cap_mb, MIN_CAP_MB);
         save(&db, &Settings { download_size_cap_mb: u32::MAX, ..Settings::default() }).unwrap();
         assert_eq!(load(&db).unwrap().download_size_cap_mb, MAX_CAP_MB);
+    }
+
+    /// D-120: the token-presence flag is output only; nothing about the token reaches the `settings` table.
+    #[test]
+    fn token_saved_flag_is_never_persisted() {
+        let db = Db::open_in_memory().unwrap();
+        save(&db, &Settings { github_token_saved: true, ..Settings::default() }).unwrap();
+        assert!(!load(&db).unwrap().github_token_saved);
+        let keys: Vec<String> = db
+            .with(|c| {
+                let mut st = c.prepare("SELECT key FROM settings ORDER BY key")?;
+                Ok(st.query_map([], |r| r.get(0))?.collect::<std::result::Result<_, _>>()?)
+            })
+            .unwrap();
+        assert!(keys.iter().all(|k| !k.to_lowercase().contains("token")), "{keys:?}");
+        assert!(keys.contains(&"exploreEnabled".to_string()));
+        // a planted row is ignored too
+        db.with(|c| Ok(c.execute("INSERT INTO settings (key, value) VALUES ('githubTokenSaved', 'true')", [])?)).unwrap();
+        assert!(!load(&db).unwrap().github_token_saved);
     }
 
     #[test]
@@ -209,7 +242,8 @@ mod tests {
             serde_json::json!({
                 "theme": "system", "sort": {"key": "updated", "desc": true}, "sourceFilter": "all", "showDirtyNote": false,
                 "loadRemoteImages": true, "fetchReleaseNotes": true, "fetchRepoInfo": true,
-                "autoDownloadLatestRelease": true, "autoDownloadOnFetchAll": false, "downloadSizeCapMb": 1024
+                "autoDownloadLatestRelease": true, "autoDownloadOnFetchAll": false, "downloadSizeCapMb": 1024,
+                "exploreEnabled": true, "githubTokenSaved": false
             })
         );
         // a v0.1.0 frontend sends only the old four keys: the rest take the defaults
