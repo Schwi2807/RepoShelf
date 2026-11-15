@@ -12,7 +12,8 @@
 //! - `RS_E2E_NET` = a JSON routes file (M13, D-113). The shelf's HTTP client gets a canned transport: every request
 //!   (GitHub info, release lists, asset downloads, README images) is answered from the file or fails as
 //!   "no canned answer" — the e2e exe then has no path to the internet at all. `RS_E2E_NET_LOG` = a file that gets
-//!   one line per request (`get\t<url>\t<status>` or `get\t<url>\tunrouted`).
+//!   one line per request (`get\t<url>\t<status>` or `get\t<url>\tunrouted`; `\tauth` is appended when the request
+//!   carried an `Authorization` header — the header's value is never logged, M10c).
 //! - `RS_E2E_GIT_MAP` = `<https clone URL>=<file:// URL>` pairs separated by `;` (M13): a Clone / Fetch of a mapped
 //!   github.com repo downloads from the local upstream and keeps the https origin; every other non-`file:` git
 //!   remote is refused unless the list contains the item `!live` (the opt-in `-Network` run). Needs
@@ -69,7 +70,7 @@ impl E2eSeams {
 
     fn log(&self, file: &Path, kind: &str, what: &str) -> Result<(), String> {
         let mut f = std::fs::OpenOptions::new().create(true).append(true).open(file).map_err(|e| e.to_string())?;
-        writeln!(f, "{kind}\t{what}").map_err(|e| e.to_string())
+        f.write_all(format!("{kind}\t{what}\n").as_bytes()).map_err(|e| e.to_string())
     }
 }
 
@@ -226,7 +227,8 @@ impl E2eNet {
         if let Some(f) = &self.log
             && let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(f)
         {
-            let _ = writeln!(f, "{line}");
+            // one write per line: two threads (the UI and the job worker) must not interleave the text and the newline
+            let _ = f.write_all(format!("{line}\n").as_bytes());
         }
     }
 }
@@ -237,10 +239,12 @@ impl Transport for E2eNet {
         Ok(vec![IpAddr::V4(Ipv4Addr::new(140, 82, 112, 3))])
     }
 
-    fn get(&self, url: &tauri::Url, _h: &[(&str, String)], _t: Duration) -> rs_core::Result<RawResponse> {
+    fn get(&self, url: &tauri::Url, h: &[(&str, String)], _t: Duration) -> rs_core::Result<RawResponse> {
         match self.routes.get(url.as_str()) {
             Some((status, headers, body)) => {
-                self.note(format!("get\t{url}\t{status}"));
+                // M10c: a fourth field says that the request carried an Authorization header (never its value).
+                let auth = if h.iter().any(|(k, _)| k.eq_ignore_ascii_case("authorization")) { "\tauth" } else { "" };
+                self.note(format!("get\t{url}\t{status}{auth}"));
                 Ok(RawResponse { status: *status, headers: headers.clone(), body: Box::new(std::io::Cursor::new(body.clone())) })
             }
             None => {

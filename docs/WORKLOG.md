@@ -1179,3 +1179,64 @@ routes as in the M10a handoff, plus `…/languages`); 403 with `x-ratelimit-rema
 gone, "Token saved ✓", the token string absent from page text / URL / exe logs, Remove; Explore off → nav entry gone; a file over
 1 MB → "Too large to preview online — Save to shelf"; Save to shelf with `RS_E2E_GIT_MAP` → job → Open in shelf. The wd-e2e Settings
 checks must learn `exploreEnabled` / `githubTokenSaved`. `run-e2e.ps1` was not run in M10b.
+
+## M10c — v0.3.0 real-app run + release (2026-11-15)
+
+One implementer; TASKS "v0.3.0 — M10c" (M10c.1–M10c.5). Decisions D-133..D-136. Final commit tagged `m10c-done` and `v0.3.0`.
+
+**Done**
+- **e2e for Explore (all canned, D-133)**: `wd-e2e.mjs` writes GitHub-shaped routes for `e2e/explored` (browsed online AND saved to the
+  shelf through a second `RS_E2E_GIT_MAP` pair), `e2e/limited` (403, remaining 0), `e2e/missing` (404), the search answer and
+  `/rate_limit`; new block `exploreFlows` = steps `X0`–`X11` (Settings defaults incl. `exploreEnabled` / `githubTokenSaved`; nav entry →
+  search on submit → result; the cold repository page costs exactly the 5 requests of D-124 and shows "55 of 60"; folder / file /
+  history / commit diff / branches / tags / releases with a link sweep; the 1.5 MB file → GitHub's 403 `too_large` → "Too large to preview
+  online — Save to shelf"; 404 + token hint; Save without release → clone job → "On your shelf" → Open in shelf; the rate-limit
+  full-page state with the reset time, then a saved page under the strip's banner with zero requests; token save → field gone,
+  "Token saved ✓", limit state lifted, `Authorization` on the next requests and only to api.github.com, Remove → anonymous again;
+  Explore off → no request; Clear Explore cache). 12 new screenshots (`m10c-explore-search|code|toolarge|ratelimit|banner|settings`,
+  light + dark). The e2e build keeps the token in the in-memory store, so the run never writes the real Credential Manager.
+- **Token never leaks (D-134)**: fake token; page sweep (HTML, text, URL, history, storage, inputs, `settings_get`, `explore_status`);
+  `E2eNet` logs `\tauth` when a request carried `Authorization` (value never logged); after the run `tools/e2e/scan-secret.mjs` read 63
+  files / 2.29 MB (SQLite + WAL, WebView profile, git objects, logs, result.json) as UTF-8 and UTF-16LE: 0 hits, control string found in 3
+  files. `run.json.secretScan`, and `check-e2e.ps1` fails on a hit, a missing control, an `Authorization` to another host or none at all.
+- **Shipped-exe check (D-135)**: `tools/check-shipped.mjs` (also inside `build:portable`): no `RS_TEST_FILE_CLONE` / `RS_E2E_*` and the REAL
+  credential store present (`Windows Credential Manager failed`, text of `cred::fail`, only linked where `WindowsStore` is reachable)
+  in `target\release\reposhelf.exe` and the portable; control on the e2e exe: seam names present, the real store's text absent (so the
+  check discriminates; the `windows-native-keyring-store` text is present in the shipped exes, printed as info). Presence of a string
+  proves the real store is linked and reachable from `default_store()`; it does not exercise Credential Manager (hand tests).
+- **Docs**: README (0.3.0, Explore section + table rows, Network use rows, data locations, known limits), TESTING (Explore e2e steps,
+  seams, check-shipped, v0.3.0 hand tests: real Explore browsing, rate limit, token in Credential Manager, the `#[ignore]`d
+  `real_credential_manager_round_trip`, Explore off / Clear cache, offline), TASKS (M10c checklist + Gate M10c), DECISIONS D-133..D-136.
+- **Version 0.3.0**: `package.json` (+ lock), `Cargo.toml` (+ `Cargo.lock`), `tauri.conf.json`, mock `app_info`, Settings test.
+  `_REVIVE\releases\v0.1.0\` and `v0.2.0\` untouched (hashes and timestamps compared before / after).
+
+**Bug found by the real-app run (harness only, fixed)**: the net log (and the open log) were written with `writeln!`, which is two
+writes; two threads (UI + job worker) logging together produced `…404get\thttps://…` joined lines and `check-e2e` rejected them as malformed
+(first full run: 130 steps passed, check failed). Now one `write_all` per line (`e2e.rs`; the e2e build only, the shipped exe does not contain it).
+No product bug surfaced: every Explore step passed on the first real run except two harness expectations (the cold-page URL list lacked the
+`/repos/e2e/explored` prefix; a page whose first request hits the limit shows the full-page state, not the strip banner — D-136).
+
+**Test counts (all rc 0)**: `cargo test --workspace` reposhelf 56 + rs-core 204 + 2 integration (+2 ignored: live GitHub smoke, real
+Credential Manager round trip); `--all-features` same; `-p reposhelf --features e2e` 65; `--no-default-features` reposhelf 56 / rs-core 204;
+clippy `-D warnings` workspace / `--features e2e` / `--no-default-features` / `-p reposhelf`; typecheck; `npm test` 634 (30 files);
+`npm run build`; `run-e2e.ps1` + `check-e2e.ps1`: "all 130 steps passed; 40 shots; NFR-P1 469 ms; NFR-P2 43 ms; leftovers 0; imported
+fixtures unchanged; trash seam 1 deletion (no Recycle Bin); 50 app HTTP requests, all canned" (105 → 130 steps, 28 → 40 shots; 6 requests
+carried `Authorization`, all to api.github.com). Gate logs: `target\m10cg-*.log`, `target\m10c-gate-summary.log`, `target\m10c-e2e-run4.log`.
+
+**Release (never run the installer)**: `npm run build:installer` → `RepoShelf_0.3.0_x64-setup.exe` 5,834,458 bytes (sha256 a4b4e1c8…31d8);
+`npm run build:portable` → `RepoShelf_0.3.0_x64-portable.exe` 20,337,664 bytes (sha256 fd6888ec…6980f); VersionInfo 0.3.0 on both;
+NSIS from tauri's existing cache, no Bitdefender interference. Copied with `SHA256SUMS.txt` (same format as v0.2.0) to
+`_REVIVE\releases\v0.3.0\`; hashes recomputed from the copies with `sha256sum -c` and Get-FileHash: equal. `check-shipped.mjs` on
+`target\release\reposhelf.exe` + the portable (+ e2e exe as control): all ok. Portable smoke (scratch data / archive, empty shelf, window
+moved off-screen after 64 ms, `http://tauri.localhost/` showing "Repositories" / "Your shelf is empty", `reposhelf.db` created, Explore
+not entered, no token written; the shipped exe reads the real credential store for its own entry when it builds the settings answer — a read,
+unavoidable), leftovers 0, scratch removed.
+
+**Deviations / notes**
+- `RS_E2E_GIT_MAP` carries two pairs now; `E2eNet` has the `\tauth` field (the old three-field lines are unchanged for requests without it).
+- `-Network` (session C) still never executed. Not verified against real GitHub: everything Explore; an empty online repository; a submodule
+  in a directory listing (M10a / M10b notes). Not verified: the real Credential Manager (only the ignored hand test).
+
+Handoff (v0.3.0 done): the user's hand tests in `docs/TESTING.md` §5 — Explore against real GitHub, the rate limit, a token saved to and
+removed from Credential Manager, `cargo test -p rs-core --features ghreleases -- --ignored real_credential_manager_round_trip`, install
+0.3.0 over the installed version (data kept, DB migrated in place), plus the older v0.2.0 ones.

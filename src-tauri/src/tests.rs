@@ -1143,16 +1143,21 @@ mod e2e_seams {
         let zip = net.get("https://github.com/e2e/demo/releases/download/v1/a.zip", &[], Profile::asset(100)).unwrap();
         assert_eq!(zip.bytes().unwrap(), [0x50, 0x4b, 0x05, 0x06]);
         assert_eq!(net.get("https://images.example.com/tracker.png", &[], Profile::IMAGE).unwrap().status, 404);
+        // M10c: an Authorization header is logged as a flag only, never as a value
+        let a = net.get("https://api.github.com/repos/e2e/demo", &[("Authorization", "Bearer ghp_SecretValue".into())], Profile::API).unwrap();
+        assert_eq!(a.status, 200);
         assert_eq!(net.get("https://example.org/x.png", &[], Profile::IMAGE).err().unwrap().code(), "network");
         // refused by the production rules before the transport is asked (not logged)
         assert_eq!(net.get("http://example.org/x.png", &[], Profile::IMAGE).err().unwrap().code(), "refused");
         let text = std::fs::read_to_string(&log).unwrap();
         let lines: Vec<&str> = text.lines().collect();
-        assert_eq!(lines.len(), 5, "{text}");
+        assert_eq!(lines.len(), 6, "{text}");
         assert_eq!(lines[0], "get\thttps://api.github.com/repos/e2e/demo\t200");
         assert_eq!(lines[2], "get\thttps://objects.githubusercontent.com/a\t200");
-        assert_eq!(lines[4], "get\thttps://example.org/x.png\tunrouted");
-        assert_eq!(n.seen().len(), 5);
+        assert_eq!(lines[4], "get\thttps://api.github.com/repos/e2e/demo\t200\tauth");
+        assert_eq!(lines[5], "get\thttps://example.org/x.png\tunrouted");
+        assert!(!text.contains("ghp_SecretValue"));
+        assert_eq!(n.seen().len(), 6);
         assert!(E2eNet::parse(r#"{ "routes": { "https://a.example.com/": { "body": "x", "bodyHex": "00" } } }"#, None).is_err());
         assert!(E2eNet::parse(r#"{ "routes": {}, "extra": 1 }"#, None).is_err());
     }

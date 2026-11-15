@@ -922,3 +922,18 @@ canned Explore data, tests. Gate as M10a + browser check light/dark. Tag `m10b-d
 Extend run-e2e (offline via canned HTTP seam) for Explore flows incl. rate-limit and token-never-shown checks;
 README/TESTING/DECISIONS/WORKLOG; version 0.3.0; NSIS installer + portable into `_REVIVE\releases\v0.3.0\` (never run
 the installer); shipped-exe string check; no leftover processes. Tags `m10c-done`, `v0.3.0` on the final commit only.
+
+- [x] M10c.1 e2e: canned Explore routes (`e2e/explored`, `e2e/limited`, `e2e/missing`, search, `/rate_limit`), a second git-map pair for Save to
+  shelf, `\tauth` flag in the net log (value never logged), fake token + `scan-secret.mjs` (D-133, D-134).
+- [x] M10c.2 wd-e2e steps X0–X11 (search, repo page = 5 requests, browsing, too large, 404, Save → Open in shelf, rate limit, token
+  save / Remove, Explore off, Clear Explore cache); `check-e2e.ps1` must-steps, 6 screens × 2 themes, secret scan, auth rules.
+- [x] M10c.3 README / TESTING (v0.3.0 hand tests: real Explore, rate limit, token in Credential Manager, the ignored
+  `real_credential_manager_round_trip`) / DECISIONS D-133..D-136 / WORKLOG.
+- [x] M10c.4 Version 0.3.0; installer + portable + `SHA256SUMS.txt` in `_REVIVE\releases\v0.3.0\`; `tools/check-shipped.mjs` (no seams, REAL
+  credential store present, e2e exe as control, D-135); portable smoke (scratch dirs, empty shelf, never enters Explore).
+- [x] M10c.5 `_REVIVE\REVIVE.md` + `_REVIVE_INDEX.md` row; full gate; commit; tags `m10c-done`, `v0.3.0`.
+
+**Gate M10c** = Gate M13 (`cargo test --workspace` / `--all-features` / `-p reposhelf --features e2e` / `--no-default-features`,
+`-p rs-core --no-default-features`, clippy `-D warnings` default / `--features e2e` / `--no-default-features`, typecheck, `npm test`,
+`npm run build`, `run-e2e.ps1` + `check-e2e.ps1` with leftovers 0), then the M9 release commands with `0.3.0` names and
+`tools/check-shipped.mjs`. **Done 2026-11-15** (WORKLOG M10c).

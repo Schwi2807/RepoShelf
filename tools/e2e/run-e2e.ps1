@@ -115,11 +115,15 @@ function Get-FreePort {
 $port = Get-FreePort
 do { $nport = Get-FreePort } while ($nport -eq $port)
 
+# M10c: a FAKE GitHub token for the Explore Settings flow. The e2e build keeps it in the in-memory credential store; after
+# the run every file of the scratch data / archive dirs, the logs and the result files are scanned for it (scan-secret.mjs).
+$e2eToken = 'ghp_E2eFakeTokenValue0123456789abcdefXYZ'
 $cfgFile = Join-Path $S 'config.json'
 $cfg = [ordered]@{
     app = $App; port = $port; result = $resultFile; shots = $shots; archive = $archive; openLog = $openLog; trashLog = $trashLog
     upstream = $up; upstreamUrl = $upUrl; gitEnv = @{ GIT_CONFIG_GLOBAL = $emptyCfg; GIT_CONFIG_NOSYSTEM = '1'; GIT_TERMINAL_PROMPT = '0' }
     imports = $imports; network = [bool]$Network; networkRepos = $NetworkRepos; netRoutes = $netRoutes; netLog = $netLog
+    token = $e2eToken; data = $data
 }
 [IO.File]::WriteAllText($cfgFile, ($cfg | ConvertTo-Json -Depth 5), $u8)
 
@@ -133,7 +137,7 @@ $env:RS_E2E_TRASH_LOG = $trashLog
 # clone; without -Network every other git host is refused.
 $env:RS_E2E_NET = $netRoutes
 $env:RS_E2E_NET_LOG = $netLog
-$env:RS_E2E_GIT_MAP = "https://github.com/e2e/demo-upstream=$upUrl" + $(if ($Network) { ';!live' } else { '' })
+$env:RS_E2E_GIT_MAP = "https://github.com/e2e/demo-upstream=$upUrl;https://github.com/e2e/explored=$upUrl" + $(if ($Network) { ';!live' } else { '' })
 
 function Get-Tree([int]$rootPid) {
     $all = @(Get-CimInstance Win32_Process)
@@ -190,6 +194,14 @@ try {
         })
 }
 
+# M10c: the fake token must be in no file the run wrote: the SQLite DB (+ WAL), the WebView2 profile, the archive, the
+# logs and the result files. Control: the scan must find a string that IS in those files (the saved github.com origin),
+# which proves the files were readable.
+$secretScan = $null
+$scanPaths = @($data, $archive, $netLog, $openLog, $trashLog, $resultFile) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
+$scanOut = & node (Join-Path $PSScriptRoot 'scan-secret.mjs') $e2eToken 'github.com/e2e/explored' @scanPaths
+try { $secretScan = ($scanOut | Select-Object -Last 1) | ConvertFrom-Json } catch { $secretScan = $null }
+
 $hashAfter = [ordered]@{}
 foreach ($n in $imports) { $hashAfter[$n] = Get-TreeHash (Join-Path $fx $n) }
 $changed = @($imports | Where-Object { $hashBefore[$_] -ne $hashAfter[$_] })
@@ -204,6 +216,7 @@ $run = [ordered]@{
     openLog = if (Test-Path -LiteralPath $openLog) { @([IO.File]::ReadAllLines($openLog)) } else { @() }
     trashLog = if (Test-Path -LiteralPath $trashLog) { @([IO.File]::ReadAllLines($trashLog)) } else { @() }
     archive = $archive
+    secretScan = if ($secretScan) { [ordered]@{ files = $secretScan.files; bytes = $secretScan.bytes; hits = @($secretScan.hits | ForEach-Object { $_.Replace($S, '<scratch>') }); controlHits = $secretScan.controlHits; unreadable = @($secretScan.unreadable | ForEach-Object { $_.Replace($S, '<scratch>') }) } } else { $null }
     network = [bool]$Network
     netLog = if (Test-Path -LiteralPath $netLog) { @([IO.File]::ReadAllLines($netLog)) } else { @() }
 }

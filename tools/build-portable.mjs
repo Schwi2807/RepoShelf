@@ -6,7 +6,8 @@
 //   npm run build:portable   ->   target/release/portable/RepoShelf_<version>_x64-portable.exe
 //
 // Shipped build rules (D-14, D-26, D-84): the tauri CLI only (it embeds dist/), never `--features e2e`, never
-// `cargo build --workspace`; the copied exe must not contain any test-seam env name.
+// `cargo build --workspace`; the copied exe must not contain any test-seam env name and must contain the real credential store
+// (tools/check-shipped.mjs runs the same checks, plus the e2e exe as control).
 
 import { execSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
@@ -30,6 +31,11 @@ if (!existsSync(app)) throw new Error(`missing ${app}`);
 const bytes = readFileSync(app);
 for (const marker of ['RS_TEST_FILE_CLONE', 'RS_E2E_']) {
   if (bytes.includes(Buffer.from(marker, 'latin1'))) throw new Error(`test seam "${marker}" found in ${app}`);
+}
+// v0.3.0 (D-117): the shipped exe must hold the REAL credential store. With the testkit feature unified in, Shelf::open silently
+// gets the in-memory fake (a saved token would vanish at the next start): the real store's failure text must be present.
+for (const real of ['Windows Credential Manager failed']) {
+  if (!bytes.includes(Buffer.from(real, 'latin1'))) throw new Error(`real credential store missing ("${real}" not found in ${app}); is testkit compiled in?`);
 }
 
 const outDir = join(root, 'target', 'release', 'portable');

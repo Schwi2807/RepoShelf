@@ -39,6 +39,95 @@ const NET = {
   badge: 'https://img.shields.io/badge/a-b-green',
   avatar: 'https://avatars.githubusercontent.com/u/583231?v=4',
 };
+// v0.3.0 (M10c): canned GitHub for Explore. `e2e/explored` is browsed online AND saved to the shelf (RS_E2E_GIT_MAP maps
+// it to the local upstream), `e2e/limited` answers GitHub's rate-limit 403, `e2e/missing` a 404. The routes follow the
+// exact URLs the backend builds (D-124): a cold repository page = repo + resolve + root listing + README + languages.
+const X = {
+  owner: 'e2e',
+  name: 'explored',
+  c1: '1'.repeat(40),
+  c2: '2'.repeat(40),
+  t1: 'a'.repeat(40),
+  t2: 'b'.repeat(40),
+  bReadme: 'c'.repeat(40),
+  bSrc: 'd'.repeat(40),
+  bMain: 'e'.repeat(40),
+  bBig: 'f'.repeat(40),
+  readme: '# Explored online (canned)\n\nHello from **GitHub**, read through the Explore seam.\n',
+  main: 'fn main() {\n    println!("online");\n}\n',
+  bigSize: 1572864,
+  reset: Math.floor(Date.now() / 1000) + 3600,
+  deskDesc: 'Explore fixture as described on GitHub (canned)',
+};
+const b64 = (s) => Buffer.from(s).toString('base64').replace(/(.{60})/g, '$1\n') + '\n';
+function exploreRoutes(r) {
+  const API = `https://api.github.com/repos/${X.owner}/${X.name}`;
+  const hdr = (extra = {}, remaining = 55, limit = 60, resource = 'core') => ({
+    'Content-Type': 'application/json; charset=utf-8',
+    'X-RateLimit-Limit': String(limit), 'X-RateLimit-Remaining': String(remaining), 'X-RateLimit-Reset': String(X.reset), 'X-RateLimit-Resource': resource,
+    ...extra,
+  });
+  const put = (url, v, extra = {}, status = 200, rem = 55) => (r[url] = { status, body: JSON.stringify(v), headers: hdr(extra, rem) });
+  const sig = (date) => ({ name: 'Mona Octocat', email: 'mona@example.com', date });
+  const commit = (sha, msg, date, parents, tree) => ({
+    sha, node_id: 'C_x',
+    commit: { author: sig(date), committer: sig(date), message: msg, tree: { sha: tree, url: 'https://api.github.com/x' }, comment_count: 0 },
+    author: { login: 'octocat', id: 1, avatar_url: 'https://avatars.githubusercontent.com/u/1?v=4' },
+    parents: parents.map((p) => ({ sha: p, url: 'u', html_url: 'h' })),
+  });
+  const c2 = commit(X.c2, 'Add main\n\nSecond commit body.', '2023-11-14T22:13:20Z', [X.c1], X.t2);
+  const c1 = commit(X.c1, 'Initial', '2023-11-14T22:12:20Z', [], X.t1);
+  const repo = (owner, name, desc) => ({
+    id: 1, name, full_name: `${owner}/${name}`, private: false,
+    owner: { login: owner, id: 9, avatar_url: 'https://avatars.githubusercontent.com/u/9?v=4' },
+    html_url: `https://github.com/${owner}/${name}`, description: desc, fork: false,
+    created_at: '2020-09-13T12:26:40Z', updated_at: '2023-11-14T22:13:20Z', pushed_at: '2023-11-14T22:13:20Z',
+    homepage: null, size: 2048, stargazers_count: 120, language: 'Rust', forks_count: 7, open_issues_count: 3,
+    license: { key: 'mit', name: 'MIT License', spdx_id: 'MIT' }, topics: ['explore', 'e2e'], default_branch: 'main', archived: false,
+  });
+  const entry = (name, path, sha, size, type) => ({ type, size, name, path, sha, html_url: 'h', download_url: null });
+  const file = (name, path, sha, text) => ({ ...entry(name, path, sha, Buffer.byteLength(text), 'file'), content: b64(text), encoding: 'base64' });
+  const link = '<https://api.github.com/repositories/1/commits?sha=main&per_page=1&page=2>; rel="next", <https://api.github.com/repositories/1/commits?sha=main&per_page=1&page=2>; rel="last"';
+  put(API, repo(X.owner, X.name, X.deskDesc), { ETag: '"x-repo-1"' });
+  for (const sha of ['main', X.c2]) put(`${API}/commits?sha=${sha}&per_page=1`, [c2], { Link: link });
+  put(`${API}/contents?ref=${X.c2}`, [
+    entry('README.md', 'README.md', X.bReadme, Buffer.byteLength(X.readme), 'file'),
+    entry('big.csv', 'big.csv', X.bBig, X.bigSize, 'file'),
+    entry('src', 'src', X.bSrc, 0, 'dir'),
+  ]);
+  put(`${API}/contents/src?ref=${X.c2}`, [entry('main.rs', 'src/main.rs', X.bMain, Buffer.byteLength(X.main), 'file')]);
+  put(`${API}/contents/README.md?ref=${X.c2}`, file('README.md', 'README.md', X.bReadme, X.readme));
+  put(`${API}/contents/src/main.rs?ref=${X.c2}`, file('main.rs', 'src/main.rs', X.bMain, X.main));
+  // GitHub refuses the plain JSON contents call for a file over 1 MB (403 too_large, not a rate limit): D-126
+  put(`${API}/contents/big.csv?ref=${X.c2}`, { message: 'This API returns blobs up to 1 MB in size. The requested blob is too large to fetch via the API, but you can use the Git Data API to request blobs up to 100 MB in size.', errors: [{ resource: 'Blob', field: 'data', code: 'too_large' }] }, {}, 403);
+  put(`${API}/commits?sha=${X.c2}&per_page=35&page=1`, [c2, c1]);
+  put(`${API}/commits?sha=${X.c2}&per_page=35&page=1&path=src%2Fmain.rs`, [c2]);
+  put(`${API}/commits?sha=${X.c2}&per_page=35&page=1&path=big.csv`, [c1]);
+  put(`${API}/commits/${X.c2}`, {
+    ...c2, stats: { additions: 3, deletions: 0, total: 3 },
+    files: [{ sha: X.bMain, filename: 'src/main.rs', status: 'added', additions: 3, deletions: 0, changes: 3, patch: '@@ -0,0 +1,3 @@\n+fn main() {\n+    println!("online");\n+}' }],
+  });
+  put(`${API}/branches?per_page=100`, [{ name: 'dev', commit: { sha: X.c1, url: 'u' }, protected: false }, { name: 'main', commit: { sha: X.c2, url: 'u' }, protected: true }]);
+  put(`${API}/tags?per_page=100`, [{ name: 'v1.0.0', commit: { sha: X.c1, url: 'u' }, zipball_url: 'z', tarball_url: 't' }]);
+  put(`${API}/releases?per_page=100`, [
+    { tag_name: 'v1.0.0', name: 'Explored 1.0.0', body: '# Notes\n\nOnline release notes.', draft: false, prerelease: false, published_at: '2023-11-14T22:12:20Z', target_commitish: 'main',
+      html_url: `https://github.com/${X.owner}/${X.name}/releases/tag/v1.0.0`,
+      assets: [{ name: WIN('explored', '1.0.0'), size: 22, download_count: 4, content_type: 'application/zip',
+        browser_download_url: `https://github.com/${X.owner}/${X.name}/releases/download/v1.0.0/${WIN('explored', '1.0.0')}` }] },
+  ]);
+  put(`${API}/languages`, { Rust: 900, Shell: 100 });
+  // search: its own bucket (10 a minute without a token)
+  const sh = (extra = {}) => ({ ...hdr(extra, 9, 10, 'search') });
+  r['https://api.github.com/search/repositories?q=explored&per_page=30&page=1'] = {
+    body: JSON.stringify({ total_count: 2, incomplete_results: false, items: [repo(X.owner, X.name, X.deskDesc), repo('other', 'explored-tools', 'Another match (canned)')] }),
+    headers: sh(),
+  };
+  // the rate-limit answer: 403 with the quota used up, resets in an hour
+  r['https://api.github.com/repos/e2e/limited'] = { status: 403, body: JSON.stringify({ message: 'API rate limit exceeded for 203.0.113.9.' }), headers: hdr({}, 0) };
+  r['https://api.github.com/repos/e2e/missing'] = { status: 404, body: JSON.stringify({ message: 'Not Found' }), headers: hdr({}, 55) };
+  // after saving a token: the free quota probe (5,000 an hour)
+  r['https://api.github.com/rate_limit'] = { body: JSON.stringify({ resources: { core: { limit: 5000, remaining: 4999, reset: X.reset } } }), headers: hdr({}, 4999, 5000) };
+}
 function routes() {
   const r = {};
   const json = (url, v, etag) => (r[url] = { body: JSON.stringify(v), headers: { 'Content-Type': 'application/json; charset=utf-8', ...(etag ? { ETag: etag } : {}) } });
@@ -74,6 +163,7 @@ function routes() {
   r[NET.badge] = { body: BADGE, headers: { 'Content-Type': 'image/svg+xml;charset=utf-8' } };
   r['https://fail.example.com/missing.png'] = { status: 404, headers: { 'Content-Type': 'text/html' }, body: 'not found' };
   r['https://images.example.com/tracker.png'] = { status: 404, headers: { 'Content-Type': 'text/html' }, body: 'not found' };
+  exploreRoutes(r);
   return r;
 }
 if (cfg.netRoutes) writeFileSync(cfg.netRoutes, JSON.stringify({ routes: routes() }, null, 2));
@@ -145,6 +235,9 @@ const HELPERS = `
   const setValue = (el, v) => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); };
   const invoke = (cmd, args) => window.__TAURI_INTERNALS__.invoke(cmd, args);
   const need = (v, what) => { if (!v) throw new Error('missing: ' + what + ' (at ' + location.hash + ')'); return v; };
+  // v0.3.0: every link of an Explore page body stays under #/explore/ (except Open in shelf and Settings)
+  const badLinks = () => $$('main a[href^="#"]').filter((a) => a.dataset.testid !== 'explore-open-in-shelf').map((a) => a.getAttribute('href')).filter((h) => !h.startsWith('#/explore/') && h !== '#/settings' && !h.startsWith('#user-content-'));
+  const quotaText = () => txt($('[data-testid="explore-quota-remaining"]'));
   const setTheme = async (want) => {
     for (let i = 0; i < 4; i++) {
       const b = need($('button[aria-label^="Theme:"]'), 'theme toggle');
@@ -279,6 +372,339 @@ async function startTiming(session, name) {
     save();
   }
   return row;
+}
+
+// Screenshot of the current page in both themes (the theme is Light again afterwards).
+async function themedShot(session, id, prep = '') {
+  for (const theme of ['Light', 'Dark']) {
+    await exec(session, `await setTheme(${JSON.stringify(theme)}); const jb = $('button[aria-label^="Background jobs"]'); if (jb && jb.getAttribute('aria-expanded') === 'true') jb.click(); window.scrollTo(0, 0); ${prep} await sleep(400); return {};`);
+    try {
+      await shot(session, `${id}-${theme.toLowerCase()}`);
+    } catch (e) {
+      record(`shot ${id} ${theme}`, {}, String(e).slice(0, 200));
+    }
+  }
+  await exec(session, `await setTheme('Light'); return {};`);
+}
+
+// v0.3.0 Explore, M10c. Every answer is canned (`exploreRoutes`); `e2e/explored` is browsed online and then saved to the
+// shelf through the git map. The token is a fake: it must not appear in the page, the backend's answers, the DB or any log.
+async function exploreFlows(s) {
+  const T = cfg.token;
+  const api = (from) => netLog().slice(from).filter((l) => (l.split('\t')[1] ?? '').startsWith('https://api.github.com/'));
+  const urls = (lines) => lines.map((l) => l.split('\t')[1]);
+  const hasAuth = (l) => l.split('\t')[3] === 'auth';
+  const N = (re) => netLog().filter((l) => re.test(l.split('\t')[1] ?? ''));
+  const o0 = netLog().length;
+
+  // Settings → Explore defaults (the Settings checks know exploreEnabled / githubTokenSaved since v0.3.0)
+  await step(s, 'X0 Explore settings defaults', `
+    await go('#/settings');
+    const box = need(await until(() => $('[data-testid="explore-settings"]'), 10000), 'Explore settings');
+    await sleep(300);
+    const st = await invoke('settings_get', {});
+    const status = await invoke('explore_status', {});
+    const input = $('[data-testid="explore-token-input"]');
+    const r = {
+      enabledBox: $('[data-testid="explore-enabled"]')?.checked ?? null,
+      exploreEnabled: st.exploreEnabled, githubTokenSaved: st.githubTokenSaved,
+      statusEnabled: status.enabled, statusTokenSaved: status.tokenSaved, statusAvailable: status.available, limitedUntil: status.limitedUntil, cacheEntries: status.cacheEntries,
+      inputType: input?.type ?? null, savedShown: !!$('[data-testid="explore-token-saved"]'), nav: !!$('[data-testid="nav-explore"]'),
+      keys: ['exploreEnabled', 'githubTokenSaved'].filter((k) => k in st),
+    };
+    const ok = r.enabledBox === true && r.exploreEnabled === true && r.githubTokenSaved === false && r.statusEnabled && !r.statusTokenSaved && r.statusAvailable
+      && r.limitedUntil == null && r.inputType === 'password' && !r.savedShown && r.nav && r.keys.length === 2;
+    return { ...r, ...(ok ? {} : { error: 'Explore defaults wrong: ' + JSON.stringify(r) }) };
+  `);
+
+  // search → open
+  const s0 = netLog().length;
+  await step(s, 'X1 Explore: nav entry, search on submit, results, quota', `
+    await go('#/');
+    await until(() => $('.repo-row'));
+    need($('[data-testid="nav-explore"]'), 'Explore nav entry').click();
+    await until(() => location.hash.startsWith('#/explore'), 5000);
+    const input = need(await until(() => $('[data-testid="explore-search-input"]'), 10000), 'search input');
+    setValue(input, 'explored');
+    await sleep(400);
+    const before = !!$('[data-testid="explore-results"]');
+    need($('[data-testid="explore-search-form"]'), 'search form').requestSubmit();
+    need(await until(() => $('[data-testid="explore-results"]'), 15000), 'results');
+    await settle();
+    const rows = $$('[data-testid="explore-result"]');
+    const names = rows.map((r) => r.dataset.repo);
+    const row = need(rows.find((r) => r.dataset.repo === 'e2e/explored'), 'result e2e/explored');
+    const r = {
+      route: location.hash, resultsBeforeSubmit: before, names, quota: quotaText(),
+      rowText: txt(row).slice(0, 160), hasSave: !!$('[data-testid="explore-save"]', row), open: $('[data-testid="explore-open"]', row)?.getAttribute('href') ?? null,
+      bad: badLinks(),
+    };
+    const ok = !before && names.length === 2 && /9 of 10 searches left/.test(r.quota ?? '') && r.hasSave && r.open === '#/explore/e2e/explored' && !r.bad.length && /Rust|★|120/.test(r.rowText);
+    return { ...r, ...(ok ? {} : { error: 'search page wrong: ' + JSON.stringify(r) }) };
+  `);
+  await themedShot(s, 'm10c-explore-search');
+  {
+    const search = netLog().slice(s0).filter((l) => l.includes('/search/repositories'));
+    record('X1 one search request (on submit)', { search }, search.length === 1 && search[0].endsWith('\t200') ? undefined : `expected one canned search request, got ${search.length}`);
+  }
+
+  // the repository page
+  const c0 = netLog().length;
+  await step(s, 'X2 Explore repository page (cold): files, README, About, quota, links', `
+    need($('[data-testid="explore-result"][data-repo="e2e/explored"] [data-testid="explore-open"]'), 'Open').click();
+    await until(() => location.hash === '#/explore/e2e/explored', 5000);
+    need(await until(() => $('[data-testid="explore-header"]'), 15000), 'explore header');
+    await until(() => $$('[data-testid="file-table"] [data-kind]').length >= 3, 15000);
+    const md = need(await until(() => $('.markdown'), 15000), 'README');
+    await until(() => /Hello from GitHub/.test(md.innerText), 10000);
+    await settle();
+    const r = {
+      header: txt($('[data-testid="explore-header"]'))?.slice(0, 120), names: $$('[data-testid="file-table"] [data-kind]').map((e) => txt(e)?.slice(0, 40)),
+      readme: txt(md).slice(0, 100), about: txt($('[data-testid="explore-about"]'))?.slice(0, 140) ?? null, quota: quotaText(),
+      save: !!$('[data-testid="explore-save"]'), hint: !!$('[data-testid="explore-files-hint"]'), bad: badLinks(),
+      tokenHint: !!byText('.xbar a', 'Add a token'),
+    };
+    const ok = r.header.includes('e2e') && r.names.length === 3 && /Hello from GitHub/.test(r.readme) && r.about?.includes(${JSON.stringify(X.deskDesc)}) && /55 of 60/.test(r.quota ?? '')
+      && r.save && r.hint && !r.bad.length && r.tokenHint;
+    return { ...r, ...(ok ? {} : { error: 'repository page wrong: ' + JSON.stringify(r) }) };
+  `);
+  {
+    const lines = api(c0);
+    const P = '/repos/e2e/explored';
+    const want = [P, `${P}/commits?sha=main&per_page=1`, `${P}/contents?ref=${X.c2}`, `${P}/contents/README.md?ref=${X.c2}`, `${P}/languages`];
+    const got = urls(lines).map((u) => u.replace('https://api.github.com', ''));
+    const missing = want.filter((w) => !got.includes(w));
+    record('X2 a cold repository page costs 5 requests (D-124)', { got }, got.length !== 5 || missing.length ? `expected ${want.join(', ')}; got ${got.join(', ')}` : lines.some(hasAuth) ? 'anonymous request carried Authorization' : undefined);
+  }
+  await themedShot(s, 'm10c-explore-code');
+
+  await step(s, 'X3 Explore: folder, file, history, commit diff, branches, tags, releases', `
+    const out = {};
+    await go('#/explore/e2e/explored/tree/main/src');
+    await until(() => byText('[data-testid="file-table"] [data-kind]', 'main.rs'), 15000);
+    out.tree = { rows: $$('[data-testid="file-table"] [data-kind]').map((e) => txt(e)?.slice(0, 30)), crumbs: txt($('.crumbs'))?.slice(0, 60), bad: badLinks() };
+    await go('#/explore/e2e/explored/blob/main/src/main.rs');
+    const fb = need(await until(() => $('.filebox'), 15000), 'file box');
+    await until(() => /println/.test(fb.innerText), 10000);
+    out.file = { text: /println/.test(fb.innerText), saveCopy: /Save a copy/.test(document.body.innerText), bad: badLinks() };
+    await go('#/explore/e2e/explored/commits/main');
+    await until(() => $$('.crow').length >= 2, 15000);
+    await settle();
+    out.commits = { rows: $$('.crow').length, first: txt($('.crow a.crow__summary')), bad: badLinks() };
+    need($('.crow a.crow__summary'), 'first commit link').click();
+    const card = need(await until(() => $('.dcard'), 15000), 'diff card');
+    await until(() => /println/.test(card.innerText), 10000);
+    out.commit = { head: !!$('.chead'), diff: /println/.test(card.innerText), route: location.hash, bad: badLinks() };
+    await go('#/explore/e2e/explored/branches');
+    await until(() => $$('[data-testid="online-branches"] .brow').length >= 2, 15000);
+    out.branches = { names: $$('[data-testid="online-branches"] .brow').map((e) => e.dataset.branch ?? txt(e)?.slice(0, 20)), bad: badLinks() };
+    await go('#/explore/e2e/explored/tags');
+    await until(() => $$('[data-testid="online-tags"] .trow').length >= 1, 15000);
+    out.tags = { rows: $$('[data-testid="online-tags"] .trow').length, bad: badLinks() };
+    await go('#/explore/e2e/explored/releases');
+    const rc = need(await until(() => $('.rcard'), 15000), 'release card');
+    await settle();
+    out.releases = { cards: $$('.rcard').length, assets: $$('.rasset').length, download: $$('.rasset button').some((b) => /^Download/.test(b.getAttribute('aria-label') || txt(b))), notes: /Online release notes/.test(rc.innerText), bad: badLinks() };
+    const bad = [].concat(...Object.values(out).map((v) => v.bad ?? []));
+    const ok = out.tree.rows.length === 1 && out.file.text && !out.file.saveCopy && out.commits.rows === 2 && out.commit.head && out.commit.diff && out.branches.names.length === 2
+      && out.tags.rows === 1 && out.releases.cards === 1 && out.releases.assets >= 1 && !out.releases.download && out.releases.notes && !bad.length;
+    return { ...out, ...(ok ? {} : { error: 'online browsing wrong: ' + JSON.stringify(out).slice(0, 600) }) };
+  `);
+
+  const big0 = netLog().length;
+  await step(s, 'X4 Explore: file over 1 MB = Too large to preview online', `
+    await go('#/explore/e2e/explored/blob/main/big.csv');
+    const ph = need(await until(() => $('[data-placeholder="large"]'), 15000), 'too-large placeholder');
+    await settle();
+    const r = { text: txt(ph)?.slice(0, 120), save: !!$('[data-testid="explore-save"]', ph), content: !!$('.filebox pre, .filebox code') };
+    return { ...r, ...(r.text?.includes('Too large to preview online — Save to shelf') && r.save && !r.content ? {} : { error: 'placeholder wrong: ' + JSON.stringify(r) }) };
+  `);
+  {
+    const big = netLog().slice(big0).filter((l) => l.includes('/contents/big.csv'));
+    record('X4 the contents call of the big file was refused by GitHub (403 too_large), nothing else fetched', { big },
+      big.length === 1 && big[0].includes('\t403') ? undefined : `expected one 403 contents request, got ${JSON.stringify(big)}`);
+  }
+  await themedShot(s, 'm10c-explore-toolarge');
+
+  await step(s, 'X5 Explore: unknown repository (404) says so with the token hint', `
+    await go('#/explore/e2e/missing');
+    const err = need(await until(() => $('[data-testid="explore-error"]'), 15000), 'error state');
+    const r = { code: err.dataset.code, text: txt(err)?.slice(0, 200), limit: !!$('[data-testid="explore-rate-limit"]') };
+    return { ...r, ...(r.code === 'notFound' && /token/i.test(r.text ?? '') && !r.limit ? {} : { error: 'not-found state wrong: ' + JSON.stringify(r) }) };
+  `);
+
+  // Save to shelf → Open in shelf (the existing clone job through the git map; split-button option "without downloading")
+  const sv0 = netLog().length;
+  await step(s, 'X6 Explore: Save to shelf (without release) -> Open in shelf', `
+    await go('#/explore/e2e/explored');
+    await until(() => $('[data-testid="explore-save"]'), 15000);
+    await settle();
+    await menuItem(need($('button[aria-label="Save options"]'), 'Save options'), 'Save without downloading');
+    const sawProgress = !!(await until(() => $('[data-testid="explore-saving"]') || $('[data-testid="explore-saved"]'), 15000));
+    const saved = need(await until(() => $('[data-testid="explore-saved"]'), 60000), 'On your shelf state');
+    const open = need($('[data-testid="explore-open-in-shelf"]', saved), 'Open in shelf');
+    const href = open.getAttribute('href');
+    open.click();
+    await until(() => location.hash === '#/e2e/explored' && $('.rh__title'), 15000);
+    await settle();
+    const lib = (await invoke('library_list', {})).filter((r) => r.owner === 'e2e' && r.name === 'explored');
+    const r = { sawProgress, href, route: location.hash, onShelf: lib.length, files: $$('[data-testid="file-table"] .ftable__row').length, notExplore: !$('[data-testid="explore-header"]') };
+    return { ...r, ...(href === '#/e2e/explored' && r.route === '#/e2e/explored' && r.onShelf === 1 && r.notExplore ? {} : { error: 'save/open wrong: ' + JSON.stringify(r) }) };
+  `);
+  {
+    const log = netLog().slice(sv0);
+    const dl = log.filter((l) => l.includes('/releases/download/'));
+    record('X6 saving without the release option downloaded nothing', { lines: log.map((l) => l.split('\t').slice(0, 3).join(' ')) }, dl.length ? 'a release was downloaded: ' + dl.join(', ') : undefined);
+  }
+
+  // rate limit: the 403 with the quota used up; saved pages keep opening
+  const rl0 = netLog().length;
+  await step(s, 'X7 Explore: rate limit reached (403, remaining 0) -> state with reset time', `
+    await go('#/explore/e2e/limited');
+    // the page that failed has no strip: the full-page state says when the limit resets
+    const err = need(await until(() => $('[data-testid="explore-error"]'), 15000), 'rate-limit state');
+    await sleep(300);
+    const status = await invoke('explore_status', {});
+    const r = { text: txt(err)?.slice(0, 200), code: err.dataset.code ?? null, limitedUntil: status.limitedUntil };
+    const ok = /rate limit reached.*Resets at \\d{1,2}[:.]\\d{2}/i.test(r.text ?? '') && r.code === 'rateLimited' && r.limitedUntil > Date.now() / 1000;
+    return { ...r, ...(ok ? {} : { error: 'rate-limit state wrong: ' + JSON.stringify(r) }) };
+  `);
+  await themedShot(s, 'm10c-explore-ratelimit');
+  {
+    const before = netLog().length;
+    await step(s, 'X7 Explore: while limited, a saved page still opens with the banner (no request)', `
+      await go('#/explore/e2e/explored');
+      await until(() => $('[data-testid="explore-header"]'), 15000);
+      await until(() => $$('[data-testid="file-table"] [data-kind]').length >= 3, 15000);
+      await settle();
+      const bn = $('[data-testid="explore-rate-limit"]');
+      const r = { banner: !!bn, bannerText: txt(bn)?.slice(0, 160) ?? null, error: !!$('[data-testid="explore-error"]'), rows: $$('[data-testid="file-table"] [data-kind]').length, readme: !!$('.markdown') };
+      return { ...r, ...(r.banner && /Rate limit reached.*resets at \\d{1,2}[:.]\\d{2}/.test(r.bannerText ?? '') && !r.error && r.rows === 3 && r.readme ? {} : { error: 'saved page while limited: ' + JSON.stringify(r) }) };
+    `);
+    await themedShot(s, 'm10c-explore-banner');
+    const lines = netLog().slice(before);
+    record('X7 only the limited call reached GitHub (one request while limited)', { sinceLimit: netLog().slice(rl0).map((l) => l.split('\t').slice(0, 3).join(' ')), after: lines.length },
+      netLog().slice(rl0).filter((l) => l.includes('/repos/e2e/limited')).length === 1 && lines.length === 0 ? undefined : 'unexpected requests while limited');
+  }
+
+  // token: save (fake in-memory store), never shown, request now carries Authorization, identity reset, Remove
+  const tk0 = netLog().length;
+  await step(s, 'X8 Explore token: save -> Token saved (check), field gone, the secret nowhere in the page', `
+    const T = ${JSON.stringify(T)};
+    await go('#/settings');
+    const input = need(await until(() => $('[data-testid="explore-token-input"]'), 10000), 'token input');
+    const before = { limited: (await invoke('explore_status', {})).limitedUntil };
+    setValue(input, T);
+    await sleep(200);
+    const saveBtn = need($('[data-testid="explore-token-save"]'), 'Save token');
+    const enabledBeforeClick = !saveBtn.disabled;
+    saveBtn.click();
+    const saved = need(await until(() => $('[data-testid="explore-token-saved"]'), 10000), 'Token saved state');
+    await sleep(500);
+    const st = await invoke('settings_get', {});
+    const status = await invoke('explore_status', {});
+    const hay = {
+      html: document.documentElement.outerHTML, text: document.body.innerText, href: location.href, state: JSON.stringify(history.state),
+      local: JSON.stringify({ ...localStorage }), session: JSON.stringify({ ...sessionStorage }), inputs: $$('input, textarea').map((i) => i.value).join('|'),
+      settings: JSON.stringify(st), status: JSON.stringify(status), msg: txt($('[data-testid="explore-token-msg"]')) ?? '',
+    };
+    const leaks = Object.entries(hay).filter(([, v]) => v.includes(T)).map(([k]) => k);
+    const r = {
+      savedText: txt(saved)?.slice(0, 60), inputGone: !$('[data-testid="explore-token-input"]'), removeShown: !!$('[data-testid="explore-token-remove"]'), enabledBeforeClick,
+      settingsSaved: st.githubTokenSaved, statusSaved: status.tokenSaved, limitedBefore: before.limited != null, limitedAfter: status.limitedUntil, core: status.core ? status.core.remaining + '/' + status.core.limit : null,
+      leaks, msg: hay.msg.slice(0, 80),
+    };
+    const ok = /Token saved/.test(r.savedText ?? '') && r.inputGone && r.removeShown && r.enabledBeforeClick && r.settingsSaved === true && r.statusSaved === true
+      && r.limitedBefore && r.limitedAfter == null && r.core === '4999/5000' && !leaks.length;
+    return { ...r, ...(ok ? {} : { error: 'token save wrong: ' + JSON.stringify(r) }) };
+  `);
+  await themedShot(s, 'm10c-explore-settings', "document.querySelector('[data-testid=\"explore-settings\"]').scrollIntoView({ block: 'start' });");
+  await step(s, 'X8 Explore token: with a token the page loads again (limit state reset), quota strip says token in use', `
+    await go('#/explore/e2e/explored');
+    await until(() => $('[data-testid="explore-header"]'), 15000);
+    await until(() => $$('[data-testid="file-table"] [data-kind]').length >= 3, 15000);
+    await settle();
+    const bar = txt($('[data-testid="explore-quota"]')) ?? '';
+    const r = { bar: bar.slice(0, 160), limited: !!$('[data-testid="explore-rate-limit"]'), error: !!$('[data-testid="explore-error"]'), rows: $$('[data-testid="file-table"] [data-kind]').length, tokenInUse: /token in use/.test(bar), text: document.body.innerText.includes(${JSON.stringify(T)}) };
+    return { ...r, ...(r.tokenInUse && !r.limited && !r.error && r.rows === 3 && !r.text ? {} : { error: 'page with token wrong: ' + JSON.stringify(r) }) };
+  `);
+  {
+    const lines = api(tk0);
+    const probe = lines.filter((l) => l.split('\t')[1] === 'https://api.github.com/rate_limit');
+    const repo = lines.filter((l) => l.split('\t')[1] === 'https://api.github.com/repos/e2e/explored');
+    record('X8 after saving, GitHub requests carry Authorization (only to api.github.com)', { probe: probe.length, repo: repo.length, requests: lines.length },
+      probe.length !== 1 || !hasAuth(probe[0]) ? 'the /rate_limit probe was not sent with the token' : !repo.length || !repo.every(hasAuth) ? 'the repo request after the token was not authenticated'
+        : netLog().slice(tk0).some((l) => hasAuth(l) && !(l.split('\t')[1] ?? '').startsWith('https://api.github.com/')) ? 'Authorization sent to another host' : undefined);
+  }
+  const rm0 = netLog().length;
+  await step(s, 'X8 Explore token: Remove brings the field back, the saved flag is false', `
+    await go('#/settings');
+    need(await until(() => $('[data-testid="explore-token-remove"]'), 10000), 'Remove').click();
+    const input = need(await until(() => $('[data-testid="explore-token-input"]'), 10000), 'token input again');
+    await sleep(400);
+    const st = await invoke('settings_get', {});
+    const status = await invoke('explore_status', {});
+    const r = { empty: input.value === '', savedGone: !$('[data-testid="explore-token-saved"]'), settingsSaved: st.githubTokenSaved, statusSaved: status.tokenSaved, msg: txt($('[data-testid="explore-token-msg"]'))?.slice(0, 60), cacheEntries: status.cacheEntries };
+    return { ...r, ...(r.empty && r.savedGone && r.settingsSaved === false && r.statusSaved === false && r.cacheEntries === 0 ? {} : { error: 'token remove wrong: ' + JSON.stringify(r) }) };
+  `);
+  await step(s, 'X8 Explore token: after Remove, requests are anonymous again', `
+    await go('#/explore/e2e/explored');
+    await until(() => $$('[data-testid="file-table"] [data-kind]').length >= 3, 15000);
+    await settle();
+    return { bar: txt($('[data-testid="explore-quota"]'))?.slice(0, 120) };
+  `);
+  {
+    const lines = api(rm0);
+    record('X8 after Remove, requests carry no Authorization', { requests: lines.length }, !lines.length ? 'no request after Remove (the cache should have been cleared)' : lines.some(hasAuth) ? 'a request after Remove was authenticated' : undefined);
+  }
+
+  // Explore off / on
+  const off0 = netLog().length;
+  await step(s, 'X9 Settings -> Explore off: nav entry gone, pages say so, no request; back on', `
+    await go('#/settings');
+    const cb = need(await until(() => $('[data-testid="explore-enabled"]'), 10000), 'enable box');
+    cb.click();
+    await until(() => !$('[data-testid="nav-explore"]'), 5000);
+    await sleep(300);
+    const off = await invoke('settings_get', {});
+    await go('#/explore/e2e/explored');
+    const msg = need(await until(() => $('[data-testid="explore-off"]'), 10000), 'explore-off page');
+    await go('#/explore/search?q=explored');
+    await until(() => $('[data-testid="explore-off"]'), 5000);
+    await go('#/settings');
+    need(await until(() => $('[data-testid="explore-enabled"]'), 10000), 'enable box').click();
+    await until(() => $('[data-testid="nav-explore"]'), 5000);
+    await sleep(300);
+    const on = await invoke('settings_get', {});
+    const r = { offSaved: off.exploreEnabled, onSaved: on.exploreEnabled, offText: txt(msg)?.slice(0, 100), navBack: !!$('[data-testid="nav-explore"]') };
+    return { ...r, ...(r.offSaved === false && r.onSaved === true && r.navBack ? {} : { error: 'off/on wrong: ' + JSON.stringify(r) }) };
+  `);
+  record('X9 Explore off made no GitHub request', { requests: netLog().slice(off0).length }, netLog().slice(off0).length ? 'requests while Explore was off: ' + netLog().slice(off0).join(' | ') : undefined);
+
+  // Clear Explore cache
+  await step(s, 'X10 Settings -> Clear Explore cache empties the saved answers', `
+    await go('#/explore/e2e/explored');
+    await until(() => $$('[data-testid="file-table"] [data-kind]').length >= 3, 15000);
+    await settle();
+    await go('#/settings');
+    const size = need(await until(() => $('[data-testid="explore-cache-size"]'), 10000), 'cache size');
+    await sleep(400);
+    const before = txt(size);
+    need($('[data-testid="explore-cache-clear"]'), 'Clear Explore cache').click();
+    const msg = need(await until(() => $('[data-testid="explore-cache-msg"]'), 10000), 'cleared message');
+    await sleep(300);
+    const status = await invoke('explore_status', {});
+    const r = { before: before.slice(0, 60), msg: txt(msg), after: txt($('[data-testid="explore-cache-size"]'))?.slice(0, 60), entries: status.cacheEntries };
+    return { ...r, ...(/[1-9]\\d* saved answers?/.test(r.before) && /Cleared [1-9]\\d* saved answers?/.test(r.msg) && /^0 saved answers/.test(r.after) && r.entries === 0 ? {} : { error: 'cache clear wrong: ' + JSON.stringify(r) }) };
+  `);
+
+  // the fake token must be in no log written so far (the DB and every file are scanned after the run by run-e2e.ps1)
+  {
+    const logs = [netLog().join('\n'), existsSync(cfg.openLog) ? readFileSync(cfg.openLog, 'utf8') : '', existsSync(cfg.trashLog) ? readFileSync(cfg.trashLog, 'utf8') : ''];
+    record('X11 the token is in none of the e2e logs', { logs: logs.length }, logs.some((l) => l.includes(T)) ? 'token found in a log' : undefined);
+    const unrouted = N(/./).filter((l) => l.endsWith('\tunrouted'));
+    record('X11 every Explore request had a canned route', { unrouted }, unrouted.length ? 'unrouted: ' + unrouted.join(', ') : undefined);
+  }
 }
 
 async function main() {
@@ -960,6 +1386,10 @@ async function main() {
     const rev = readFileSync(cfg.openLog, 'utf8').slice(o0).split(/\r?\n/).filter((l) => l.startsWith('reveal\t'));
     record('clone download revealed', { rev }, rev.length === 1 && rev[0].toLowerCase().endsWith(NET.demoWin.toLowerCase()) ? undefined : 'no reveal line for the download');
   }
+
+  // ---- v0.3.0 (M10a/M10b): Explore in the real app, all answers canned (RS_E2E_NET); the e2e build has the in-memory
+  // credential store, so the token never reaches the real Credential Manager ----
+  await exploreFlows(s);
 
   // ---- Console / CSP: positive control, then the collected messages ----
   await step(s, 'CSP collector positive control', `

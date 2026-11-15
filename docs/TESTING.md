@@ -13,21 +13,21 @@ $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Env
 
 | What | Command | Notes |
 |---|---|---|
-| Rust, everything | `cargo test --workspace --all-features` | rs-core (incl. testkit + ghreleases), src-tauri commands (incl. the e2e seams), rs-cli. No network: clones/fetches use `file://` through the unchecked seam; every HTTP request (GitHub info / notes / assets, README images) goes to `Net::offline()` or canned answers (`net::Canned`). One live GitHub smoke is `#[ignore]` (opt-in, never run by the agents). |
+| Rust, everything | `cargo test --workspace --all-features` | rs-core (incl. testkit + ghreleases), src-tauri commands (incl. the e2e seams), rs-cli. No network: clones/fetches use `file://` through the unchecked seam; every HTTP request (GitHub info / notes / assets, README images) goes to `Net::offline()` or canned answers (`net::Canned`). One live GitHub smoke is `#[ignore]` (opt-in, never run by the agents). Explore (v0.3.0) tests use canned GitHub JSON and the in-memory credential store (`explore::cred::MemoryStore`); the second `#[ignore]` test, `real_credential_manager_round_trip`, writes one throw-away entry to the REAL Windows Credential Manager (hand test, §5). |
 | Rust, shipped feature sets | `cargo test -p reposhelf` · `cargo test -p reposhelf --features e2e` · `cargo test -p reposhelf --no-default-features` | default = `ghreleases`; off → `releases_fetch_github` answers `unsupported`. |
 | Lints | `cargo clippy --workspace --all-targets -- -D warnings` · `cargo clippy -p reposhelf --all-targets --features e2e -- -D warnings` | |
 | TypeScript | `npm run typecheck` · `npm test` | vitest + happy-dom; `types.test.ts` checks the committed IPC golden `src/ipc/__samples__/ipc-samples.json` (`UPDATE_SAMPLES=1 cargo test -p reposhelf ipc_samples` rewrites it). |
 | UI build + bundle size | `npm run build`, then the initial-JS check of TASKS Gate M5 (< 1.5 MB, NFR-P8) | |
 | Read-model performance | `cargo run -p rs-cli --release -- fixtures target\scratch\bench` then `cargo run -p rs-cli --release -- bench target\scratch\bench` | Exit 1 on a missed target (NFR-P2/P3/P5/P6, 400-file diff). Delete the scratch folder afterwards. |
 
-The full gate per milestone is in `docs/TASKS.md` (Gate M0 … Gate M9, Gate M13 for v0.2.0); each later gate repeats the earlier commands.
+The full gate per milestone is in `docs/TASKS.md` (Gate M0 … Gate M9, Gate M13 for v0.2.0, Gate M10c for v0.3.0); each later gate repeats the earlier commands.
 
 ## 2. Mock UI in a browser (no backend)
 
 `npm run dev` → `http://localhost:1450/` (launch config `reposhelf-mock` in `.claude/launch.json`). Without
 `__TAURI_INTERNALS__` the app loads the mock backend (`src/ipc/mock/`, invented data). Switches go in the page query
 before the `#`: `?empty`, `?slow`, `?huge`, `?clonefail`, `?fetchfail`, `?gh` (GitHub release lists already cached,
-so the Releases page shows assets at once) — e.g. `http://localhost:1450/?huge#/northwind/parsekit`.
+so the Releases page shows assets at once), `?ratelimit` (Explore starts with 2 requests left, then answers as rate-limited) — e.g. `http://localhost:1450/?huge#/northwind/parsekit`.
 The route × theme × switch list to check is `tools/shots/mock-shots.md`. Stop the dev server by process tree
 (`taskkill /T /F /PID <pid>`).
 
@@ -51,8 +51,10 @@ client answers every request — GitHub info, release lists, asset downloads, RE
 fails as "no canned answer", so an e2e run has no path to the internet), `RS_E2E_NET_LOG` (one line per request,
 `get\t<url>\t<status|unrouted>`) and `RS_E2E_GIT_MAP` (`<https URL>=<file:// URL>;…`: a Clone / Fetch of a mapped
 github.com repo downloads from a local upstream and keeps its https origin; every other non-`file:` git remote is
-refused unless the list contains `!live`). `run-e2e.ps1` refuses an e2e exe without the trash, network or git-map
-seam — rebuild it after pulling changes.
+refused unless the list contains `!live`). Since M10c (D-133, D-134) the same canned transport answers the Explore flows, a net-log
+line gets a `\tauth` field when the request carried an `Authorization` header (never its value), and the e2e build's credential
+store is the in-memory fake (D-117), so the run can never write to the real Credential Manager. `run-e2e.ps1` refuses an e2e exe
+without the trash, network or git-map seam — rebuild it after pulling changes.
 
 ### Run (M8.2–M8.5)
 
@@ -66,13 +68,16 @@ powershell -ExecutionPolicy Bypass -File tools\e2e\check-e2e.ps1
    the basic fixture registered with `rs fixtures --register 50`, plus `align`: `tests\fixtures\align\README.md` with
    its images and one failing remote image, committed with the git CLI), and `up\demo-upstream` (a small git repo,
    isolated git config) as the `file://` clone source and as the local upstream of the mapped
-   `https://github.com/e2e/demo-upstream`; sets `RS_E2E_NET` / `RS_E2E_NET_LOG` / `RS_E2E_GIT_MAP` (wd-e2e writes the
-   routes file before the first app start);
+   `https://github.com/e2e/demo-upstream` and of `https://github.com/e2e/explored` (the Explore Save-to-shelf target); sets
+   `RS_E2E_NET` / `RS_E2E_NET_LOG` / `RS_E2E_GIT_MAP` (wd-e2e writes the routes file before the first app start) and the fake
+   GitHub token the harness types into Settings;
 2. hashes the `.git` + work tree of the 9 fixtures the UI will import;
 3. starts tauri-driver on a free port (msedgedriver from user env `MSEDGEDRIVER`, tauri-driver from
    `C:\Dev\tools\cargo\bin`) and runs `tools\e2e\wd-e2e.mjs`;
 4. kills the whole driver tree (`taskkill /T /F`), then anything else it saw start, and counts leftovers (must be 0);
-5. re-hashes the imported fixtures (must be equal: the run never writes into an imported repo, NFR-O2) and writes
+5. scans every file of the scratch data dir (SQLite + WAL, WebView profile) and archive, the net / open / trash logs and
+   `result.json` for the fake token (`tools\e2e\scan-secret.mjs`: UTF-8 and UTF-16LE, with a control string that must be found);
+6. re-hashes the imported fixtures (must be equal: the run never writes into an imported repo, NFR-O2) and writes
    `target\e2e\run.json`; removes the scratch folder unless `-Keep` or something was left running.
 
 `wd-e2e.mjs` (results in `target\e2e\result.json`, screenshots in `target\e2e\shots\`):
@@ -111,8 +116,24 @@ powershell -ExecutionPolicy Bypass -File tools\e2e\check-e2e.ps1
   unchecked (GitHub info fetched, nothing downloaded), then Fetch ▾ "Fetch and download the latest release" (file in
   the store) and Show in folder on its Releases page. Two extra screenshots per theme (`m13-release-assets`,
   `m13-align-readme`).
+- **v0.3.0 Explore (M10c), all against canned GitHub answers** (steps `X0`–`X11`, D-133..D-136): Settings → Explore defaults
+  (`exploreEnabled` true, `githubTokenSaved` false, the field is a password input); nav entry → search `explored` (nothing
+  requested before Enter, one canned search request, "9 of 10 searches left", two results with Open / Save, direct open) →
+  Open; the cold repository page (files, rendered README, About, "55 of 60 requests left", "Add a token", every link under
+  `#/explore/`) costs exactly the 5 requests of D-124; folder, file view, history, a commit with its diff, Branches, Tags,
+  Releases (assets listed, no Download); a file over 1 MB (GitHub's 403 `too_large` contents answer) → "Too large to preview
+  online — Save to shelf"; an unknown repository (404 + token hint); Save to shelf with "without downloading a release" →
+  the clone job through the git map → "On your shelf" → Open in shelf → the shelf page (nothing downloaded); a rate-limit 403
+  (`remaining: 0`) → full-page state with the reset time, then a saved page still opens under the banner "Rate limit reached,
+  resets at HH:MM" without any request; Settings → paste the fake token → field gone, "Token saved ✓", the string in no
+  page text / HTML / URL / history / storage / input / `settings_get` / `explore_status`, the limit state lifted, the next
+  requests (the `/rate_limit` probe, the repo page) carry `Authorization` and only to api.github.com, Remove brings the field
+  back and the requests are anonymous again; Explore off → nav entry gone, pages say so, zero requests; Clear Explore cache →
+  "Cleared N saved answers", 0 left. 12 more screenshots (`m10c-explore-search|code|toolarge|ratelimit|banner|settings`, light and dark;
+  `banner` = a saved page under the rate-limit strip). After the run `run.json` carries `secretScan` (files / bytes scanned, hits, control hits) and
+  `check-e2e.ps1` fails on a hit, a missing control, an `Authorization` to another host, or no authenticated request at all.
 - **Rust-side requests**: `run.json` carries the net log; `check-e2e.ps1` requires at least one canned api.github.com
-  answer, zero unrouted requests and only the hosts the routes know. Together with "no foreign requests" from the
+  answer, zero unrouted requests and only the hosts the routes know (Explore only ever uses api.github.com). Together with "no foreign requests" from the
   webview, the default run makes no request outside the machine.
 
 ### Network run (M8.8, opt-in)
@@ -131,13 +152,17 @@ is a hand step.
 ## 4. Release build (M9)
 
 ```powershell
-npm run build:installer     # target\release\bundle\nsis\RepoShelf_0.2.0_x64-setup.exe  (built only, never run by an agent)
-npm run build:portable      # target\release\portable\RepoShelf_0.2.0_x64-portable.exe
+npm run build:installer     # target\release\bundle\nsis\RepoShelf_0.3.0_x64-setup.exe  (built only, never run by an agent)
+npm run build:portable      # target\release\portable\RepoShelf_0.3.0_x64-portable.exe
 ```
 
-- Marker check (D-14, D-26, D-84, D-113): `Select-String -SimpleMatch -Quiet` for `RS_TEST_FILE_CLONE` and `RS_E2E_` (covers `RS_E2E_NET` and `RS_E2E_GIT_MAP`) must be
-  false on `target\release\reposhelf.exe` (the installer's payload is compressed, so checking the setup exe proves
-  little) and on the portable exe; the e2e exe is the positive control (both true). `build:portable` fails on a hit.
+- Marker check (D-14, D-26, D-84, D-113, D-135): `node tools\check-shipped.mjs target\release\reposhelf.exe target\release\portable\RepoShelf_0.3.0_x64-portable.exe --e2e target\e2e\release\reposhelf.exe`.
+  `RS_TEST_FILE_CLONE` and `RS_E2E_` (covers `RS_E2E_NET` and `RS_E2E_GIT_MAP`) must be absent from both shipped exes (the
+  installer's payload is compressed, so checking the setup exe proves little; `target\release\reposhelf.exe` is the binary it
+  packs), and since v0.3.0 the REAL credential store must be present (the text `Windows Credential Manager failed` of
+  `cred::fail`; a build with `testkit` unified in silently gets the in-memory fake and a token that vanishes at restart). The
+  e2e exe is the control in both directions: seams present, real store absent. `build:portable` fails on a seam hit or a missing
+  real store.
 - Portable smoke (agent, M9.4): start the portable exe with scratch `RS_DATA_DIR` / `RS_ARCHIVE_DIR` and
   `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=<free port>`, move its window to −32000,−32000 with
   `SetWindowPos` as soon as it exists (a shipped exe has no off-screen seam, so it shows centred for ~0.1–0.3 s), read
@@ -156,20 +181,56 @@ set to empty scratch folders:
 
 ```powershell
 $env:RS_DATA_DIR = 'C:\Dev\projects\repo-shelf\target\scratch\hand\data'; $env:RS_ARCHIVE_DIR = 'C:\Dev\projects\repo-shelf\target\scratch\hand\archive'
-& .\target\release\portable\RepoShelf_0.2.0_x64-portable.exe
+& .\target\release\portable\RepoShelf_0.3.0_x64-portable.exe
 ```
 
-- [ ] **Installer (yours to run)**: `RepoShelf_0.2.0_x64-setup.exe` → Start menu entry starts the app → it uses
+- [ ] **Installer (yours to run)**: `RepoShelf_0.3.0_x64-setup.exe` → Start menu entry starts the app → it uses
       `%LOCALAPPDATA%\dev.schwi.reposhelf` → Settings → Apps → RepoShelf → Uninstall removes the program, keeps the
       data. SmartScreen asks once (unsigned).
-- [ ] **Upgrade over 0.1.0 (yours to run)**: with 0.1.0 installed and your shelf in use, run the 0.2.0 setup. After
-      it, Settings shows "RepoShelf 0.2.0", every repository, your edited About values, Recent and the theme are still
-      there, and Settings → Network shows the defaults (all on except "Also download on Fetch all", limit 1024 MB).
+- [ ] **Upgrade over 0.2.0 / 0.1.0 (yours to run)**: with the old version installed and your shelf in use, run the 0.3.0
+      setup. After it, Settings shows "RepoShelf 0.3.0", every repository, your edited About values, downloaded releases,
+      Recent and the theme are still there, Settings → Network shows your values (defaults: all on except "Also download on
+      Fetch all", limit 1024 MB) and Settings → Explore shows "Enable Explore" ticked and an empty token field.
 - [ ] **Network adapter off (NFR-O1, needs admin)**: import two local repos, then turn the network adapter off
       (Settings → Network & internet → Wi-Fi/Ethernet off, or airplane mode). Restart the app and browse every tab of
       both repos, open files, commits and a commit page. Everything works; no error mentions the network. Only
       Fetch / Clone / GitHub info, notes and downloads may fail, with a readable "Could not reach …" note; README
       images seen before still show (cache), new ones show as chips. Turn the adapter back on.
+
+v0.3.0 hand tests — Explore (real GitHub and the real Credential Manager; every agent run used canned answers and an in-memory
+token store):
+
+- [ ] **Browse online (real GitHub)**: header → Explore → search a project you know (press Enter), Open it. Code tab, a file, the
+      README (images follow Settings → Network), Commits → a commit with its diff, Branches, Tags, Releases (assets listed,
+      no Download online) all open; the strip shows "N of 60 requests left" and "resets HH:MM". A cold repository costs 5
+      requests (the number drops by about 5, then by 1 for a folder or file you open). Open the same repository again: no drop.
+- [ ] **Rate limit (real GitHub)**: open many different repositories (or clear the cache and repeat) until the strip says
+      "Rate limit reached, resets at HH:MM": pages you opened before still open ("Saved data from HH:MM"), a new repository
+      shows the full-page state with the reset time, nothing crashes, and after the reset time browsing works again. Searches
+      have their own bucket (10 a minute).
+- [ ] **Too large / big repositories**: a file over 1 MB in a real repository shows "Too large to preview online — Save to shelf";
+      a repository with a huge README or a file list over 1,000 entries still renders; an empty repository (no commits) and a
+      repository with a submodule folder: note what the Code tab shows (both unverified against real GitHub, M10a notes).
+- [ ] **Save to shelf (real clone)**: on an Explore page "Save to shelf" starts a background clone with progress in the jobs
+      popover; afterwards the page says "On your shelf" and "Open in shelf" opens the cloned copy. The ▾ option "Save without
+      downloading a release" starts no download job. A repository already on the shelf shows "On your shelf" at once.
+- [ ] **Token in Credential Manager**: Settings → Explore → paste a GitHub token (a classic token with no scopes is enough) →
+      the field disappears and shows "Token saved ✓" + Remove; the strip says "token in use" and shows "… of 5,000"; open
+      Windows **Credential Manager** → Windows Credentials → a generic entry `github-token` / `dev.schwi.reposhelf` exists
+      (its value is the token). Close and start the app again: still "Token saved ✓". Remove → the field returns and the
+      Credential Manager entry is gone. The token string appears nowhere in the app's window, in `reposhelf.db` or in files
+      under your data / archive folders.
+- [ ] **A refused token**: paste an invented token (`ghp_abc`) → "GitHub did not accept this token" and an empty field; a
+      token for private repositories lets Explore open a private repository you can read (and without it the 404 page
+      mentions that private repositories need a token).
+- [ ] **The ignored Credential Manager test (writes one throw-away entry, own target `dev.schwi.reposhelf.handtest`, never the
+      app's)**: `cargo test -p rs-core --features ghreleases -- --ignored real_credential_manager_round_trip` → ok, and
+      afterwards no `dev.schwi.reposhelf.handtest` entry remains in Credential Manager.
+- [ ] **Explore off / Clear cache**: Settings → Explore → untick "Enable Explore": the header entry disappears, an
+      `#/explore/…` address says Explore is off, no network traffic (watch with a firewall / Resource Monitor if you like).
+      "Clear Explore cache" reports the number of saved answers removed and the size shows 0.
+- [ ] **Offline Explore**: with the network adapter off, a repository you opened before still opens with "Saved data from
+      HH:MM (no connection)"; a new one says GitHub cannot be reached with a way to retry.
 
 v0.2.0 hand tests (real GitHub; the agents' runs used canned answers only):
 

@@ -144,7 +144,7 @@ export function createMockBackend(search: string, opts: { tickMs?: number } = {}
     return r;
   };
   const appInfo = (): AppInfo => ({
-    version: '0.2.0',
+    version: '0.3.0',
     dataDir: DATA_DIR,
     archiveDir: ARCHIVE_DIR,
     cacheBytes,
