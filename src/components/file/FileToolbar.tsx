@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { blobSaveAs } from '../../ipc/api';
 import { errorText } from '../../ipc/errors';
 import type { BlobMeta } from '../../ipc/types';
+import type { RepoSource } from '../../source';
 import { copyLocation } from '../../router/router';
 import { Link } from '../../router/Link';
 import { formatBytes, formatCount } from '../../util/format';
@@ -15,7 +16,7 @@ import { CopyButton } from '../ui/CopyButton';
 export type FileMode = 'preview' | 'code' | 'raw';
 
 export interface FileToolbarProps {
-  repoId: number;
+  src: RepoSource;
   commit: string;
   meta: BlobMeta;
   mode: FileMode;
@@ -26,7 +27,7 @@ export interface FileToolbarProps {
   hasSelection: boolean;
 }
 
-export function FileToolbar({ repoId, commit, meta, mode, modes, text, hasSelection }: FileToolbarProps) {
+export function FileToolbar({ src, commit, meta, mode, modes, text, hasSelection }: FileToolbarProps) {
   const [saved, setSaved] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
@@ -79,21 +80,23 @@ export function FileToolbar({ repoId, commit, meta, mode, modes, text, hasSelect
       )}
       <div className="btn-group">
         {text !== null && <CopyButton text={text} label="Copy raw file" variant="default" />}
-        <Button
-          size="sm"
-          icon={Download}
-          label="Save a copy…"
-          onClick={async () => {
-            setError(null);
-            setSaved(null);
-            try {
-              const p = await blobSaveAs(repoId, commit, meta.path);
-              if (p) setSaved(p);
-            } catch (e) {
-              setError(errorText(e));
-            }
-          }}
-        />
+        {typeof src.key === 'number' && !src.explore && (
+          <Button
+            size="sm"
+            icon={Download}
+            label="Save a copy…"
+            onClick={async () => {
+              setError(null);
+              setSaved(null);
+              try {
+                const p = await blobSaveAs(src.key as number, commit, meta.path);
+                if (p) setSaved(p);
+              } catch (e) {
+                setError(errorText(e));
+              }
+            }}
+          />
+        )}
       </div>
     </div>
   );

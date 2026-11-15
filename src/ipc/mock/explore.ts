@@ -20,6 +20,8 @@ import { genericRepo } from './fixtures';
 import { MockRepo } from './repoModel';
 
 const PAGE = 35;
+/** The contents API serves files up to 1 MB (D-124): above that only metadata. */
+const ONLINE_MAX = 1024 * 1024;
 const OWNER_RE = /^(?!-)[A-Za-z0-9-]{1,39}$/;
 const REPO_RE = /^(?!-)[A-Za-z0-9._-]{1,100}$/;
 /** Names that behave like GitHub answers: 404 (private or missing). */
@@ -53,6 +55,8 @@ export class MockExplore {
   private stale: { fetchedAt: number; reason: 'rateLimited' | 'offline' } | null = null;
   private readonly online = new Map<string, MockRepo>();
   private nextId = 900;
+  private searchesLeft = 10;
+  private searchSeen = false;
 
   constructor(
     private readonly host: ExploreHost,
@@ -71,12 +75,17 @@ export class MockExplore {
   /** One request's worth of quota; the same request again is served from the saved answers for free. */
   private spend(key: string): void {
     this.guard();
-    if (this.seen.has(key)) return;
     if (this.limitedUntil !== null && this.limitedUntil > this.host.now()) {
+      // while limited, a request that was answered before is served from the saved copy (marked stale)
+      if (this.seen.has(key)) {
+        this.stale = { fetchedAt: this.host.now() - 420, reason: 'rateLimited' };
+        return;
+      }
       // a saved answer would have been served; nothing is saved for a new request
       const mins = Math.max(1, Math.ceil((this.limitedUntil - this.host.now()) / 60));
       throw ipcError('rateLimited', `GitHub's request limit is used up; it resets in about ${mins} min`);
     }
+    if (this.seen.has(key)) return;
     this.seen.add(key);
     this.remaining = Math.max(0, this.remaining - 1);
     if (this.remaining === 0) this.limitedUntil = this.resetAt;
@@ -106,7 +115,16 @@ export class MockExplore {
     const id = `${owner}/${name}`.toLowerCase();
     const known = this.shelfMatch(owner, name) ?? this.online.get(id);
     if (known) return known;
-    const r = new MockRepo(genericRepo(this.nextId++, owner, name, 'cloned', `online:${id}`, `https://github.com/${owner}/${name}.git`));
+    const def = genericRepo(this.nextId++, owner, name, 'cloned', `online:${id}`, `https://github.com/${owner}/${name}.git`);
+    // something to show online: a file over GitHub's 1 MB contents limit, two version tags (Tags / Releases tabs)
+    def.files['data/big-dump.csv'] = { bigText: { lines: 30_000, seed: 'dump', bytes: 1_500_000 } };
+    def.tags = [
+      { name: 'v1.1.0', at: 2 },
+      { name: 'v1.0.0', at: 9 },
+    ];
+    def.summary.description = def.summary.description ?? `${name}: a demo repository served by the mock Explore backend.`;
+    def.summary.topics = def.summary.topics.length > 0 ? def.summary.topics : ['demo', 'mock'];
+    const r = new MockRepo(def);
     this.online.set(id, r);
     return r;
   }
@@ -172,7 +190,7 @@ export class MockExplore {
       available: true,
       tokenSaved: this.tokenSaved,
       core: this.seen.size > 0 || this.tokenSaved ? this.quota('core', lim, Math.max(0, lim - used), this.resetAt) : null,
-      search: null,
+      search: this.searchSeen ? this.quota('search', 10, this.searchesLeft, this.host.now() + 60) : null,
       limitedUntil: limited,
       searchLimitedUntil: null,
       stale: limited !== null && this.stale ? this.stale : null,
@@ -195,6 +213,10 @@ export class MockExplore {
       out.push(this.toRepo(r, o, n));
     }
     return out;
+  }
+
+  private online1MB<M extends { size: number; displayable: boolean; highlight: boolean }>(m: M): M {
+    return m.size > ONLINE_MAX ? { ...m, displayable: false, highlight: false } : m;
   }
 
   handlers(): H {
@@ -269,12 +291,13 @@ export class MockExplore {
       explore_blob_meta: ({ owner, name, rev, path }) => {
         e.rev(rev);
         e.path(path);
-        return e.repo(owner, name, k('blob', owner, name, rev, path)).meta(rev, path);
+        return e.online1MB(e.repo(owner, name, k('blob', owner, name, rev, path)).meta(rev, path));
       },
       explore_blob_text: ({ owner, name, rev, path }) => {
         e.rev(rev);
         e.path(path);
-        return e.repo(owner, name, k('blob', owner, name, rev, path)).blobText(rev, path);
+        const t = e.repo(owner, name, k('blob', owner, name, rev, path)).blobText(rev, path);
+        return { meta: e.online1MB(t.meta), text: t.meta.size > ONLINE_MAX ? null : t.text };
       },
       explore_blob_bytes: ({ owner, name, rev, path }) => {
         e.rev(rev);
@@ -305,6 +328,11 @@ export class MockExplore {
         if (q.length === 0 || q.length > 256 || /[\u0000-\u001f]/.test(q)) throw ipcError('invalidInput', 'Enter 1–256 characters to search for.');
         if (page < 1 || page > 34) throw ipcError('invalidInput', 'GitHub only shows the first 34 search pages.');
         if (sort !== null && !['stars', 'forks', 'updated', 'help-wanted-issues'].includes(sort)) throw ipcError('invalidInput', 'Unknown sort order.');
+        if (!e.seen.has(k('search', q, sort, page))) {
+          if (e.searchesLeft === 0) throw ipcError('rateLimited', 'GitHub search limit reached; try again in a minute');
+          e.searchesLeft -= 1;
+          e.searchSeen = true;
+        }
         e.spend(k('search', q, sort, page));
         const words = q.toLowerCase().split(/\s+/).filter((w) => !w.includes(':'));
         let items = e.searchItems().filter((r) => words.every((w) => `${r.fullName} ${r.description ?? ''} ${r.topics.join(' ')}`.toLowerCase().includes(w)));

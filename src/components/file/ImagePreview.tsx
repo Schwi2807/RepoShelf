@@ -3,11 +3,11 @@
 
 import { ImageOff } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { blobBytes } from '../../ipc/api';
 import { errorText } from '../../ipc/errors';
+import type { RepoSource } from '../../source';
 import { Shimmer } from '../ui/bits';
 
-export function ImagePreview({ repoId, commit, path, mime, name }: { repoId: number; commit: string; path: string; mime: string; name: string }) {
+export function ImagePreview({ src, commit, path, mime, name }: { src: RepoSource; commit: string; path: string; mime: string; name: string }) {
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dims, setDims] = useState<string | null>(null);
@@ -17,7 +17,7 @@ export function ImagePreview({ repoId, commit, path, mime, name }: { repoId: num
     let made: string | null = null;
     setUrl(null);
     setError(null);
-    blobBytes(repoId, commit, path).then(
+    src.blobBytes(commit, path).then(
       (bytes) => {
         if (!alive) return;
         made = URL.createObjectURL(new Blob([bytes], { type: mime }));
@@ -31,7 +31,7 @@ export function ImagePreview({ repoId, commit, path, mime, name }: { repoId: num
       alive = false;
       if (made) URL.revokeObjectURL(made);
     };
-  }, [repoId, commit, path, mime]);
+  }, [src, commit, path, mime]);
 
   if (error) {
     return (

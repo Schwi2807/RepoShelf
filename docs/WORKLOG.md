@@ -1137,3 +1137,42 @@ New TS types: `ExploreRepo`, `ExploreRefs`, `ExploreSearch`, `ExploreSort`, `Quo
 - M10c shipped-exe check: a build with `testkit` unified in silently gets the in-memory token store (token shows as saved, gone
   after a restart). Assert that the shipped exe has the real store (e.g. the string `Windows Credential Manager failed` and the
   `windows-native-keyring-store` symbols present, `MemoryStore` absent) — the e2e build is expected to have the fake.
+
+## M10b — v0.3.0 Explore frontend (2026-11-15)
+
+One implementer; TASKS "v0.3.0 — M10b". Decisions D-127..D-132. No Rust change (cargo gates re-run, unchanged: reposhelf 56,
+rs-core 204 + 2 integration, 2 ignored). Final commit tagged `m10b-done`.
+
+**Done**
+- Routes: `RouteParams.explore`, `exploreSearch` (`#/explore`, `#/explore/search?q=&sort=&page=`), every repo route under `#/explore/…`.
+- `src/source/index.ts` (`RepoSource`: local + explore), `RepoContext` reshaped (`src`, `explore`, `local`, `online`); the shelf screens
+  (Code, File, README, Commits, Commit, Releases, ref switcher, About languages, markdown images) read through it. All 621 earlier
+  tests passed unchanged after the refactor.
+- New: `components/explore/` (ExploreLayout + header, QuotaBar, SaveToShelf, ExploreAbout, ExploreCodeMenu, OnlineRefs = Branches /
+  Tags, ExploreErrors), `screens/ExploreSearch`, `screens/Settings/ExploreSettings`, `state/explore.ts`, `styles/explore.css`,
+  nav entry "Explore" (hidden when off), `query.purge`. Mock: 1 MB rule, stale, search quota, tags / big file on generated repos.
+- Tests: `src/explore.test.tsx` (12): routes, nav + off switch (no `explore_*` besides status), cold page = 55 of 60 left, link /
+  repoId sweeps on every Explore tab, too-large placeholder, Save → Open in shelf, search on submit only + direct open, rate limit,
+  token never in DOM / URL / history / storage / other IPC args, Clear Explore cache. `npm test` 633 (30 files); typecheck, build,
+  `cargo test --workspace`, clippy -D warnings (default, `--features e2e`, `--no-default-features`) all rc 0.
+- Browser check (hidden `npm run dev` via preview_start "reposhelf-ui", headless Edge, scratch profile, 1280 px, light + dark):
+  `docs/screenshots/m10b-{search,code,file,toolarge,ratelimit,settings}-{light,dark}.png`; pane console: no errors. Server and Edge
+  killed by tree, 0 leftovers (one foreign node.exe from another session was left alone).
+
+**Deviations / notes**
+- `.claude/launch.json` gained a `reposhelf-ui` entry (same command as `reposhelf-mock`).
+- Online Branches / Tags rows have no last commit or ahead/behind (D-128); the code tab has no per-file last commit (a hint says so).
+- Not verified against real GitHub: a tag route ref `refs/tags/<name>` passed as the `sha=` of `commits?…` (the shelf's routing
+  convention is kept online); an empty online repository surfaces as the resolve error of the Code tab.
+
+**Handoff for M10c (real-app run)** — selectors (all `data-testid`): `nav-explore`; `explore-search-form`, `explore-search-input`,
+`explore-results`, `explore-result` (`data-repo`), `explore-open`, `explore-direct`; `explore-quota`, `explore-quota-remaining`
+("N of 60 requests left"), `explore-rate-limit`, `explore-stale`; `explore-header`, `explore-save`, `explore-saving`, `explore-saved`,
+`explore-open-in-shelf`; `explore-files-hint`, `online-branches`, `online-tags`, `explore-error` (`data-code`), `explore-off`;
+placeholder `[data-placeholder="large"]`; Settings: `explore-settings`, `explore-enabled`, `explore-token-input` (type password),
+`explore-token-save`, `explore-token-saved`, `explore-token-remove`, `explore-token-msg`, `explore-cache-clear`, `explore-cache-size`.
+Steps to cover: search → open → Code / file / commits / commit / branches / tags / releases; a cold page leaves 55 of 60 (canned
+routes as in the M10a handoff, plus `…/languages`); 403 with `x-ratelimit-remaining: 0` → banner "resets at"; token save → field
+gone, "Token saved ✓", the token string absent from page text / URL / exe logs, Remove; Explore off → nav entry gone; a file over
+1 MB → "Too large to preview online — Save to shelf"; Save to shelf with `RS_E2E_GIT_MAP` → job → Open in shelf. The wd-e2e Settings
+checks must learn `exploreEnabled` / `githubTokenSaved`. `run-e2e.ps1` was not run in M10b.

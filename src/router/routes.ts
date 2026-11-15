@@ -12,9 +12,12 @@ export type RouteName =
   | 'branches'
   | 'tags'
   | 'releases'
+  | 'exploreSearch'
   | 'notFound';
 
 export interface RouteParams {
+  /** v0.3.0 (D-127): the route is the same screen served from GitHub (`#/explore/<owner>/<repo>/…`). */
+  explore?: boolean;
   owner?: string;
   repo?: string;
   ref?: string;
@@ -44,6 +47,9 @@ export const PATTERNS: ReadonlyArray<readonly [Exclude<RouteName, 'notFound'>, s
   ['releases', '/:owner/:repo/releases'],
 ];
 
+/** The Explore search page (`#/explore`, `#/explore/search?q=`); matched before the repo patterns (D-127). */
+export const EXPLORE_SEARCH_PATH = '/explore/search';
+
 export const REPO_ROUTES: ReadonlySet<RouteName> = new Set([
   'code',
   'tree',
@@ -61,9 +67,21 @@ function splitPattern(p: string): string[] {
 
 const COMPILED = PATTERNS.map(([name, p]) => [name, splitPattern(p)] as const);
 
-/** Match decoded segments against the pattern table. */
+/** Match decoded segments against the pattern table. `explore/…` is the same table served from GitHub (D-127). */
 export function matchSegments(segs: string[]): { name: RouteName; params: RouteParams } {
+  if (segs[0] === 'explore') {
+    // `explore` and `explore/search` are the search page; `explore/search/x` is a repository called x of the owner
+    // "search". GitHub reserves `explore` as a user name, so no GitHub repository is shadowed.
+    if (segs.length === 1 || (segs.length === 2 && segs[1] === 'search')) return { name: 'exploreSearch', params: { explore: true } };
+    const m = matchRepo(segs.slice(1), false);
+    return m.name === 'notFound' ? m : { name: m.name, params: { ...m.params, explore: true } };
+  }
+  return matchRepo(segs, true);
+}
+
+function matchRepo(segs: string[], withApp: boolean): { name: RouteName; params: RouteParams } {
   for (const [name, pat] of COMPILED) {
+    if (!withApp && (name === 'dashboard' || name === 'settings')) continue;
     const params: Record<string, string> = {};
     let ok = true;
     let i = 0;
@@ -92,15 +110,16 @@ export function matchSegments(segs: string[]): { name: RouteName; params: RouteP
 
 /** Build the hash path for a route (without the leading `#`). Throws on a missing param. */
 export function buildPath(name: Exclude<RouteName, 'notFound'>, params: RouteParams): string {
+  if (name === 'exploreSearch') return EXPLORE_SEARCH_PATH;
   const pat = PATTERNS.find(([n]) => n === name)?.[1];
   if (pat === undefined) throw new Error(`unknown route ${name}`);
-  const out: string[] = [];
+  const out: string[] = params.explore === true ? ['explore'] : [];
   for (const p of splitPattern(pat)) {
     if (p.startsWith('*')) {
-      const v = params[p.slice(1) as keyof RouteParams] ?? '';
+      const v = (params[p.slice(1) as keyof RouteParams] as string | undefined) ?? '';
       for (const s of v.split('/')) if (s.length > 0) out.push(encodeURIComponent(s));
     } else if (p.startsWith(':')) {
-      const v = params[p.slice(1) as keyof RouteParams];
+      const v = params[p.slice(1) as keyof RouteParams] as string | undefined;
       if (v === undefined || v.length === 0) throw new Error(`route ${name}: missing :${p.slice(1)}`);
       out.push(encodeURIComponent(v));
     } else {

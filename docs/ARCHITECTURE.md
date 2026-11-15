@@ -861,6 +861,8 @@ matching tag names; the body goes through the same `render`.
 | `#/:owner/:repo/commits/:ref` | S5 Commits | `?path=` `?since=` `?page=` `?tip=` |
 | `#/:owner/:repo/commit/:oid` | S6 Commit | `?file=N` scroll |
 | `#/:owner/:repo/branches` · `/tags` · `/releases` | S7 · S8 · S9 | |
+| `#/explore` · `#/explore/search?q=&sort=&page=` | Explore search (v0.3.0, D-127) | submit-only |
+| `#/explore/:owner/:repo[/…]` | the S3–S9 screens served from GitHub | same patterns as above under an `explore` prefix; `RouteParams.explore` |
 | anything else | NotFound | |
 
 `router.ts`: `parse(hash) → {name, params, query}`, `href(name, params, query)`, `navigate(to, {replace})`,
@@ -901,6 +903,8 @@ App
    └─ Dialogs (S10): ImportDialog · CloneDialog(live validation via clone_preview, debounced) · EditAboutDialog
                      · RemoveDialog · ConfirmExternalLink · AutoDownloadCheck (Clone/Import, github.com only)
 ```
+
+v0.3.0 (M10b, D-127..D-132): screens read through `RepoSource` (`src/source`: `localSource(repoId)` / `exploreSource(owner, name, resolved)`) and `RepoContext` = `{src, explore, local, online, …}`; `components/explore/` holds ExploreLayout (+ header), QuotaBar, SaveToShelf, ExploreAbout, OnlineRefs, ExploreErrors; `screens/ExploreSearch`; Settings → Explore; `state/explore.ts` (status store, refreshed after every Explore call).
 
 v0.2.0 additions: GlobalHeader gets `HistoryButtons` (F1); RepoHeader's Fetch is a split button for github.com
 origins (with / without the release download, else the setting); MarkdownBody shows remote images from backend bytes

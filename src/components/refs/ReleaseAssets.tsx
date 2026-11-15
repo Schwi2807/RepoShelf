@@ -24,7 +24,9 @@ export function downloadJob(jobs: JobInfo[], repoId: number, tag: string, asset:
   return found;
 }
 
-function AssetRow({ repoId, tag, asset, job }: { repoId: number; tag: string; asset: ReleaseAsset; job: JobInfo | undefined }) {
+/** `repoId` null = a repository seen online (Explore): the files can only be opened on GitHub; saving the repository
+ * to the shelf is what gives a release download. */
+function AssetRow({ repoId, tag, asset, job }: { repoId: number | null; tag: string; asset: ReleaseAsset; job: JobInfo | undefined }) {
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const running = job !== undefined && isActive(job);
@@ -32,6 +34,7 @@ function AssetRow({ repoId, tag, asset, job }: { repoId: number; tag: string; as
   const f = running ? progressFraction(job.progress) : null;
 
   const download = async () => {
+    if (repoId === null) return;
     setErr(null);
     setBusy(true);
     try {
@@ -44,6 +47,7 @@ function AssetRow({ repoId, tag, asset, job }: { repoId: number; tag: string; as
   };
 
   const reveal = async () => {
+    if (repoId === null) return;
     setErr(null);
     try {
       await releaseReveal(repoId, tag, asset.name);
@@ -75,7 +79,7 @@ function AssetRow({ repoId, tag, asset, job }: { repoId: number; tag: string; as
         {asset.downloadCount !== null ? `${formatCount(asset.downloadCount)} ${asset.downloadCount === 1 ? 'download' : 'downloads'}` : ''}
       </span>
       <div className="rasset__actions">
-        {running ? (
+        {repoId === null ? null : running ? (
           <Button size="sm" icon={X} onClick={() => void cancelJob(job.id)} aria-label={`Cancel the download of ${asset.name}`}>
             Cancel
           </Button>
@@ -140,7 +144,7 @@ function SourceRow({ label, url }: { label: string; url: string }) {
 }
 
 /** `ghLoaded`: a GitHub release list is cached for this repo (some release carries `htmlUrl`). */
-export function ReleaseAssets({ rel, repoId, github, ghLoaded }: { rel: Release; repoId: number; github: boolean; ghLoaded: boolean }) {
+export function ReleaseAssets({ rel, repoId, github, ghLoaded }: { rel: Release; repoId: number | null; github: boolean; ghLoaded: boolean }) {
   const jobs = useJobs();
   const sources = [
     rel.sourceZipUrl ? { label: 'zip', url: rel.sourceZipUrl } : null,
@@ -156,7 +160,7 @@ export function ReleaseAssets({ rel, repoId, github, ghLoaded }: { rel: Release;
       </summary>
       <ul className="rassets__list">
         {rel.assets.map((a) => (
-          <AssetRow key={a.name} repoId={repoId} tag={rel.tag} asset={a} job={downloadJob(jobs, repoId, rel.tag, a.name)} />
+          <AssetRow key={a.name} repoId={repoId} tag={rel.tag} asset={a} job={repoId === null ? undefined : downloadJob(jobs, repoId, rel.tag, a.name)} />
         ))}
         {sources.map((s) => (
           <SourceRow key={s.label} label={s.label} url={s.url} />

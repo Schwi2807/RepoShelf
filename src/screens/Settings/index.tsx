@@ -6,6 +6,7 @@ import { FolderOpen, Monitor, Moon, Sun, Trash2, type LucideIcon } from 'lucide-
 import { useState } from 'react';
 import { Box } from '../../components/layout/Sidebar';
 import { Shimmer } from '../../components/ui/bits';
+import { ExploreSettings } from './ExploreSettings';
 import { Button } from '../../components/ui/Button';
 import { CopyButton } from '../../components/ui/CopyButton';
 import { appInfo, appOpenDir, cacheClear } from '../../ipc/api';
@@ -282,6 +283,8 @@ export default function Settings() {
       </Box>
 
       <NetworkSettings />
+
+      <ExploreSettings />
 
       <p className="muted small settings__version">
         RepoShelf {info.data ? <span className="mono">{info.data.version}</span> : '…'} · read-only GitHub-style browser for your local

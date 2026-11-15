@@ -10,6 +10,7 @@ import { setBackendForTests } from '../ipc/bridge';
 import { createMockBackend, type MockBackend } from '../ipc/mock';
 import { resetQueryCache } from '../ipc/query';
 import { navigate, startRouter, stopRouter } from '../router/router';
+import { resetExploreForTests } from '../state/explore';
 import { resetJobsForTests, startJobs } from '../state/jobs';
 import { resetLibraryForTests, startLibrary } from '../state/library';
 import { loadSettings, resetSettingsForTests } from '../state/settings';
@@ -79,6 +80,7 @@ export function installHarness(): void {
     resetLibraryForTests();
     resetJobsForTests();
     resetSettingsForTests();
+    resetExploreForTests();
   });
   afterEach(() => {
     act(() => closeDialog());

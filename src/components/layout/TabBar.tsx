@@ -36,7 +36,9 @@ export function TabBar({
   refFromRoute,
   current,
   counts,
+  explore = false,
 }: {
+  explore?: boolean;
   owner: string;
   repo: string;
   refName: string | null;
@@ -47,11 +49,11 @@ export function TabBar({
   const to = (key: TabDef['key']): string => {
     switch (key) {
       case 'code':
-        return refName && refFromRoute ? href('tree', { owner, repo, ref: refName, path: '' }) : href('code', { owner, repo });
+        return refName && refFromRoute ? href('tree', { explore, owner, repo, ref: refName, path: '' }) : href('code', { explore, owner, repo });
       case 'commits':
-        return refName ? href('commits', { owner, repo, ref: refName }) : href('code', { owner, repo });
+        return refName ? href('commits', { explore, owner, repo, ref: refName }) : href('code', { explore, owner, repo });
       default:
-        return href(key, { owner, repo });
+        return href(key, { explore, owner, repo });
     }
   };
   return (

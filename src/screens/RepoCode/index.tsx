@@ -5,6 +5,9 @@
 import { FileQuestion, GitBranch, Inbox, Search, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { AboutSidebar } from '../../components/code/AboutSidebar';
+import { ExploreAbout } from '../../components/explore/ExploreAbout';
+import { ExploreCodeMenu } from '../../components/explore/ExploreCodeMenu';
+import { ExploreFailure } from '../../components/explore/ExploreErrors';
 import { Breadcrumbs } from '../../components/code/Breadcrumbs';
 import { CodeMenu } from '../../components/code/CodeMenu';
 import { CountsLinks } from '../../components/code/CountsLinks';
@@ -15,7 +18,6 @@ import { RefSwitcher } from '../../components/code/RefSwitcher';
 import { useRepo } from '../../components/layout/repoContext';
 import { Box, Columns } from '../../components/layout/Sidebar';
 import { Empty, Shimmer } from '../../components/ui/bits';
-import { treeList } from '../../ipc/api';
 import { qk, useQuery } from '../../ipc/query';
 import type { Route } from '../../router/routes';
 import { href } from '../../router/router';
@@ -55,9 +57,10 @@ export default function RepoCode({ route }: { route: Route }) {
 function CodeTab({ route }: { route: Route }) {
   const path = normalizePath(route.params.path ?? '');
   const r = useRepo();
+  const { src, explore, local } = r;
   const commit = r.resolved?.commit ?? null;
   const [filter, setFilter] = useState('');
-  const tree = useQuery(commit ? qk('tree_list', r.repoId, commit, path) : null, () => treeList(r.repoId, commit!, path), {
+  const tree = useQuery(commit ? qk('tree_list', src.key, commit, path) : null, () => src.tree(commit!, path), {
     stable: true,
   });
   const entries = useMemo(() => {
@@ -66,9 +69,9 @@ function CodeTab({ route }: { route: Route }) {
     return q ? all.filter((e) => e.name.toLowerCase().includes(q)) : all;
   }, [tree.data, filter]);
 
-  const unborn = r.detail?.head.type === 'unborn';
+  const unborn = r.unborn;
   const refName = r.refName;
-  const def = r.summary.defaultBranch;
+  const def = r.defaultBranch;
 
   let main;
   if (unborn) {
@@ -79,13 +82,15 @@ function CodeTab({ route }: { route: Route }) {
         </Empty>
       </Box>
     );
+  } else if (r.revError && explore && r.revError.code !== 'notFound' && r.revError.code !== 'invalidRev') {
+    main = <ExploreFailure inline error={r.revError} what="This ref" />;
   } else if (r.revError) {
     main = (
       <Box>
         <Empty
           icon={GitBranch}
           title={r.revError.code === 'notFound' ? `Ref “${refName ?? ''}” not found` : 'This ref cannot be shown'}
-          actions={def ? <Link to={href('tree', { owner: r.owner, repo: r.repo, ref: def, path: '' })}>Go to the default branch ({def})</Link> : undefined}
+          actions={def ? <Link to={href('tree', { explore, owner: r.owner, repo: r.repo, ref: def, path: '' })}>Go to the default branch ({def})</Link> : undefined}
         >
           {r.revError.code === 'notFound' ? 'No branch, tag or commit by that name exists in this repository.' : r.revError.message}
         </Empty>
@@ -94,20 +99,22 @@ function CodeTab({ route }: { route: Route }) {
   } else if (!r.resolved || !refName || commit === null) {
     main = <Skeleton />;
   } else {
-    const workTree = r.summary.source === 'imported' && r.detail?.isBare === false;
+    const workTree = local?.summary.source === 'imported' && local.detail?.isBare === false;
     main = (
       <>
         <div className="codebar">
           <RefSwitcher
-            repoId={r.repoId}
+            src={src}
             refName={refName}
             resolved={r.resolved}
-            hrefFor={(ref) => href('tree', { owner: r.owner, repo: r.repo, ref, path })}
+            hrefFor={(ref) => href('tree', { explore, owner: r.owner, repo: r.repo, ref, path })}
           />
           {path ? (
             <Breadcrumbs owner={r.owner} repo={r.repo} refName={refName} path={path} />
           ) : (
-            r.detail && <CountsLinks owner={r.owner} repo={r.repo} branches={r.detail.branchCount} tags={r.detail.tagCount} />
+            (explore || local?.detail) && (
+              <CountsLinks owner={r.owner} repo={r.repo} branches={local?.detail?.branchCount ?? null} tags={local?.detail?.tagCount ?? null} />
+            )
           )}
           <span className="spacer" />
           <div className="filter-input filter-input--compact">
@@ -128,14 +135,16 @@ function CodeTab({ route }: { route: Route }) {
               </button>
             )}
           </div>
-          <CodeMenu summary={r.summary} detail={r.detail} />
+          {local ? <CodeMenu summary={local.summary} detail={local.detail} /> : r.online && <ExploreCodeMenu repo={r.online} />}
         </div>
-        {tree.error ? (
+        {tree.error && explore && tree.error.code !== 'notFound' && tree.error.code !== 'invalidPath' ? (
+          <ExploreFailure inline error={tree.error} what="This folder" onRetry={tree.refetch} />
+        ) : tree.error ? (
           <Box>
             <Empty
               icon={FileQuestion}
               title="Path not found"
-              actions={<Link to={href('tree', { owner: r.owner, repo: r.repo, ref: refName, path: '' })}>Go to the repository root</Link>}
+              actions={<Link to={href('tree', { explore, owner: r.owner, repo: r.repo, ref: refName, path: '' })}>Go to the repository root</Link>}
             >
               <span className="mono">{path}</span> does not exist at <span className="mono">{refName}</span>.
             </Empty>
@@ -143,14 +152,14 @@ function CodeTab({ route }: { route: Route }) {
         ) : (
           <div className="box filebox">
             <div className="box__header filebox__header">
-              <LatestCommitBox repoId={r.repoId} owner={r.owner} repo={r.repo} refName={refName} commit={commit} path={path} />
+              <LatestCommitBox src={src} owner={r.owner} repo={r.repo} refName={refName} commit={commit} path={path} />
             </div>
             {tree.data ? (
               entries.length === 0 && filter ? (
                 <p className="filebox__empty muted">No files in this folder match “{filter}”.</p>
               ) : (
                 <FileTable
-                  repoId={r.repoId}
+                  src={src}
                   owner={r.owner}
                   repo={r.repo}
                   refName={refName}
@@ -175,8 +184,13 @@ function CodeTab({ route }: { route: Route }) {
             )}
           </div>
         )}
+        {explore && tree.data && (
+          <p className="muted small filebox__hint" data-testid="explore-files-hint">
+            Online view: the last commit of each file is not loaded (one request per file). Save to shelf for the full picture.
+          </p>
+        )}
         {tree.data?.readme && (
-          <ReadmeCard repoId={r.repoId} owner={r.owner} repo={r.repo} refName={refName} commit={commit} dir={path} />
+          <ReadmeCard src={src} owner={r.owner} repo={r.repo} refName={refName} commit={commit} dir={path} />
         )}
       </>
     );
@@ -185,7 +199,11 @@ function CodeTab({ route }: { route: Route }) {
   return (
     <Columns>
       <div className="stack code-main">{main}</div>
-      <AboutSidebar summary={r.summary} detail={r.detail} commit={unborn ? null : commit} />
+      {local ? (
+        <AboutSidebar summary={local.summary} detail={local.detail} commit={unborn ? null : commit} />
+      ) : (
+        r.online && <ExploreAbout repo={r.online} src={src} commit={commit} />
+      )}
     </Columns>
   );
 }

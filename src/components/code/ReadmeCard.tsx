@@ -3,8 +3,8 @@
 
 import { BookOpen, List } from 'lucide-react';
 import { useRef, useState } from 'react';
-import { readmeRender } from '../../ipc/api';
 import { qk, useQuery } from '../../ipc/query';
+import type { RepoSource } from '../../source';
 import { MarkdownBody } from '../../markdown/MarkdownBody';
 import { Button } from '../ui/Button';
 import { Shimmer } from '../ui/bits';
@@ -14,7 +14,7 @@ import { Link } from '../../router/Link';
 import { baseName, joinPath } from '../../util/paths';
 
 export interface ReadmeCardProps {
-  repoId: number;
+  src: RepoSource;
   owner: string;
   repo: string;
   refName: string;
@@ -23,8 +23,8 @@ export interface ReadmeCardProps {
   dir: string;
 }
 
-export function ReadmeCard({ repoId, owner, repo, refName, commit, dir }: ReadmeCardProps) {
-  const readme = useQuery(qk('readme_render', repoId, commit, dir), () => readmeRender(repoId, commit, dir), { stable: true });
+export function ReadmeCard({ src, owner, repo, refName, commit, dir }: ReadmeCardProps) {
+  const readme = useQuery(qk('readme_render', src.key, commit, dir), () => src.readme(commit, dir), { stable: true });
   const [open, setOpen] = useState(false);
   const card = useRef<HTMLElement>(null);
   const wrap = useRef<HTMLDivElement>(null);
@@ -53,7 +53,7 @@ export function ReadmeCard({ repoId, owner, repo, refName, commit, dir }: Readme
     <section className="box readme" ref={card} aria-label={name} id="readme">
       <div className="box__header readme__header">
         <BookOpen size={16} aria-hidden="true" className="muted" />
-        <Link to={href('blob', { owner, repo, ref: refName, path: joinPath(dir, name) })} className="readme__name">
+        <Link to={href('blob', { explore: src.explore, owner, repo, ref: refName, path: joinPath(dir, name) })} className="readme__name">
           {name}
         </Link>
         <span className="spacer" />
@@ -95,7 +95,7 @@ export function ReadmeCard({ repoId, owner, repo, refName, commit, dir }: Readme
         )}
       </div>
       <div className="box__body readme__body">
-        <MarkdownBody html={r.html} repoId={repoId} owner={owner} repo={repo} rev={refName} commit={commit} />
+        <MarkdownBody html={r.html} src={src} owner={owner} repo={repo} rev={refName} commit={commit} />
       </div>
     </section>
   );

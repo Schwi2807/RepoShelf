@@ -16,6 +16,8 @@ export interface RewriteContext {
   repo: string;
   /** Ref name used in routes (decoded, e.g. "feature/x"). */
   rev: string;
+  /** Links stay inside Explore (`#/explore/…`, D-127). */
+  explore?: boolean;
 }
 
 export interface RepoImage {
@@ -112,10 +114,10 @@ export function rewriteHtml(html: string, ctx: RewriteContext, doc: Document = d
     if (raw.startsWith('rsrepo:')) {
       const p = parseRsrepo(raw);
       if (p && p.path.length > 0) {
-        a.setAttribute('href', href('blob', { owner: ctx.owner, repo: ctx.repo, ref: ctx.rev, path: p.path }));
+        a.setAttribute('href', href('blob', { explore: ctx.explore, owner: ctx.owner, repo: ctx.repo, ref: ctx.rev, path: p.path }));
         a.setAttribute('data-route', '1');
       } else if (p && p.path.length === 0) {
-        a.setAttribute('href', href('tree', { owner: ctx.owner, repo: ctx.repo, ref: ctx.rev, path: '' }));
+        a.setAttribute('href', href('tree', { explore: ctx.explore, owner: ctx.owner, repo: ctx.repo, ref: ctx.rev, path: '' }));
         a.setAttribute('data-route', '1');
       } else {
         a.removeAttribute('href');

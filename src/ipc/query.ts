@@ -171,6 +171,24 @@ export function invalidate(prefix?: string): void {
   }
 }
 
+/** True for every query that holds data read from GitHub (`explore_*` commands and `x:owner/name` source keys). */
+export function isExploreKey(key: string): boolean {
+  return key.startsWith('explore_') || key.includes('["x:');
+}
+
+/**
+ * Forget every entry the predicate matches, stable ones too (a new token is a new identity and may see other data;
+ * Clear Explore cache). Mounted users start over with a fresh request.
+ */
+export function purge(match: (key: string) => boolean): void {
+  for (const key of [...cache.keys()]) {
+    if (!match(key)) continue;
+    cache.delete(key);
+    const a = active.get(key);
+    if (a) start(key, a);
+  }
+}
+
 /** Drop one entry (after a mutation such as Edit About). Mounted users refetch. */
 export function evict(key: string): void {
   const e = cache.get(key);

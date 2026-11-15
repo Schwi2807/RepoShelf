@@ -4,6 +4,7 @@
 
 import { GitCommitHorizontal } from 'lucide-react';
 import type { CommitSummary } from '../../ipc/types';
+import type { RepoSource } from '../../source';
 import { dayGroups, type DayGroup as Group } from '../../util/format';
 import { CommitRow } from './CommitRow';
 
@@ -11,7 +12,7 @@ export function groupCommits(commits: CommitSummary[]): Group<CommitSummary>[] {
   return dayGroups(commits, (c) => c.committer.time.secs);
 }
 
-export function DayGroup({ group, repoId, owner, repo }: { group: Group<CommitSummary>; repoId: number; owner: string; repo: string }) {
+export function DayGroup({ group, src, owner, repo }: { group: Group<CommitSummary>; src: RepoSource; owner: string; repo: string }) {
   return (
     <section className="cgroup" aria-label={`Commits on ${group.label}`}>
       <h2 className="cgroup__title">
@@ -20,7 +21,7 @@ export function DayGroup({ group, repoId, owner, repo }: { group: Group<CommitSu
       </h2>
       <ol className="box cgroup__list">
         {group.items.map((c) => (
-          <CommitRow key={c.oid} c={c} repoId={repoId} owner={owner} repo={repo} />
+          <CommitRow key={c.oid} c={c} src={src} owner={owner} repo={repo} />
         ))}
       </ol>
     </section>

@@ -1,8 +1,9 @@
 // S0 global header (FR-32): logo + name (home) · RepoJump · "+" menu · jobs · theme toggle · settings.
 
-import { ArrowLeft, ArrowRight, Download, FolderPlus, Monitor, Moon, Plus, Settings, Sun } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Compass, Download, FolderPlus, Monitor, Moon, Plus, Settings, Sun } from 'lucide-react';
 import { useSyncExternalStore } from 'react';
 import { back, forward, historyPos, href, subscribe } from '../../router/router';
+import { useRoute } from '../../router/useRoute';
 import { Link } from '../../router/Link';
 import { useSettings } from '../../state/settings';
 import { nextTheme, setTheme } from '../../state/theme';
@@ -76,6 +77,27 @@ export function HistoryButtons() {
   );
 }
 
+/** Explore entry (v0.3.0): hidden while Explore is switched off in Settings. */
+export function ExploreNav() {
+  const { settings } = useSettings();
+  const route = useRoute();
+  if (!settings.exploreEnabled) return null;
+  return (
+    <nav className="gh__nav" aria-label="Sections">
+      <Link
+        to={href('exploreSearch')}
+        className="gh__navlink"
+        data-testid="nav-explore"
+        aria-current={route.params.explore === true ? 'page' : undefined}
+        title="Browse and search GitHub repositories without cloning"
+      >
+        <Compass size={16} aria-hidden="true" />
+        Explore
+      </Link>
+    </nav>
+  );
+}
+
 export function GlobalHeader() {
   return (
     <header className="gh">
@@ -84,6 +106,7 @@ export function GlobalHeader() {
           <AppMark className="gh__mark" />
           <span className="gh__brand-name">RepoShelf</span>
         </Link>
+        <ExploreNav />
         <div className="gh__mid">
           <HistoryButtons />
           <div className="gh__search">

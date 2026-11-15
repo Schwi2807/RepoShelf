@@ -7,6 +7,7 @@ import { href } from '../../router/router';
 import { Link } from '../../router/Link';
 import { formatDateTime, shortOid } from '../../util/format';
 import { messageBody } from '../commits/CommitRow';
+import { useExplore } from '../layout/repoContext';
 import { Avatar } from '../ui/bits';
 import { CopyButton } from '../ui/CopyButton';
 import { RelativeTime } from '../ui/RelativeTime';
@@ -19,13 +20,14 @@ function tz(offsetMin: number): string {
 
 export function CommitHeader({ d, owner, repo }: { d: CommitDetail; owner: string; repo: string }) {
   const c = d.commit;
+  const explore = useExplore();
   const body = messageBody(d.message);
   const sameCommitter = c.author.name === c.committer.name && c.author.email === c.committer.email;
   return (
     <div className="box chead">
       <div className="chead__top">
         <h1 className="chead__summary">{c.summary}</h1>
-        <Link to={href('tree', { owner, repo, ref: c.oid, path: '' })} className="btn btn--sm chead__browse">
+        <Link to={href('tree', { explore, owner, repo, ref: c.oid, path: '' })} className="btn btn--sm chead__browse">
           <FileCode2 size={16} aria-hidden="true" />
           Browse files
         </Link>
@@ -58,7 +60,7 @@ export function CommitHeader({ d, owner, repo }: { d: CommitDetail; owner: strin
                 {c.parents.map((p, i) => (
                   <span key={p}>
                     {i > 0 && <span className="muted"> + </span>}
-                    <Link to={href('commit', { owner, repo, oid: p })} className="mono chead__oid" title={p}>
+                    <Link to={href('commit', { explore, owner, repo, oid: p })} className="mono chead__oid" title={p}>
                       {shortOid(p)}
                     </Link>
                   </span>

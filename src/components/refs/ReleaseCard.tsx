@@ -4,7 +4,9 @@
 // `commits/refs/tags/<tag>?since=refs/tags/<prev>` (D-81: full tag refs so a same-named branch never wins).
 
 import { ExternalLink, GitCommitHorizontal, GitCompareArrows, Tag } from 'lucide-react';
+import type { ReactNode } from 'react';
 import type { Release } from '../../ipc/types';
+import type { RepoSource } from '../../source';
 import { MarkdownBody } from '../../markdown/MarkdownBody';
 import { href } from '../../router/router';
 import { Link } from '../../router/Link';
@@ -17,7 +19,7 @@ import { ReleaseAssets } from './ReleaseAssets';
 
 export interface ReleaseCardProps {
   rel: Release;
-  repoId: number;
+  src: RepoSource;
   owner: string;
   repo: string;
   /** github.com origin: Assets + Source code rows (F4). */
@@ -26,8 +28,16 @@ export interface ReleaseCardProps {
   ghLoaded?: boolean;
 }
 
-export function ReleaseCard({ rel, repoId, owner, repo, github = false, ghLoaded = false }: ReleaseCardProps) {
+export function ReleaseCard({ rel, src, owner, repo, github = false, ghLoaded = false }: ReleaseCardProps) {
   const ref = `refs/tags/${rel.tag}`;
+  const explore = src.explore;
+  // online the release's commit is only known when GitHub names one (a branch name there is dropped, D-124)
+  const commitLink = (cls: string, children: ReactNode) =>
+    rel.commit ? (
+      <Link to={href('commit', { explore, owner, repo, oid: rel.commit })} className={cls} title={rel.commit}>
+        {children}
+      </Link>
+    ) : null;
   const htmlUrl = rel.htmlUrl;
   return (
     <article className="rcard" data-tag={rel.tag} aria-label={`Release ${rel.title}`}>
@@ -35,19 +45,22 @@ export function ReleaseCard({ rel, repoId, owner, repo, github = false, ghLoaded
         <div className="rcard__date">
           <RelativeTime secs={rel.date} />
         </div>
-        <Link to={href('tree', { owner, repo, ref, path: '' })} className="rcard__meta" title={`Browse the files at ${rel.tag}`}>
+        <Link to={href('tree', { explore, owner, repo, ref, path: '' })} className="rcard__meta" title={`Browse the files at ${rel.tag}`}>
           <Tag size={14} aria-hidden="true" />
           <span className="mono truncate">{rel.tag}</span>
         </Link>
-        <Link to={href('commit', { owner, repo, oid: rel.commit })} className="rcard__meta" title={rel.commit}>
-          <GitCommitHorizontal size={14} aria-hidden="true" />
-          <span className="mono">{shortOid(rel.commit)}</span>
-        </Link>
+        {commitLink(
+          'rcard__meta',
+          <>
+            <GitCommitHorizontal size={14} aria-hidden="true" />
+            <span className="mono">{shortOid(rel.commit)}</span>
+          </>,
+        )}
       </div>
       <div className="box rcard__body">
         <div className="rcard__head">
           <h2 className="rcard__title">
-            <Link to={href('tree', { owner, repo, ref, path: '' })}>{rel.title}</Link>
+            <Link to={href('tree', { explore, owner, repo, ref, path: '' })}>{rel.title}</Link>
           </h2>
           {rel.latest && <Badge tone="success">Latest</Badge>}
           {rel.prerelease && <Badge tone="attention">Pre-release</Badge>}
@@ -68,22 +81,20 @@ export function ReleaseCard({ rel, repoId, owner, repo, github = false, ghLoaded
           )}
         </div>
         <div className="rcard__sub muted small">
-          <Link to={href('tree', { owner, repo, ref, path: '' })} className="rcard__tagchip" title={`Browse the files at ${rel.tag}`}>
+          <Link to={href('tree', { explore, owner, repo, ref, path: '' })} className="rcard__tagchip" title={`Browse the files at ${rel.tag}`}>
             <Tag size={12} aria-hidden="true" />
             <span className="mono">{rel.tag}</span>
           </Link>
-          <Link to={href('commit', { owner, repo, oid: rel.commit })} className="rcard__oid mono" title={rel.commit}>
-            {shortOid(rel.commit)}
-          </Link>
+          {commitLink('rcard__oid mono', shortOid(rel.commit))}
           <span>{formatDay(rel.date)}</span>
         </div>
         {rel.notesHtml ? (
-          <MarkdownBody html={rel.notesHtml} repoId={repoId} owner={owner} repo={repo} rev={ref} commit={rel.commit} className="markdown rcard__notes" />
+          <MarkdownBody html={rel.notesHtml} src={src} owner={owner} repo={repo} rev={ref} commit={rel.commit || undefined} className="markdown rcard__notes" />
         ) : (
           <p className="rcard__none muted">No release notes. {rel.title === rel.tag ? 'The tag has no message.' : ''}</p>
         )}
-        <ReleaseAssets rel={rel} repoId={repoId} github={github} ghLoaded={ghLoaded} />
-        {rel.previousTag && (
+        <ReleaseAssets rel={rel} repoId={typeof src.key === 'number' ? src.key : null} github={github} ghLoaded={ghLoaded} />
+        {rel.previousTag && !explore && (
           <div className="rcard__foot">
             <Link to={commitsHref(owner, repo, ref, { since: `refs/tags/${rel.previousTag}` })} className="rcard__compare">
               <GitCompareArrows size={16} aria-hidden="true" />

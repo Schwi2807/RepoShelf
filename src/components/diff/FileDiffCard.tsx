@@ -4,9 +4,9 @@
 // Expanded/loaded state lives in the page (cards unmount while virtualised).
 
 import { ChevronDown, ChevronRight, FileCode2, FileX, FileWarning, Sparkles, Hourglass } from 'lucide-react';
-import { commitFileDiff } from '../../ipc/api';
 import { qk, useQuery } from '../../ipc/query';
 import type { FileChange, FileDiff } from '../../ipc/types';
+import type { RepoSource } from '../../source';
 import { href } from '../../router/router';
 import { Link } from '../../router/Link';
 import { formatCount } from '../../util/format';
@@ -21,7 +21,7 @@ export interface FileDiffCardProps {
   f: FileChange;
   inline: FileDiff | undefined;
   deferred: boolean;
-  repoId: number;
+  src: RepoSource;
   owner: string;
   repo: string;
   oid: string;
@@ -53,8 +53,8 @@ function collapsedText(c: Exclude<Collapse, null>, f: FileChange): { icon: typeo
   }
 }
 
-function LoadedDiff({ repoId, oid, index, path }: { repoId: number; oid: string; index: number; path: string }) {
-  const d = useQuery(qk('commit_file_diff', repoId, oid, index, true), () => commitFileDiff(repoId, oid, index, true), { stable: true });
+function LoadedDiff({ src, oid, index, path }: { src: RepoSource; oid: string; index: number; path: string }) {
+  const d = useQuery(qk('commit_file_diff', src.key, oid, index, true), () => src.commitFileDiff(oid, index, true), { stable: true });
   if (d.error) return <p className="dcard__note field__error">{d.error.message}</p>;
   if (!d.data) {
     return (
@@ -81,7 +81,7 @@ export function FileDiffCard(p: FileDiffCardProps) {
     if (reason === null || (reason === 'generated' && p.loadRequested && p.inline)) {
       body = p.inline ? <DiffTable diff={p.inline} path={path} /> : null;
     } else if (p.loadRequested && canLoad(reason)) {
-      body = <LoadedDiff repoId={p.repoId} oid={p.oid} index={f.index} path={path} />;
+      body = <LoadedDiff src={p.src} oid={p.oid} index={f.index} path={path} />;
     } else {
       const t = collapsedText(reason, f);
       body = (
@@ -127,7 +127,7 @@ export function FileDiffCard(p: FileDiffCardProps) {
         {kind && <Badge tone={f.kind === 'added' ? 'success' : f.kind === 'deleted' ? 'danger' : 'indigo'}>{kind}</Badge>}
         <span className="spacer" />
         {viewAt && (
-          <Link to={href('blob', { owner: p.owner, repo: p.repo, ref: viewAt, path: viewPath })} className="btn btn--sm btn--invisible dcard__view">
+          <Link to={href('blob', { explore: p.src.explore, owner: p.owner, repo: p.repo, ref: viewAt, path: viewPath })} className="btn btn--sm btn--invisible dcard__view">
             <FileCode2 size={16} aria-hidden="true" />
             View file
           </Link>

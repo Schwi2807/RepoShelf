@@ -2,38 +2,42 @@
 // History (commits list filtered by path).
 
 import { History } from 'lucide-react';
-import { fileLastCommit } from '../../ipc/api';
 import { qk, useQuery } from '../../ipc/query';
+import type { RepoSource } from '../../source';
 import { href } from '../../router/router';
 import { Link } from '../../router/Link';
 import { CommitLine } from '../code/LatestCommitBox';
 import { Shimmer } from '../ui/bits';
 
 export function FileCommitHeader({
-  repoId,
+  src,
   owner,
   repo,
   refName,
   commit,
   path,
 }: {
-  repoId: number;
+  src: RepoSource;
   owner: string;
   repo: string;
   refName: string;
   commit: string;
   path: string;
 }) {
+  const lastFn = src.fileLastCommit;
+  const explore = src.explore;
   const last = useQuery(
-    qk('file_last_commit', repoId, commit, path),
-    (requestId) => fileLastCommit(repoId, commit, path, requestId),
+    lastFn === null ? null : qk('file_last_commit', src.key, commit, path),
+    (requestId) => lastFn!(commit, path, requestId),
     { cancelable: true, stable: true },
   );
   return (
     <div className="box__header filebox__header">
       <div className="latest">
-        {last.data ? (
-          <CommitLine c={last.data} owner={owner} repo={repo} />
+        {lastFn === null ? (
+          <span className="spacer" />
+        ) : last.data ? (
+          <CommitLine c={last.data} explore={explore} owner={owner} repo={repo} />
         ) : last.data === null ? (
           <>
             <span className="muted">Last change is older than 10,000 commits.</span>
@@ -51,7 +55,7 @@ export function FileCommitHeader({
             <span className="spacer" />
           </>
         )}
-        <Link to={href('commits', { owner, repo, ref: refName }, { path })} className="latest__history">
+        <Link to={href('commits', { explore, owner, repo, ref: refName }, { path })} className="latest__history">
           <History size={16} aria-hidden="true" />
           History
         </Link>

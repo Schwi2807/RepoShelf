@@ -4,7 +4,8 @@
 import { GitBranch, Search, X } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 import { EmptyRepo, ListSkeleton } from '../../components/layout/RefGate';
-import { useRepo } from '../../components/layout/repoContext';
+import { OnlineBranches } from '../../components/explore/OnlineRefs';
+import { useLocal, useRepo } from '../../components/layout/repoContext';
 import { Box } from '../../components/layout/Sidebar';
 import { AB_CHUNK, BranchChunk } from '../../components/refs/BranchRow';
 import { Empty } from '../../components/ui/bits';
@@ -26,7 +27,13 @@ export function filterBranches(rows: BranchRow[], q: string): BranchRow[] {
 }
 
 export default function Branches() {
-  const r = useRepo();
+  return useRepo().explore ? <OnlineBranches /> : <LocalBranches />;
+}
+
+function LocalBranches() {
+  const ctx = useRepo();
+  const loc = useLocal();
+  const r = { repoId: loc.repoId, owner: ctx.owner, repo: ctx.repo, detail: loc.detail };
   const route = useRoute();
   const q = route.query.q ?? '';
   const list = useQuery(qk('branches_list', r.repoId), () => branchesList(r.repoId));

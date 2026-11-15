@@ -12,7 +12,6 @@ import { useRepo } from '../../components/layout/repoContext';
 import { Box } from '../../components/layout/Sidebar';
 import { Empty, Shimmer } from '../../components/ui/bits';
 import { WindowList } from '../../components/ui/WindowList';
-import { commitDetail, revResolve } from '../../ipc/api';
 import { qk, useQuery } from '../../ipc/query';
 import type { FileDiff } from '../../ipc/types';
 import type { Route } from '../../router/routes';
@@ -27,11 +26,12 @@ export default function Commit({ route }: { route: Route }) {
 
 function CommitPage({ route }: { route: Route }) {
   const r = useRepo();
+  const { src, explore } = r;
   const raw = route.params.oid ?? '';
   const full = /^[0-9a-f]{40}$/i.test(raw) ? raw.toLowerCase() : null;
-  const res = useQuery(full ? null : qk('rev_resolve', r.repoId, raw), () => revResolve(r.repoId, raw));
+  const res = useQuery(full ? null : qk('rev_resolve', src.key, raw), () => src.resolve(raw));
   const oid = full ?? res.data?.commit ?? null;
-  const d = useQuery(oid ? qk('commit_detail', r.repoId, oid) : null, () => commitDetail(r.repoId, oid!), { stable: true });
+  const d = useQuery(oid ? qk('commit_detail', src.key, oid) : null, () => src.commitDetail(oid!), { stable: true });
 
   const [closed, setClosed] = useState<ReadonlySet<number>>(new Set());
   const [loads, setLoads] = useState<ReadonlySet<number>>(new Set());
@@ -79,7 +79,7 @@ function CommitPage({ route }: { route: Route }) {
         <Empty
           icon={GitCommitHorizontal}
           title={e.code === 'notFound' || e.code === 'invalidRev' ? 'Commit not found' : 'This commit cannot be shown'}
-          actions={<Link to={href('commits', { owner: r.owner, repo: r.repo, ref: r.summary.defaultBranch ?? 'HEAD' })}>Browse the commits</Link>}
+          actions={<Link to={href('commits', { explore, owner: r.owner, repo: r.repo, ref: r.defaultBranch ?? 'HEAD' })}>Browse the commits</Link>}
         >
           {e.code === 'notFound' || e.code === 'invalidRev' ? (
             <>
@@ -141,7 +141,7 @@ function CommitPage({ route }: { route: Route }) {
                 f={f}
                 inline={inline.get(f.index)}
                 deferred={det.diffsDeferred}
-                repoId={r.repoId}
+                src={src}
                 owner={r.owner}
                 repo={r.repo}
                 oid={oid}

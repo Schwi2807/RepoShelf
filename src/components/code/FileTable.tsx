@@ -12,8 +12,8 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useMemo } from 'react';
-import { treeLastCommits } from '../../ipc/api';
 import { qk, useQuery } from '../../ipc/query';
+import type { RepoSource } from '../../source';
 import type { CommitSummary, EntryKind, TreeEntry } from '../../ipc/types';
 import { href } from '../../router/router';
 import { Link } from '../../router/Link';
@@ -44,7 +44,7 @@ export function EntryIcon({ kind }: { kind: EntryKind }) {
 }
 
 export interface FileTableProps {
-  repoId: number;
+  src: RepoSource;
   owner: string;
   repo: string;
   refName: string;
@@ -57,17 +57,21 @@ export interface FileTableProps {
 
 export type LastState = { loading: true } | { loading: false; byName: Map<string, CommitSummary | null>; error?: string };
 
-export function FileTable({ repoId, owner, repo, refName, commit, path, entries, workTree }: FileTableProps) {
+export function FileTable({ src, owner, repo, refName, commit, path, entries, workTree }: FileTableProps) {
+  // Online there is no last commit per entry (one request per file, D-122): the columns stay empty.
+  const lastFn = src.treeLastCommits;
   const last = useQuery(
-    qk('tree_last_commits', repoId, commit, path),
-    (requestId) => treeLastCommits(repoId, commit, path, requestId),
+    lastFn === null ? null : qk('tree_last_commits', src.key, commit, path),
+    (requestId) => lastFn!(commit, path, requestId),
     { cancelable: true, stable: true },
   );
+  const explore = src.explore;
   const state: LastState = useMemo(() => {
+    if (lastFn === null) return { loading: false, byName: new Map() };
     if (last.data) return { loading: false, byName: new Map(last.data.entries.map((e) => [e.name, e.commit])) };
     if (last.error) return { loading: false, byName: new Map(), error: last.error.message };
     return { loading: true };
-  }, [last.data, last.error]);
+  }, [lastFn, last.data, last.error]);
 
   const up = path !== '';
   const count = entries.length + (up ? 1 : 0);
@@ -83,21 +87,21 @@ export function FileTable({ repoId, owner, repo, refName, commit, path, entries,
         estimate={41}
         rowKey={(i) => (up && i === 0 ? '..' : entries[i - (up ? 1 : 0)].path)}
         row={(i) => {
-          if (up && i === 0) return <UpRow owner={owner} repo={repo} refName={refName} path={path} />;
+          if (up && i === 0) return <UpRow explore={explore} owner={owner} repo={repo} refName={refName} path={path} />;
           const e = entries[i - (up ? 1 : 0)];
-          return <EntryRow e={e} owner={owner} repo={repo} refName={refName} state={state} workTree={workTree} />;
+          return <EntryRow e={e} explore={explore} owner={owner} repo={repo} refName={refName} state={state} workTree={workTree} />;
         }}
       />
     </div>
   );
 }
 
-function UpRow({ owner, repo, refName, path }: { owner: string; repo: string; refName: string; path: string }) {
+function UpRow({ explore, owner, repo, refName, path }: { explore: boolean; owner: string; repo: string; refName: string; path: string }) {
   return (
     <div className="ftable__row" role="row">
       <span className="ftable__name" role="cell">
         <CornerLeftUp size={16} className="entry-icon" aria-hidden="true" />
-        <Link to={href('tree', { owner, repo, ref: refName, path: parentDir(path) })} title="Parent directory" className="ftable__link">
+        <Link to={href('tree', { explore, owner, repo, ref: refName, path: parentDir(path) })} title="Parent directory" className="ftable__link">
           ..
         </Link>
       </span>
@@ -109,6 +113,7 @@ function UpRow({ owner, repo, refName, path }: { owner: string; repo: string; re
 
 function EntryRow({
   e,
+  explore,
   owner,
   repo,
   refName,
@@ -116,13 +121,14 @@ function EntryRow({
   workTree,
 }: {
   e: TreeEntry;
+  explore: boolean;
   owner: string;
   repo: string;
   refName: string;
   state: LastState;
   workTree: boolean;
 }) {
-  const to = href(e.kind === 'dir' ? 'tree' : 'blob', { owner, repo, ref: refName, path: e.path });
+  const to = href(e.kind === 'dir' ? 'tree' : 'blob', { explore, owner, repo, ref: refName, path: e.path });
   return (
     <div className="ftable__row" role="row" data-kind={e.kind}>
       <span className="ftable__name" role="cell">
@@ -142,12 +148,12 @@ function EntryRow({
           </Badge>
         )}
       </span>
-      <LastCommitCell name={e.name} owner={owner} repo={repo} state={state} />
+      <LastCommitCell name={e.name} explore={explore} owner={owner} repo={repo} state={state} />
     </div>
   );
 }
 
-export function LastCommitCell({ name, owner, repo, state }: { name: string; owner: string; repo: string; state: LastState }) {
+export function LastCommitCell({ name, explore = false, owner, repo, state }: { name: string; explore?: boolean; owner: string; repo: string; state: LastState }) {
   if (state.loading) {
     return (
       <>
@@ -174,7 +180,7 @@ export function LastCommitCell({ name, owner, repo, state }: { name: string; own
   return (
     <>
       <span className="ftable__msg" role="cell">
-        <Link to={href('commit', { owner, repo, oid: c.oid })} className="ftable__commit truncate" title={c.summary}>
+        <Link to={href('commit', { explore, owner, repo, oid: c.oid })} className="ftable__commit truncate" title={c.summary}>
           {c.summary}
         </Link>
       </span>

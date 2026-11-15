@@ -39,6 +39,16 @@ export function loadSettings(): Promise<void> {
   return loading;
 }
 
+/** Read the settings again (the output-only `githubTokenSaved` changes with the token commands, D-120). */
+export async function refreshSettings(): Promise<void> {
+  try {
+    const s = await settingsGet();
+    settingsStore.set((p) => ({ ...p, settings: s, error: null }));
+  } catch (e) {
+    settingsStore.set((p) => ({ ...p, error: errorText(e) }));
+  }
+}
+
 /** Optimistic update, then persisted; on failure the old value comes back. */
 export async function updateSettings(patch: Partial<Settings>): Promise<void> {
   const prev = settingsStore.get().settings;

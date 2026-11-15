@@ -22,18 +22,19 @@ export default function Commits({ route }: { route: Route }) {
   const r = useRepo();
   const q = useMemo(() => readCommitsQuery(route.query), [route.query]);
   const commit = r.resolved?.commit ?? null;
+  const { src, explore } = r;
   const page = useQuery(
-    commit ? qk('commits_page', r.repoId, q.tip ?? commit, q.path, q.since, q.page) : null,
-    () => loadCommitsPage(r.repoId, commit!, q),
+    commit ? qk('commits_page', src.key, q.tip ?? commit, q.path, q.since, q.page) : null,
+    () => loadCommitsPage(src, commit!, q),
     { stable: true },
   );
   const groups = useMemo(() => groupCommits(page.data?.commits ?? []), [page.data]);
 
-  const gate = refGate(r, 'commits', (ref) => commitsHref(r.owner, r.repo, ref, { path: q.path }));
+  const gate = refGate(r, 'commits', (ref) => commitsHref(r.owner, r.repo, ref, { path: q.path }, explore));
   if (gate) return <>{gate}</>;
   const refName = r.refName!;
   const label = refDisplayName(refName, r.resolved);
-  const pager = page.data ? pagerHrefs(r.owner, r.repo, refName, q, page.data) : { newer: null, older: null };
+  const pager = page.data ? pagerHrefs(r.owner, r.repo, refName, q, page.data, explore) : { newer: null, older: null };
   const pinnedOld = q.tip !== null && commit !== null && q.tip !== commit;
 
   let body;
@@ -68,7 +69,7 @@ export default function Commits({ route }: { route: Route }) {
         <Empty
           icon={History}
           title={q.page > 1 ? 'No more commits' : q.path ? 'No commits touch this path' : 'No commits'}
-          actions={q.page > 1 ? <Link to={commitsHref(r.owner, r.repo, refName, { path: q.path, since: q.since })}>Back to the newest commits</Link> : undefined}
+          actions={q.page > 1 ? <Link to={commitsHref(r.owner, r.repo, refName, { path: q.path, since: q.since }, explore)}>Back to the newest commits</Link> : undefined}
         >
           {q.page > 1
             ? 'This page is past the end of the history.'
@@ -86,7 +87,7 @@ export default function Commits({ route }: { route: Route }) {
     body = (
       <div className="cgroups" data-testid="commit-groups">
         {groups.map((g) => (
-          <DayGroup key={`${g.key}-${g.items[0].oid}`} group={g} repoId={r.repoId} owner={r.owner} repo={r.repo} />
+          <DayGroup key={`${g.key}-${g.items[0].oid}`} group={g} src={src} owner={r.owner} repo={r.repo} />
         ))}
       </div>
     );
@@ -96,10 +97,10 @@ export default function Commits({ route }: { route: Route }) {
     <div className="stack commits">
       <div className="codebar">
         <RefSwitcher
-          repoId={r.repoId}
+          src={src}
           refName={refName}
           resolved={r.resolved}
-          hrefFor={(ref) => commitsHref(r.owner, r.repo, ref, { path: q.path })}
+          hrefFor={(ref) => commitsHref(r.owner, r.repo, ref, { path: q.path }, explore)}
         />
         {q.path ? (
           <PathChip owner={r.owner} repo={r.repo} refName={refName} path={q.path} since={q.since} />
@@ -113,7 +114,7 @@ export default function Commits({ route }: { route: Route }) {
           <span>
             Commits on <strong className="mono">{label}</strong> since <strong className="mono">{refDisplayName(q.since, null)}</strong>
             {' · '}
-            <Link to={commitsHref(r.owner, r.repo, refName, { path: q.path })}>Show the full history</Link>
+            <Link to={commitsHref(r.owner, r.repo, refName, { path: q.path }, explore)}>Show the full history</Link>
           </span>
         </div>
       )}
@@ -122,7 +123,7 @@ export default function Commits({ route }: { route: Route }) {
           <Pin size={16} aria-hidden="true" />
           <span>
             Listing the history as of <span className="mono">{shortOid(q.tip!)}</span>; <span className="mono">{label}</span> has moved
-            since. <Link to={commitsHref(r.owner, r.repo, refName, { path: q.path, since: q.since })}>Show the newest commits</Link>
+            since. <Link to={commitsHref(r.owner, r.repo, refName, { path: q.path, since: q.since }, explore)}>Show the newest commits</Link>
           </span>
         </div>
       )}

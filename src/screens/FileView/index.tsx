@@ -14,12 +14,13 @@ import { FileToolbar, type FileMode } from '../../components/file/FileToolbar';
 import { ImagePreview } from '../../components/file/ImagePreview';
 import { formatLines, parseLines, type LineRange } from '../../components/file/lines';
 import { Placeholder, PLACEHOLDER_ICONS } from '../../components/file/Placeholder';
+import { ExploreFailure } from '../../components/explore/ExploreErrors';
+import { SaveToShelfButton } from '../../components/explore/SaveToShelf';
 import { useRepo } from '../../components/layout/repoContext';
 import { Box } from '../../components/layout/Sidebar';
 import { Empty, Shimmer } from '../../components/ui/bits';
 import { tooLargeToHighlight } from '../../hl/highlighter';
 import { LANG_IDS, languageFor, type LangId } from '../../hl/languages';
-import { blobMeta, blobText, markdownRenderFile, treeList } from '../../ipc/api';
 import { qk, useQuery } from '../../ipc/query';
 import type { BlobMeta } from '../../ipc/types';
 import { MarkdownBody } from '../../markdown/MarkdownBody';
@@ -51,12 +52,29 @@ function langOf(meta: BlobMeta, text: string): LangId | null {
   return languageFor(meta.path, text.slice(0, 200).split('\n', 1)[0]);
 }
 
+/** D-122 / TASKS lead decision: GitHub's contents API serves files up to 1 MB; the rest is Save to shelf. */
+function TooLargeOnline({ size }: { size: number }) {
+  const r = useRepo();
+  return (
+    <Placeholder
+      kind="large"
+      icon={PLACEHOLDER_ICONS.large}
+      title="Too large to preview online — Save to shelf"
+      actions={r.online ? <SaveToShelfButton repo={r.online} /> : undefined}
+    >
+      This file is {formatBytes(size)}; GitHub serves files up to 1 MB through its API. Once the repository is on the shelf you can read
+      every file in full, offline.
+    </Placeholder>
+  );
+}
+
 export default function FileView({ route }: { route: Route }) {
   return <FileScreen key={`${route.params.ref ?? ''}\u0000${route.params.path ?? ''}`} route={route} />;
 }
 
 function FileScreen({ route }: { route: Route }) {
   const r = useRepo();
+  const { src, explore, local } = r;
   const path = normalizePath(route.params.path ?? '');
   const name = baseName(path);
   const commit = r.resolved?.commit ?? null;
@@ -64,21 +82,21 @@ function FileScreen({ route }: { route: Route }) {
   // Back/forward restores the old scroll position; only a fresh visit jumps to `?L=` (D-8, D-64).
   const [fresh] = useState(() => (pendingScroll() ?? 0) === 0);
 
-  const meta = useQuery(commit ? qk('blob_meta', r.repoId, commit, path) : null, () => blobMeta(r.repoId, commit!, path), {
+  const meta = useQuery(commit ? qk('blob_meta', src.key, commit, path) : null, () => src.blobMeta(commit!, path), {
     stable: true,
   });
   const probeDir = meta.error?.code === 'notFound' && commit !== null;
-  const dirProbe = useQuery(probeDir ? qk('tree_list', r.repoId, commit, path) : null, () => treeList(r.repoId, commit!, path), {
+  const dirProbe = useQuery(probeDir ? qk('tree_list', src.key, commit, path) : null, () => src.tree(commit!, path), {
     stable: true,
   });
   useEffect(() => {
-    if (dirProbe.data && refName) navigate(href('tree', { owner: r.owner, repo: r.repo, ref: refName, path }), { replace: true });
-  }, [dirProbe.data, refName, r.owner, r.repo, path]);
+    if (dirProbe.data && refName) navigate(href('tree', { explore, owner: r.owner, repo: r.repo, ref: refName, path }), { replace: true });
+  }, [dirProbe.data, refName, explore, r.owner, r.repo, path]);
 
-  const workTree = r.summary.source === 'imported' && r.detail?.isBare === false;
+  const workTree = local?.summary.source === 'imported' && local.detail?.isBare === false;
   const parent = useQuery(
-    commit && workTree && path ? qk('tree_list', r.repoId, commit, parentDir(path)) : null,
-    () => treeList(r.repoId, commit!, parentDir(path)),
+    commit && workTree && path ? qk('tree_list', src.key, commit, parentDir(path)) : null,
+    () => src.tree(commit!, parentDir(path)),
     { stable: true },
   );
   const entry = parent.data?.entries.find((e) => e.path === path);
@@ -88,12 +106,12 @@ function FileScreen({ route }: { route: Route }) {
   const md = kind === 'text' && isMarkdownPath(path);
   const mode: FileMode = route.query.plain === '1' ? 'raw' : md && route.query.view !== 'code' ? 'preview' : 'code';
   const wantText = m !== undefined && kind === 'text' && m.displayable;
-  const text = useQuery(wantText ? qk('blob_text', r.repoId, commit, path) : null, () => blobText(r.repoId, commit!, path), {
+  const text = useQuery(wantText ? qk('blob_text', src.key, commit, path) : null, () => src.blobText(commit!, path), {
     stable: true,
   });
   const preview = useQuery(
-    wantText && mode === 'preview' ? qk('markdown_render_file', r.repoId, commit, path) : null,
-    () => markdownRenderFile(r.repoId, commit!, path),
+    wantText && mode === 'preview' ? qk('markdown_render_file', src.key, commit, path) : null,
+    () => src.renderFile(commit!, path),
     { stable: true },
   );
 
@@ -108,8 +126,8 @@ function FileScreen({ route }: { route: Route }) {
           icon={FileQuestion}
           title={`Ref “${refName ?? ''}” not found`}
           actions={
-            r.summary.defaultBranch ? (
-              <Link to={href('blob', { owner: r.owner, repo: r.repo, ref: r.summary.defaultBranch, path })}>Open on {r.summary.defaultBranch}</Link>
+            r.defaultBranch ? (
+              <Link to={href('blob', { explore, owner: r.owner, repo: r.repo, ref: r.defaultBranch, path })}>Open on {r.defaultBranch}</Link>
             ) : undefined
           }
         >
@@ -118,13 +136,16 @@ function FileScreen({ route }: { route: Route }) {
       </Box>
     );
   }
+  if (meta.error && explore && meta.error.code !== 'notFound' && meta.error.code !== 'invalidPath') {
+    return <ExploreFailure inline error={meta.error} what="This file" onRetry={meta.refetch} />;
+  }
   if (meta.error && !(probeDir && (dirProbe.loading || dirProbe.data))) {
     return (
       <Box>
         <Empty
           icon={FileQuestion}
           title="File not found"
-          actions={refName ? <Link to={href('tree', { owner: r.owner, repo: r.repo, ref: refName, path: parentDir(path) })}>Go to the folder</Link> : undefined}
+          actions={refName ? <Link to={href('tree', { explore, owner: r.owner, repo: r.repo, ref: refName, path: parentDir(path) })}>Go to the folder</Link> : undefined}
         >
           <span className="mono">{path}</span> does not exist at <span className="mono">{refName}</span>.
         </Empty>
@@ -152,7 +173,9 @@ function FileScreen({ route }: { route: Route }) {
   switch (m.kind.type) {
     case 'image':
       body = m.displayable ? (
-        <ImagePreview repoId={r.repoId} commit={commit} path={path} mime={m.kind.mime} name={name} />
+        <ImagePreview src={src} commit={commit} path={path} mime={m.kind.mime} name={name} />
+      ) : explore ? (
+        <TooLargeOnline size={m.size} />
       ) : (
         <Placeholder kind="large" icon={PLACEHOLDER_ICONS.large} title={`Image too large to display (${formatBytes(m.size)})`}>
           Use Save a copy to open it in another program.
@@ -162,7 +185,7 @@ function FileScreen({ route }: { route: Route }) {
     case 'binary':
       body = (
         <Placeholder kind="binary" icon={PLACEHOLDER_ICONS.binary} title={`Binary file, ${formatBytes(m.size)}, not shown.`}>
-          Use Save a copy to open it in another program.
+          {explore ? 'Save the repository to the shelf to open it in another program.' : 'Use Save a copy to open it in another program.'}
         </Placeholder>
       );
       break;
@@ -200,7 +223,7 @@ function FileScreen({ route }: { route: Route }) {
           </p>
           {target && (
             <p>
-              <Link to={href('blob', { owner: r.owner, repo: r.repo, ref: refName, path: target })}>Open {target}</Link>
+              <Link to={href('blob', { explore, owner: r.owner, repo: r.repo, ref: refName, path: target })}>Open {target}</Link>
             </p>
           )}
         </Placeholder>
@@ -208,7 +231,9 @@ function FileScreen({ route }: { route: Route }) {
       break;
     }
     case 'text':
-      if (!m.displayable) {
+      if (!m.displayable && explore) {
+        body = <TooLargeOnline size={m.size} />;
+      } else if (!m.displayable) {
         body = (
           <Placeholder kind="large" icon={PLACEHOLDER_ICONS.large} title={`This file is ${formatBytes(m.size)}, too large to display.`}>
             Files over 5 MB are not shown. Use Save a copy to open it in another program.
@@ -229,7 +254,7 @@ function FileScreen({ route }: { route: Route }) {
       } else if (mode === 'preview') {
         body = preview.data ? (
           <div className="box__body readme__body">
-            <MarkdownBody html={preview.data.html} repoId={r.repoId} owner={r.owner} repo={r.repo} rev={refName} commit={commit} />
+            <MarkdownBody html={preview.data.html} src={src} owner={r.owner} repo={r.repo} rev={refName} commit={commit} />
           </div>
         ) : preview.error ? (
           <p className="box__body field__error">{preview.error.message}</p>
@@ -310,17 +335,17 @@ function FileScreen({ route }: { route: Route }) {
     <div className="stack fileview">
       <div className="codebar">
         <RefSwitcher
-          repoId={r.repoId}
+          src={src}
           refName={refName}
           resolved={r.resolved}
-          hrefFor={(ref) => href('blob', { owner: r.owner, repo: r.repo, ref, path })}
+          hrefFor={(ref) => href('blob', { explore, owner: r.owner, repo: r.repo, ref, path })}
         />
         <Breadcrumbs owner={r.owner} repo={r.repo} refName={refName} path={path} />
       </div>
       <div className="box filebox">
-        <FileCommitHeader repoId={r.repoId} owner={r.owner} repo={r.repo} refName={refName} commit={commit} path={path} />
+        <FileCommitHeader src={src} owner={r.owner} repo={r.repo} refName={refName} commit={commit} path={path} />
         <FileToolbar
-          repoId={r.repoId}
+          src={src}
           commit={commit}
           meta={m}
           mode={mode}

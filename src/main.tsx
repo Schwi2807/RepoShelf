@@ -8,6 +8,7 @@ import './styles/code.css';
 import './styles/diff.css';
 import './styles/markdown.css';
 import './styles/screens.css';
+import './styles/explore.css';
 
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';

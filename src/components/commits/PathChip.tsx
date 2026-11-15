@@ -4,18 +4,20 @@
 import { FileClock, X } from 'lucide-react';
 import { href } from '../../router/router';
 import { Link } from '../../router/Link';
+import { useExplore } from '../layout/repoContext';
 import { commitsHref } from './paging';
 
 export function PathChip({ owner, repo, refName, path, since }: { owner: string; repo: string; refName: string; path: string; since: string }) {
+  const explore = useExplore();
   return (
     <span className="pathchip" data-testid="path-chip">
       <FileClock size={14} aria-hidden="true" />
       <span>History for</span>
-      <Link to={href('blob', { owner, repo, ref: refName, path })} className="pathchip__path mono truncate" title={path}>
+      <Link to={href('blob', { explore, owner, repo, ref: refName, path })} className="pathchip__path mono truncate" title={path}>
         {path}
       </Link>
       <Link
-        to={commitsHref(owner, repo, refName, { since })}
+        to={commitsHref(owner, repo, refName, { since }, explore)}
         className="pathchip__clear"
         aria-label={`Show all commits, not only those touching ${path}`}
         title="Clear the path filter"

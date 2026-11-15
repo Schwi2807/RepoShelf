@@ -5,9 +5,10 @@
 
 import { Archive, Eye, GitBranch, Globe, HardDrive, Link2, Package, Scale, Settings, Tag } from 'lucide-react';
 import { useState } from 'react';
-import { languages, releasesList } from '../../ipc/api';
+import { releasesList } from '../../ipc/api';
 import { qk, useQuery } from '../../ipc/query';
 import type { LanguageStat, RepoDetail, RepoSummary } from '../../ipc/types';
+import { localSource, type RepoSource } from '../../source';
 import { href } from '../../router/router';
 import { Link } from '../../router/Link';
 import { formatCount, formatDay } from '../../util/format';
@@ -152,7 +153,7 @@ export function AboutSidebar({
         </div>
       </SidebarSection>
       {detail && <ReleasesBox repoId={summary.id} owner={owner} repo={name} count={detail.releaseCount} />}
-      {commit && <LanguagesBox repoId={summary.id} commit={commit} />}
+      {commit && <LanguagesBox src={localSource(summary.id)} commit={commit} />}
       {editing && <EditAboutDialog summary={summary} onClose={() => setEditing(false)} />}
     </Sidebar>
   );
@@ -223,8 +224,8 @@ export function LangList({ items }: { items: LanguageStat[] }) {
   );
 }
 
-export function LanguagesBox({ repoId, commit }: { repoId: number; commit: string }) {
-  const langs = useQuery(qk('languages', repoId, commit), (requestId) => languages(repoId, commit, requestId), {
+export function LanguagesBox({ src, commit }: { src: RepoSource; commit: string }) {
+  const langs = useQuery(qk('languages', src.key, commit), (requestId) => src.languages(commit, requestId), {
     cancelable: true,
     stable: true,
   });

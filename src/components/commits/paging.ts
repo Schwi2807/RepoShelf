@@ -3,8 +3,8 @@
 // path filter the start of page N is the `skip` page N-1 returned, so pages 1..N-1 are walked first (each page is
 // cached here, keyed by the pinned tip, so Older/Newer and reloads cost one request per new page).
 
-import { commitsPage } from '../../ipc/api';
 import type { CommitsPage } from '../../ipc/types';
+import type { RepoSource } from '../../source';
 import type { Query } from '../../router/routes';
 import { href } from '../../router/router';
 
@@ -24,10 +24,10 @@ export function readCommitsQuery(q: Query): CommitsQuery {
 }
 
 /** Commits route href; page 1 leaves `page` out, `tip` is kept whenever given. */
-export function commitsHref(owner: string, repo: string, ref: string, q: Partial<CommitsQuery> = {}): string {
+export function commitsHref(owner: string, repo: string, ref: string, q: Partial<CommitsQuery> = {}, explore = false): string {
   return href(
     'commits',
-    { owner, repo, ref },
+    { explore, owner, repo, ref },
     { path: q.path || null, since: q.since || null, tip: q.tip ?? null, page: q.page && q.page > 1 ? q.page : null },
   );
 }
@@ -39,22 +39,23 @@ export function pagerHrefs(
   ref: string,
   q: CommitsQuery,
   shown: Pick<CommitsPage, 'tip' | 'hasMore' | 'capped'>,
+  explore = false,
 ): { newer: string | null; older: string | null } {
   const base = { path: q.path, since: q.since, tip: shown.tip };
   return {
-    newer: q.page > 1 ? commitsHref(owner, repo, ref, { ...base, page: q.page - 1 }) : null,
-    older: shown.hasMore || shown.capped ? commitsHref(owner, repo, ref, { ...base, page: q.page + 1 }) : null,
+    newer: q.page > 1 ? commitsHref(owner, repo, ref, { ...base, page: q.page - 1 }, explore) : null,
+    older: shown.hasMore || shown.capped ? commitsHref(owner, repo, ref, { ...base, page: q.page + 1 }, explore) : null,
   };
 }
 
 const pageCache = new Map<string, Promise<CommitsPage>>();
 const PAGE_CACHE_MAX = 120;
 
-function cachedPage(repoId: number, rev: string, path: string | null, since: string | null, skip: number, tip: string | null): Promise<CommitsPage> {
-  const key = JSON.stringify([repoId, tip ?? rev, path, since, skip]);
+function cachedPage(src: RepoSource, rev: string, path: string | null, since: string | null, skip: number, tip: string | null): Promise<CommitsPage> {
+  const key = JSON.stringify([src.key, tip ?? rev, path, since, skip]);
   let p = pageCache.get(key);
   if (!p) {
-    p = commitsPage(repoId, rev, { path, since, skip, tip });
+    p = src.commits(rev, { path, since, skip, tip });
     p.catch(() => pageCache.delete(key));
     pageCache.set(key, p);
     if (pageCache.size > PAGE_CACHE_MAX) pageCache.delete(pageCache.keys().next().value as string);
@@ -66,16 +67,16 @@ function cachedPage(repoId: number, rev: string, path: string | null, since: str
  * Page `q.page` of the list. `rev` is the resolved commit of the route ref (used when no tip is pinned yet).
  * A page past the end comes back empty with `hasMore: false`.
  */
-export async function loadCommitsPage(repoId: number, rev: string, q: CommitsQuery): Promise<CommitsPage> {
+export async function loadCommitsPage(src: RepoSource, rev: string, q: CommitsQuery): Promise<CommitsPage> {
   const path = q.path || null;
   const since = q.since || null;
   if (path === null) {
-    return cachedPage(repoId, rev, null, since, (q.page - 1) * COMMITS_PER_PAGE, q.tip);
+    return cachedPage(src, rev, null, since, (q.page - 1) * COMMITS_PER_PAGE, q.tip);
   }
   let skip = 0;
   let tip = q.tip;
   for (let p = 1; ; p++) {
-    const res = await cachedPage(repoId, rev, path, since, skip, tip);
+    const res = await cachedPage(src, rev, path, since, skip, tip);
     if (p === q.page) return res;
     if (!res.hasMore && !res.capped) return { ...res, commits: [], hasMore: false, capped: false };
     tip = res.tip;

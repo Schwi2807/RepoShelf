@@ -1,10 +1,12 @@
-// S2 frame for every repo route: resolves slug → repoId (`repo_by_slug`), loads `repo_detail`, resolves the ref
+// S2 frame for every shelf repo route: resolves slug → repoId (`repo_by_slug`), loads `repo_detail`, resolves the ref
 // (`rev_resolve`) and provides all of it via RepoContext; renders RepoHeader + TabBar + RepoBanner around the tab.
+// The Explore twin (`explore/ExploreLayout`) provides the same context from GitHub.
 
 import { SearchX } from 'lucide-react';
 import { useEffect, useMemo, type ReactNode } from 'react';
-import { commitCount, repoBySlug, repoDetail, revResolve } from '../../ipc/api';
+import { commitCount, repoBySlug, repoDetail } from '../../ipc/api';
 import { qk, useQuery } from '../../ipc/query';
+import { localSource } from '../../source';
 import { noteSummary } from '../../state/library';
 import type { Route } from '../../router/routes';
 import { href } from '../../router/router';
@@ -29,14 +31,12 @@ export function RepoLayout({ route, children }: { route: Route; children: ReactN
     if (detailSummary) noteSummary(detailSummary);
   }, [detailSummary]);
 
+  const src = useMemo(() => localSource(repoId ?? 0), [repoId]);
   const routeRef = route.params.ref ?? null;
   const refName = routeRef ?? (summary ? defaultRef(summary, detail.data ?? null) : null);
   const canResolve = repoId !== null && refName !== null && (routeRef !== null || detail.data !== undefined);
   const unborn = detail.data?.head.type === 'unborn';
-  const rev = useQuery(
-    canResolve && !unborn ? qk('rev_resolve', repoId, refName) : null,
-    () => revResolve(repoId!, refName!),
-  );
+  const rev = useQuery(canResolve && !unborn ? qk('rev_resolve', repoId, refName) : null, () => src.resolve(refName!));
   const resolved = rev.data ?? null;
   const count = useQuery(
     repoId !== null && resolved ? qk('commit_count', repoId, resolved.commit) : null,
@@ -48,20 +48,22 @@ export function RepoLayout({ route, children }: { route: Route; children: ReactN
     () =>
       summary
         ? {
-            summary,
-            repoId: summary.id,
+            src,
+            explore: false,
             owner: summary.owner,
             repo: summary.name,
-            detail: detail.data ?? null,
-            detailError: detail.error,
+            defaultBranch: summary.defaultBranch,
+            unborn,
             refName,
             refFromRoute: routeRef !== null,
             resolved,
             revError: rev.error,
             revLoading: rev.loading,
+            local: { summary, repoId: summary.id, detail: detail.data ?? null, detailError: detail.error },
+            online: null,
           }
         : null,
-    [summary, detail.data, detail.error, refName, routeRef, resolved, rev.error, rev.loading],
+    [src, summary, unborn, detail.data, detail.error, refName, routeRef, resolved, rev.error, rev.loading],
   );
 
   if (slug.error) {

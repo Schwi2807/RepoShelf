@@ -9,6 +9,7 @@ import { Link } from '../../router/Link';
 import { formatCount, plural, shortOid } from '../../util/format';
 import { Badge } from '../ui/bits';
 import { Button } from '../ui/Button';
+import { useExplore } from '../layout/repoContext';
 import { KIND_LABEL, pathLabel } from './diffs';
 import { MiniBar } from './MiniBar';
 
@@ -31,6 +32,7 @@ export function DiffSummary({
   onPick: (index: number) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const explore = useExplore();
   const parent = d.parentCompared;
   return (
     <div className="stack stack--tight">
@@ -52,7 +54,7 @@ export function DiffSummary({
           <GitMerge size={16} aria-hidden="true" />
           <span>
             This is a merge commit. Showing changes from the first parent,{' '}
-            <Link to={href('commit', { owner, repo, oid: parent })} className="mono">
+            <Link to={href('commit', { explore, owner, repo, oid: parent })} className="mono">
               {shortOid(parent)}
             </Link>
             .

@@ -916,7 +916,7 @@ tests with canned GitHub JSON fixtures (no real HTTP). Gate: cargo test --worksp
 ### M10b — frontend
 Explore nav + routes, search page, repo pages reusing the existing components through the source abstraction, quota
 header, Save to shelf / Open in shelf, Settings "Explore" section (enable, token field, clear cache), mock backend with
-canned Explore data, tests. Gate as M10a + browser check light/dark. Tag `m10b-done`.
+canned Explore data, tests. Gate as M10a + browser check light/dark. Tag `m10b-done`. **Done 2026-11-15** (WORKLOG M10b, D-127..D-132).
 
 ### M10c — real-app run + release v0.3.0
 Extend run-e2e (offline via canned HTTP seam) for Explore flows incl. rate-limit and token-never-shown checks;

@@ -4,13 +4,14 @@
 
 import { Check, Copy, Ellipsis, FileCode2 } from 'lucide-react';
 import { useState } from 'react';
-import { commitDetail } from '../../ipc/api';
 import { qk, useQuery } from '../../ipc/query';
 import type { CommitSummary } from '../../ipc/types';
+import type { RepoSource } from '../../source';
 import { href } from '../../router/router';
 import { Link } from '../../router/Link';
 import { shortOid } from '../../util/format';
 import { Avatar, Shimmer } from '../ui/bits';
+import { useExplore } from '../layout/repoContext';
 import { copyText } from '../ui/CopyButton';
 import { RelativeTime } from '../ui/RelativeTime';
 
@@ -28,9 +29,10 @@ export function committedText(c: CommitSummary): string {
 
 export function CopyOid({ oid, owner, repo }: { oid: string; owner: string; repo: string }) {
   const [ok, setOk] = useState(false);
+  const explore = useExplore();
   return (
     <span className="oidbtn">
-      <Link to={href('commit', { owner, repo, oid })} className="oidbtn__link mono" title={`View commit ${oid}`}>
+      <Link to={href('commit', { explore, owner, repo, oid })} className="oidbtn__link mono" title={`View commit ${oid}`}>
         {shortOid(oid)}
       </Link>
       <button
@@ -51,8 +53,8 @@ export function CopyOid({ oid, owner, repo }: { oid: string; owner: string; repo
   );
 }
 
-function Body({ repoId, oid }: { repoId: number; oid: string }) {
-  const d = useQuery(qk('commit_detail', repoId, oid), () => commitDetail(repoId, oid), { stable: true });
+function Body({ src, oid }: { src: RepoSource; oid: string }) {
+  const d = useQuery(qk('commit_detail', src.key, oid), () => src.commitDetail(oid), { stable: true });
   if (d.error) return <p className="crow__body field__error">{d.error.message}</p>;
   if (!d.data) {
     return (
@@ -65,9 +67,10 @@ function Body({ repoId, oid }: { repoId: number; oid: string }) {
   return body ? <pre className="crow__body">{body}</pre> : <p className="crow__body muted">No description.</p>;
 }
 
-export function CommitRow({ c, repoId, owner, repo }: { c: CommitSummary; repoId: number; owner: string; repo: string }) {
+export function CommitRow({ c, src, owner, repo }: { c: CommitSummary; src: RepoSource; owner: string; repo: string }) {
   const [open, setOpen] = useState(false);
-  const to = href('commit', { owner, repo, oid: c.oid });
+  const explore = src.explore;
+  const to = href('commit', { explore, owner, repo, oid: c.oid });
   return (
     <li className="crow" data-oid={c.oid}>
       <div className="crow__main">
@@ -86,7 +89,7 @@ export function CommitRow({ c, repoId, owner, repo }: { c: CommitSummary; repoId
             <Ellipsis size={14} aria-hidden="true" />
           </button>
         </div>
-        {open && <Body repoId={repoId} oid={c.oid} />}
+        {open && <Body src={src} oid={c.oid} />}
         <div className="crow__meta">
           <Avatar name={c.author.name} size="sm" />
           <strong className="crow__author" title={c.author.email}>
@@ -100,7 +103,7 @@ export function CommitRow({ c, repoId, owner, repo }: { c: CommitSummary; repoId
       <div className="crow__actions">
         <CopyOid oid={c.oid} owner={owner} repo={repo} />
         <Link
-          to={href('tree', { owner, repo, ref: c.oid, path: '' })}
+          to={href('tree', { explore, owner, repo, ref: c.oid, path: '' })}
           className="btn btn--sm btn--icon btn--invisible"
           aria-label="Browse the repository at this point in the history"
           title="Browse the repository at this point in the history"

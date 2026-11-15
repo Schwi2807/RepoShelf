@@ -15,7 +15,7 @@ export function EmptyRepo({ what }: { what: string }) {
       <Empty icon={Inbox} title="This repository is empty.">
         {what === 'commits' ? (
           <>
-            Nothing has been committed to <span className="mono">{r.refName ?? r.summary.defaultBranch ?? 'the default branch'}</span> yet.
+            Nothing has been committed to <span className="mono">{r.refName ?? r.defaultBranch ?? 'the default branch'}</span> yet.
           </>
         ) : (
           <>
@@ -47,9 +47,9 @@ export function ListSkeleton({ rows = 5 }: { rows?: number }) {
  * `routeFor(defaultBranch)` builds the "go to the default branch" link for this tab.
  */
 export function refGate(r: RepoContextValue, what: string, routeFor: (ref: string) => string): ReactNode | null {
-  if (r.detail?.head.type === 'unborn') return <EmptyRepo what={what} />;
+  if (r.unborn) return <EmptyRepo what={what} />;
   if (r.revError) {
-    const def = r.summary.defaultBranch;
+    const def = r.defaultBranch;
     const nf = r.revError.code === 'notFound';
     return (
       <Box>

@@ -2,7 +2,8 @@
 
 import { Tag } from 'lucide-react';
 import { EmptyRepo, ListSkeleton } from '../../components/layout/RefGate';
-import { useRepo } from '../../components/layout/repoContext';
+import { OnlineTags } from '../../components/explore/OnlineRefs';
+import { useLocal, useRepo } from '../../components/layout/repoContext';
 import { Box } from '../../components/layout/Sidebar';
 import { ReleasesTagsToggle } from '../../components/refs/ReleasesTagsToggle';
 import { TagRow } from '../../components/refs/TagRow';
@@ -11,7 +12,13 @@ import { tagsList } from '../../ipc/api';
 import { qk, useQuery } from '../../ipc/query';
 
 export default function Tags() {
-  const r = useRepo();
+  return useRepo().explore ? <OnlineTags /> : <LocalTags />;
+}
+
+function LocalTags() {
+  const ctx = useRepo();
+  const loc = useLocal();
+  const r = { repoId: loc.repoId, owner: ctx.owner, repo: ctx.repo, detail: loc.detail };
   const tags = useQuery(qk('tags_list', r.repoId), () => tagsList(r.repoId));
   if (r.detail?.head.type === 'unborn') return <EmptyRepo what="tags" />;
   return (

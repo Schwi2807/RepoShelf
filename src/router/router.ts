@@ -313,6 +313,8 @@ export function locationText(route: Route): string {
       return 'settings';
     case 'notFound':
       return '';
+    case 'exploreSearch':
+      return `explore/search${route.query.q ? '?q=' + route.query.q : ''}`;
     case 'code':
       return base;
     case 'tree':

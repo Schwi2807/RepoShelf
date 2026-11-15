@@ -2,6 +2,7 @@
 
 import { href } from '../../router/router';
 import { Link } from '../../router/Link';
+import { useExplore } from '../layout/repoContext';
 import { Counter } from '../ui/bits';
 
 export function ReleasesTagsToggle({
@@ -17,10 +18,11 @@ export function ReleasesTagsToggle({
   releases: number | null;
   tags: number | null;
 }) {
+  const explore = useExplore();
   return (
     <nav className="segmented" aria-label="Releases or tags">
       <Link
-        to={href('releases', { owner, repo })}
+        to={href('releases', { explore, owner, repo })}
         className="segmented__item"
         aria-selected={current === 'releases'}
         aria-current={current === 'releases' ? 'page' : undefined}
@@ -28,7 +30,7 @@ export function ReleasesTagsToggle({
         Releases <Counter n={releases} />
       </Link>
       <Link
-        to={href('tags', { owner, repo })}
+        to={href('tags', { explore, owner, repo })}
         className="segmented__item"
         aria-selected={current === 'tags'}
         aria-current={current === 'tags' ? 'page' : undefined}

@@ -6,17 +6,18 @@
 
 import { useEffect, useRef, type MouseEvent } from 'react';
 import { confirmExternal } from '../components/ui/ConfirmExternalLink';
-import { blobBytes, blobMeta } from '../ipc/api';
 import { highlightBlock } from '../hl/highlighter';
 import { languageForFence } from '../hl/languages';
 import { navigate } from '../router/router';
+import type { RepoSource } from '../source';
 import { useSettings } from '../state/settings';
 import { rewriteHtml, type RemoteImg } from './linkRewrite';
 import { loadRemoteImage } from './remoteImages';
 
 export interface MarkdownBodyProps {
   html: string;
-  repoId?: number;
+  /** Where repo images come from (the shelf or GitHub); without one repo images stay as they are. */
+  src?: RepoSource;
   owner?: string;
   repo?: string;
   /** Ref name for in-app links (decoded). */
@@ -26,7 +27,7 @@ export interface MarkdownBodyProps {
   className?: string;
 }
 
-export function MarkdownBody({ html, repoId, owner = '', repo = '', rev = '', commit, className }: MarkdownBodyProps) {
+export function MarkdownBody({ html, src, owner = '', repo = '', rev = '', commit, className }: MarkdownBodyProps) {
   const host = useRef<HTMLDivElement>(null);
   const loadRemote = useSettings().settings.loadRemoteImages;
 
@@ -35,7 +36,7 @@ export function MarkdownBody({ html, repoId, owner = '', repo = '', rev = '', co
     if (!el) return;
     let alive = true;
     const urls: string[] = [];
-    const { fragment, images, remoteImages, codeBlocks } = rewriteHtml(html, { owner, repo, rev });
+    const { fragment, images, remoteImages, codeBlocks } = rewriteHtml(html, { owner, repo, rev, explore: src?.explore === true });
     el.replaceChildren(fragment);
 
     // F2: remote images through the backend, lazily (only chips near the viewport), at most MAX_PARALLEL at once
@@ -74,10 +75,10 @@ export function MarkdownBody({ html, repoId, owner = '', repo = '', rev = '', co
       }
     }
 
-    if (repoId !== undefined) {
+    if (src !== undefined) {
       const at = commit ?? rev;
       for (const { el: img, path } of images) {
-        Promise.all([blobMeta(repoId, at, path), blobBytes(repoId, at, path)])
+        Promise.all([src.blobMeta(at, path), src.blobBytes(at, path)])
           .then(([meta, bytes]) => {
             if (!alive) return;
             if (meta.kind.type !== 'image') throw new Error('not an image');
@@ -112,7 +113,7 @@ export function MarkdownBody({ html, repoId, owner = '', repo = '', rev = '', co
       observer?.disconnect();
       for (const u of urls) URL.revokeObjectURL(u);
     };
-  }, [html, repoId, owner, repo, rev, commit, loadRemote]);
+  }, [html, src, owner, repo, rev, commit, loadRemote]);
 
   const onClick = (e: MouseEvent<HTMLDivElement>) => {
     const a = (e.target as Element).closest('a');

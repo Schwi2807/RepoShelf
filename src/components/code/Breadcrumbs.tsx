@@ -3,6 +3,7 @@
 import { Fragment } from 'react';
 import { href } from '../../router/router';
 import { Link } from '../../router/Link';
+import { useExplore } from '../layout/repoContext';
 import { pathSegments } from '../../util/paths';
 import { CopyButton } from '../ui/CopyButton';
 
@@ -17,9 +18,10 @@ export interface BreadcrumbsProps {
 
 export function Breadcrumbs({ owner, repo, refName, path, copy = true }: BreadcrumbsProps) {
   const segs = pathSegments(path);
+  const explore = useExplore();
   return (
     <nav className="crumbs" aria-label="Breadcrumbs">
-      <Link to={href('tree', { owner, repo, ref: refName, path: '' })} className="crumbs__root">
+      <Link to={href('tree', { explore, owner, repo, ref: refName, path: '' })} className="crumbs__root">
         {repo}
       </Link>
       {segs.map((s, i) => (
@@ -32,7 +34,7 @@ export function Breadcrumbs({ owner, repo, refName, path, copy = true }: Breadcr
               {s.name}
             </strong>
           ) : (
-            <Link to={href('tree', { owner, repo, ref: refName, path: s.path })}>{s.name}</Link>
+            <Link to={href('tree', { explore, owner, repo, ref: refName, path: s.path })}>{s.name}</Link>
           )}
         </Fragment>
       ))}

@@ -4,9 +4,9 @@
 
 import { Check, GitBranch, GitCommitHorizontal, Tag } from 'lucide-react';
 import { useMemo, useRef, useState, type KeyboardEvent, type RefObject } from 'react';
-import { refsList } from '../../ipc/api';
 import { qk, useQuery } from '../../ipc/query';
 import type { RefItem, RefsList, ResolvedRev } from '../../ipc/types';
+import type { RepoSource } from '../../source';
 import { navigate } from '../../router/router';
 import { Link } from '../../router/Link';
 import { shortOid } from '../../util/format';
@@ -29,7 +29,7 @@ export function refDisplayName(refName: string, resolved: ResolvedRev | null): s
 }
 
 export interface RefSwitcherProps {
-  repoId: number;
+  src: RepoSource;
   /** Decoded route ref (or the default when the route has none). */
   refName: string | null;
   resolved: ResolvedRev | null;
@@ -48,7 +48,7 @@ function isCurrent(item: RefItem, refName: string | null, resolved: ResolvedRev 
   return refRouteName(item) === refName || item.name === refName;
 }
 
-export function RefSwitcher({ repoId, refName, resolved, hrefFor }: RefSwitcherProps) {
+export function RefSwitcher({ src, refName, resolved, hrefFor }: RefSwitcherProps) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<RefTab>(resolved?.kind === 'tag' ? 'tags' : 'branches');
   const [q, setQ] = useState('');
@@ -56,7 +56,7 @@ export function RefSwitcher({ repoId, refName, resolved, hrefFor }: RefSwitcherP
   const trigger = useRef<HTMLButtonElement>(null);
   const list = useRef<HTMLUListElement>(null);
   useDismiss(open, () => setOpen(false), [wrap], trigger);
-  const refs = useQuery(open ? qk('refs_list', repoId) : null, () => refsList(repoId));
+  const refs = useQuery(open ? qk('refs_list', src.key) : null, () => src.refs());
 
   const kind = resolved?.kind ?? (refName?.startsWith('refs/tags/') ? 'tag' : 'branch');
   const Icon = kind === 'tag' ? Tag : kind === 'commit' ? GitCommitHorizontal : GitBranch;
