@@ -69,7 +69,7 @@ in-memory DBs; nothing touches a real data dir.
 Handoff for M2+:
 - git2 0.21 accessors return `Result` (`shorthand()`, `name()`, `summary()` → `Result<Option<&str>>`): use lossy
   fallbacks, never `unwrap` in non-test code.
-- `%TEMP%` here is an 8.3 path (`JOHNSM~1`); compare canonical paths only (`paths::canonical`).
+- `%TEMP%` here can be an 8.3 short path; compare canonical paths only (`paths::canonical`).
 - Non-bare testkit repos have no work tree files; the M2.12 immutability test needs a work tree → add a
   `write_worktree()` helper (or check out with git2) in M2.2.
 - Wire shape D-32 applies to the M4 TS mirror and `jobs.kind_json`. Git converts LF → CRLF on checkout here
