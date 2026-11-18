@@ -269,3 +269,14 @@ v0.2.0 hand tests (real GitHub; the agents' runs used canned answers only):
 - [ ] **Recycle Bin**: Remove a cloned repo → it is in the Recycle Bin under its `<name>.git` folder and can be
       restored; an imported repo is only taken off the shelf (folder untouched).
 - [ ] **Network e2e** (if not run by the agent): `run-e2e.ps1 -Network`.
+
+### v0.4.0 — Project Manager packs (D-137)
+
+Automated cross-app round trip (no UI, no network): from `C:\Dev\projects\project-manager` run
+`bash tools/shelf-roundtrip.sh` (it runs `crates/rs-core/tests/pm_pack_roundtrip.rs` here, which is ignored on its own).
+
+- [ ] **Import a pack**: in Project Manager 1.6 pack a GitHub clone (Shelf → Pack). Here: "+" → Import folder… →
+      pick `Documents\ProjectManager\.packs\github.com\<owner>\<name>.git` → it browses like a clone (badge Imported).
+- [ ] **Update a pack**: Fetch on that repo → when GitHub has new commits a **Fast-forward** button appears in the
+      header → click it → the page shows the new commits on the default branch.
+- [ ] **Other imported repos unchanged**: an ordinary imported folder still shows no Fast-forward button.

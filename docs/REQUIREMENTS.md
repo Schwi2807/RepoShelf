@@ -105,7 +105,7 @@ Each FR ends with its acceptance check (→).
   an existing local tag, never moves local branches automatically; shows "N new commits" afterwards. Imported repos:
   Fetch is offered only if they have an https origin, with the same "remote-tracking refs only" rule (see concerns).
   → fetch after upstream adds 2 commits + 1 tag shows them; a local tag with the same name is untouched.
-- FR-11 Fast-forward the managed clone's default branch to origin after fetch (button, only if fast-forward possible).
+- FR-11 Fast-forward the default branch to origin after fetch (button, only if fast-forward possible), for managed clones and — since v0.4.0 (D-137) — imported bare repos packed by Project Manager (`reposhelf.source = project-manager`).
   → branch moves forward; diverged branch refuses with a message.
 
 **Repo page: header + Code tab**
