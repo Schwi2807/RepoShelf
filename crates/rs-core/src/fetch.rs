@@ -283,12 +283,12 @@ fn fetch_all_with(
     }
 }
 
-/// FR-11 (managed clones only): move `refs/heads/<default>` to `origin/<default>` when that is a fast-forward.
+/// FR-11 (managed clones and Project Manager packs, D-137): move `refs/heads/<default>` to `origin/<default>` when that is a fast-forward.
 /// Equal → no-op. Returns the new (or unchanged) tip.
 pub fn fast_forward_default(s: &Shelf, repo_id: i64) -> Result<String> {
     let (sum, r) = repo::open(s, repo_id)?;
-    if sum.source != Source::Cloned {
-        return Err(Error::Refused("Fast-forward is only available for repositories cloned by RepoShelf".into()));
+    if sum.source != Source::Cloned && !crate::repo::is_pm_pack(&r) {
+        return Err(Error::Refused("Fast-forward is only available for repositories cloned by RepoShelf or packed by Project Manager".into()));
     }
     let d = crate::refs::head_branch(&r)
         .or(sum.default_branch.clone())
@@ -451,6 +451,57 @@ mod tests {
         let fx = testkit::basic(&_t.path().join("imp"));
         let iid = crate::library::import(&s, &fx.path).unwrap().id;
         assert_eq!(fast_forward_default(&s, iid).unwrap_err().code(), "refused");
+    }
+
+    /// A Project Manager pack: bare, branches in refs/heads + refs/remotes/origin, origin = upstream, marked.
+    fn pm_pack(t: &std::path::Path, url: &str, mark: bool) -> std::path::PathBuf {
+        let dir = t.join(if mark { "packs/o/up.git" } else { "packs/o/plain.git" });
+        let r = git2::Repository::init_bare(&dir).unwrap();
+        {
+            let mut src = r.remote_anonymous(url).unwrap();
+            src.fetch(&["+refs/heads/*:refs/heads/*", "+refs/heads/*:refs/remotes/origin/*", "+refs/tags/*:refs/tags/*"], None, None).unwrap();
+        }
+        r.remote("origin", url).unwrap();
+        r.set_head("refs/heads/main").unwrap();
+        if mark {
+            r.config().unwrap().set_str(crate::repo::PM_PACK_KEY, crate::repo::PM_PACK_VALUE).unwrap();
+        }
+        dir
+    }
+
+    #[test]
+    fn pm_pack_fetches_and_fast_forwards_like_a_clone() {
+        let t = tempfile::tempdir().unwrap();
+        let s = testkit::shelf(t.path());
+        let (mut up, url) = testkit::upstream_downstream(&t.path().join("o").join("up"));
+        let dir = pm_pack(t.path(), &url, true);
+        let id = crate::library::import(&s, &dir).unwrap().id;
+        assert_eq!(repo::summary(&s, id).unwrap().source, Source::Imported);
+        assert_eq!(crate::repo::detail(&s, id).unwrap().can_fast_forward, Some(false));
+        up.file("n.txt", b"n
+").commit("new 1", T0 + 900).tag("v9", false);
+        let o = fetch_unchecked(&s, id, &JobCtx::noop()).unwrap();
+        assert_eq!(o.new_commits, 1);
+        assert_eq!(crate::repo::detail(&s, id).unwrap().can_fast_forward, Some(true));
+        assert_eq!(fast_forward_default(&s, id).unwrap(), up.head().to_string());
+        assert_eq!(testkit::open(&dir).refname_to_id("refs/heads/main").unwrap(), up.head());
+        assert_eq!(crate::repo::detail(&s, id).unwrap().can_fast_forward, Some(false));
+    }
+
+    #[test]
+    fn unmarked_imported_bare_repo_still_refuses_fast_forward() {
+        let t = tempfile::tempdir().unwrap();
+        let s = testkit::shelf(t.path());
+        let (mut up, url) = testkit::upstream_downstream(&t.path().join("o").join("up"));
+        let dir = pm_pack(t.path(), &url, false);
+        let id = crate::library::import(&s, &dir).unwrap().id;
+        up.file("n.txt", b"n
+").commit("new 1", T0 + 900);
+        fetch_unchecked(&s, id, &JobCtx::noop()).unwrap();
+        assert_eq!(crate::repo::detail(&s, id).unwrap().can_fast_forward, None);
+        let before = testkit::open(&dir).refname_to_id("refs/heads/main").unwrap();
+        assert_eq!(fast_forward_default(&s, id).unwrap_err().code(), "refused");
+        assert_eq!(testkit::open(&dir).refname_to_id("refs/heads/main").unwrap(), before);
     }
 
     #[test]

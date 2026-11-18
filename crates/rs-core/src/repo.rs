@@ -174,10 +174,21 @@ pub fn detail(s: &Shelf, id: i64) -> Result<RepoDetail> {
     let fetchable = is_fetchable(origin_url(&repo).as_deref());
     let can_fast_forward = match summary.source {
         Source::Cloned => fast_forward_possible(&repo),
+        Source::Imported if is_pm_pack(&repo) => fast_forward_possible(&repo),
         Source::Imported => None,
     };
     let dirty = if settings.show_dirty_note && !repo.is_bare() { Some(dirty(&repo)?) } else { None };
     Ok(RepoDetail { is_bare: repo.is_bare(), head, branch_count, tag_count, release_count, license, fetchable, can_fast_forward, dirty, summary })
+}
+
+/// Git config key Project Manager writes into its Shelf packs (`reposhelf.source = project-manager`).
+pub const PM_PACK_KEY: &str = "reposhelf.source";
+pub const PM_PACK_VALUE: &str = "project-manager";
+
+/// v0.4.0 (D-137): a bare repository packed by Project Manager. It has no work tree or index, so moving its
+/// default branch forward (FR-11) can't touch anyone's files; RepoShelf treats it like its own clone for that.
+pub fn is_pm_pack(repo: &Repository) -> bool {
+    repo.is_bare() && repo.config().ok().and_then(|c| c.get_string(PM_PACK_KEY).ok()).is_some_and(|v| v == PM_PACK_VALUE)
 }
 
 /// Managed clones: `Some(true)` when `origin/<default>` is strictly ahead of the local default branch.

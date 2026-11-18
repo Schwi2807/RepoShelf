@@ -1240,3 +1240,12 @@ unavoidable), leftovers 0, scratch removed.
 Handoff (v0.3.0 done): the user's hand tests in `docs/TESTING.md` §5 — Explore against real GitHub, the rate limit, a token saved to and
 removed from Credential Manager, `cargo test -p rs-core --features ghreleases -- --ignored real_credential_manager_round_trip`, install
 0.3.0 over the installed version (data kept, DB migrated in place), plus the older v0.2.0 ones.
+
+## 2026-11-18 — v0.4.0 G3: fast-forward for Project Manager packs (D-137)
+
+Asked from the Project Manager session (plan: `C:\Dev\projects\project-manager\docs\PLAN-gitpack.md`; user chose "manual import + fast-forward").
+- `rs-core/repo.rs`: `is_pm_pack` (bare + `reposhelf.source = project-manager`); `detail.can_fast_forward` filled for those imported repos.
+- `rs-core/fetch.rs`: `fast_forward_default` allows them; other imported repos still refused.
+- No UI change: the existing Fast-forward button in the repo header shows when `canFastForward` is true. No schema change.
+- Tests: rs-core 206 (+2: marked pack fetch → FF; unmarked bare stays refused), TS 634.
+Next: cross-app round trip (pack in PM → import here → upstream commit → Fetch → Fast-forward), then v0.4.0 release.
